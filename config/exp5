@@ -1,0 +1,20 @@
+./work_learn \
+--cost -.1 \
+--cost_living 0 \
+--p_learn 0.4 \
+--p_leave 0.01 \
+--p_slip 0.1 \
+--p_guess 0.5 \
+--p_r 0.5 \
+--p_1 0.5 \
+--p_s0 0.2 \
+--max_horizon 50 \
+--horizon 1 \
+--horizon 2 \
+--horizon 5 \
+--horizon 10 \
+--horizon 50 \
+--iterations 1000 \
+--discount 1.0 \
+--exp_name "exp5"
+python analyze.py -i res/exp5.txt -o res/exp5/
