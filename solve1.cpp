@@ -3,160 +3,193 @@
 #include <iomanip>  // for string padding
 #include <fstream>
 #include <random>
+#include <map>
 
+#include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/json_parser.hpp>
 
 #include <AIToolbox/POMDP/Algorithms/IncrementalPruning.hpp>
+#include <AIToolbox/POMDP/Algorithms/PBVI.hpp>
 #include <AIToolbox/POMDP/Policies/Policy.hpp>
 #include <AIToolbox/Impl/Seeder.hpp>
 
-/*
-#include <AIToolbox/POMDP/Algorithms/POMCP.hpp>
-#include <AIToolbox/POMDP/Types.hpp>
-*/
-
 #include "WorkLearnProblem.hpp"
 
+const size_t PBVI_NBELIEFS = 1000;
+const double PBVI_EPSILON = 0.01;
+
+// Make experiments deterministic.
 const int SEED = 0;
-
-
-/* Parameters */
-// Set arbitrary cost for now. This is really lambda * actual cost, to
-// trade off between value of additional correct answers and cost.
-/*
-//constexpr double cost = -10;
-constexpr double COST = -.1;
-//constexpr double cost_living = 0.0;
-constexpr double COST_LIVING = -.001;
-double P_LEARN = 0.4;
-double P_LEAVE = 0.01;
-double P_SLIP = 0.1;
-double P_GUESS = 0.5;
-double P_R = 0.5;
-//double P_R = 0.0;
-
-//double P_1 = 0.4;
-double P_1 = 0.5;
-*/
-
 
 namespace po = boost::program_options;
 using namespace AIToolbox;
+using boost::property_tree::ptree;
 
-int main(int argc, char** argv) {
+// Useful for parsing ptree arrays.
+template <typename T>
+std::vector<T> as_vector(ptree const& pt, ptree::key_type const& key)
+{
+    std::vector<T> r;
+    for (auto& item : pt.get_child(key))
+        r.push_back(item.second.get_value<T>());
+    return r;
+}
+
+// Checks if belief state is quiz or non-quiz.
+bool is_quiz(const POMDP::Belief& b, const size_t n_skills, const size_t S) {
+    for ( size_t s = 0 ; s < S; ++s ) {
+        auto st = WorkerState(s, n_skills);
+        if (st.is_term()) {
+            continue;
+        } else if (st.quiz_val() == 0) {
+            return b[s] == 0.0;
+        } else {
+            return b[s] > 0.0;
+        }
+    }
+    return false;  // should never get here
+}
+
+int main(int argc, char **argv) {
+    // Parse input.
     po::options_description desc("Allowed options");
     desc.add_options()
-        ("cost", po::value<double>(), "cost parameter")
-        ("cost_living", po::value<double>(), "cost_living parameter")
-        ("p_learn", po::value<double>(), "p_learn parameter")
-        ("p_leave", po::value<double>(), "p_leave parameter")
-        ("p_slip", po::value<double>(), "p_slip parameter")
-        ("p_guess", po::value<double>(), "p_guess parameter")
-        ("p_r", po::value<double>(), "p_r parameter")
-        ("p_s0", po::value<double>(), "prior probability worker has skill 0")
-        ("p_1", po::value<double>(), "p_1 parameter")
-        ("max_horizon", po::value<unsigned>(), "maximum horizon")
-        ("horizon", po::value< std::vector<unsigned> >(), "policy horizon")
-        ("iterations", po::value<unsigned>(), "number of iterations")
-        ("discount", po::value<double>(), "discount parameter")
-        ("exp_name", po::value<std::string>(), "experiment name")
+        ("input,i", po::value<std::string>()->required(), "Config file")
     ;
     po::variables_map vm;
     po::store(po::parse_command_line(argc, argv, desc), vm);
     po::notify(vm); 
+    std::string config = vm["input"].as<std::string>();
+    boost::filesystem::path path(config);
+    const std::string exp_name = path.filename().replace_extension("").string();
 
-    const double cost = vm["cost"].as<double>();
-    const double cost_living = vm["cost_living"].as<double>();
-    const double p_learn = vm["p_learn"].as<double>();
-    const double p_leave = vm["p_leave"].as<double>();
-    const double p_slip = vm["p_slip"].as<double>();
-    const double p_guess = vm["p_guess"].as<double>();
-    const double p_r = vm["p_r"].as<double>();
-    const double p_s0 = vm["p_s0"].as<double>();
-    const double p_1 = vm["p_1"].as<double>();
-    const unsigned max_horizon = vm["max_horizon"].as<unsigned>();
-    const std::vector<unsigned> horizon = vm["horizon"].as< std::vector<unsigned> >();
-    const unsigned iterations = vm["iterations"].as<unsigned>();
-    const std::string exp_name = vm["exp_name"].as<std::string>();
-    const double discount = vm["discount"].as<double>();
+    ptree pt;
+    boost::property_tree::json_parser::read_json(config, pt);
+    const double cost = pt.get<double>("params.cost");
+    const double cost_exp = pt.get<double>("params.cost_exp");
+    const double cost_living = pt.get<double>("params.cost_living");
+    const double p_learn = pt.get<double>("params.p_learn");
+    const double p_leave = pt.get<double>("params.p_leave");
+    const double p_slip = pt.get<double>("params.p_slip");
+    const double p_guess = pt.get<double>("params.p_guess");
+    const std::vector<double> p_r = as_vector<double>(pt, "params.p_r");
+    const std::vector<double> p_s = as_vector<double>(pt, "params.p_s");
+    const double p_1 = pt.get<double>("params.p_1");
+    const size_t iterations = pt.get<size_t>("params.iterations");
+    const double discount = pt.get<double>("params.discount");
+    ptree &policies = pt.get_child("policies");
 
+    // Process input.
     std::cout << "Loading...\n";
-    auto model = makeWorkLearnProblem(cost, cost_living, p_learn, p_leave, p_slip, p_guess, p_r, p_1);
+    size_t n_skills = p_r.size();
+    size_t S = (n_skills + 1) * std::pow(2, n_skills) + 1;
+    auto model = makeWorkLearnProblem(cost, cost_exp, cost_living, p_learn, p_leave, p_slip, p_guess, p_r, p_1, n_skills, S);
     model.setDiscount(discount);
 
     // Ground truth proxy.
     std::cout << "Solving...\n";
-    POMDP::IncrementalPruning groundTruth(max_horizon, 0.0);
-    auto solution = groundTruth(model);
-    auto& vf = std::get<1>(solution);
-    POMDP::Policy p(model.getS(), model.getA(), model.getO(), vf);
 
-    if (!std::get<0>(solution)) {
-        std::cout << "Solver failed." << std::endl;
-        return 1;
+    // Find maximum horizons.
+    size_t max_horizon_pbvi = 0;
+    size_t max_horizon_ip = 0;
+    for (auto& pdef : policies) {
+        std::string ptype = pdef.second.get<std::string>("type");
+        if (ptype == "ip") {
+            max_horizon_ip = std::max(max_horizon_ip, pdef.second.get<size_t>("horizon"));
+        } else if (ptype == "pbvi") {
+            max_horizon_pbvi = std::max(max_horizon_pbvi, pdef.second.get<size_t>("horizon"));
+        }
     }
 
-    std::cout << "Saving policy to file...\n";
-    {
-        std::ofstream output("res/" + exp_name + "_p.txt");
-        output << p;
+    // BUG: Fix duplicate code.
+    std::map<std::string, POMDP::Policy*> policy_map;
+    if (max_horizon_ip > 0) {
+        POMDP::IncrementalPruning solver(max_horizon_ip, 0.0 /* BUG */);
+        auto solution = solver(model);
+        if (!std::get<0>(solution)) {
+            std::cout << "Solver failed." << std::endl;
+            return 1;
+        }
+        auto& vf = std::get<1>(solution);
+        auto* p = new POMDP::Policy(model.getS(), model.getA(), model.getO(), vf);
+        policy_map["ip"] = p;
+        std::cout << "Saving policy to file...\n";
+        {
+            std::ofstream output("res/" + exp_name + "_p_ip.txt");
+            output << p;
+        }
+    }
+    if (max_horizon_pbvi > 0) {
+        POMDP::PBVI solver(PBVI_NBELIEFS, max_horizon_pbvi, PBVI_EPSILON);
+        auto solution = solver(model);
+        if (!std::get<0>(solution)) {
+            std::cout << "Solver failed." << std::endl;
+            return 1;
+        }
+        auto& vf = std::get<1>(solution);
+        auto* p = new POMDP::Policy(model.getS(), model.getA(), model.getO(), vf);
+        policy_map["pbvi"] = p;
+        std::cout << "Saving policy to file...\n";
+        {
+            std::ofstream output("res/" + exp_name + "_p_pbvi.txt");
+            output << p;
+        }
     }
 
-    // Sample actions from various states.
-    /*
-    std::vector<POMDP::Belief> beliefs{
-        {1.0, 0.0, 0.0, 0.0, 0.0},
-        {0.0, 1.0, 0.0, 0.0, 0.0},
-        {0.0, 0.0, 1.0, 0.0, 0.0},
-        {0.0, 0.0, 0.0, 1.0, 0.0},
-        {0.0, 0.0, 0.0, 0.0, 1.0}};
-    std::vector<POMDP::Belief> beliefs{
-        {0.1, 0.9, 0.0, 0.0, 0.0},
-        {0.2, 0.8, 0.0, 0.0, 0.0},
-        {0.25, 0.75, 0.0, 0.0, 0.0},
-        {0.3, 0.7, 0.0, 0.0, 0.0},
-        {0.4, 0.6, 0.0, 0.0, 0.0},
-        {0.5, 0.5, 0.0, 0.0, 0.0},
-        {0.6, 0.4, 0.0, 0.0, 0.0},
-        {0.7, 0.3, 0.0, 0.0, 0.0},
-        {0.8, 0.2, 0.0, 0.0, 0.0},
-        {0.9, 0.1, 0.0, 0.0, 0.0}};
-    for ( auto & b : beliefs ) {
-        auto a = p.sampleAction(b);
-        //std::cout << b << std::endl;
-        std::cout << a << std::endl;
-    }
-    */
-
-    //////////////////////////////////
-    //std::default_random_engine rand_(Impl::Seeder::getSeed());
-    std::default_random_engine rand_(SEED);
+    // Perform experiments
+    // Make experiments reproducible. For true randomness, use:
+    //      std::default_random_engine rand(Impl::Seeder::getSeed());
+    std::default_random_engine rand(SEED);
     static std::uniform_real_distribution<double> uniformDistribution(0.0, 1.0);
 
     std::ofstream output("res/" + exp_name + ".txt");
     output << "iteration,t,policy,a,s,o,r,b\n";
 
-    POMDP::Belief b_start = {1.0 - p_s0, p_s0, 0.0, 0.0, 0.0};
-    POMDP::Belief b_term = {0.0, 0.0, 0.0, 0.0, 1.0};
-    for ( unsigned it = 0; it < iterations; ++it ) {
-        std::cout << "Iteration " << it << std::endl;
-
-        size_t s_start;
-        if (uniformDistribution(rand_) <= p_s0) {
-            s_start = 1;
+    POMDP::Belief b_start;
+    POMDP::Belief b_term;
+    for ( size_t s = 0; s < S; ++s ) {
+        auto st = WorkerState(s, n_skills);
+        if (st.is_term()) {
+            b_term.push_back(1.0);
         } else {
-            s_start = 0;
+            b_term.push_back(0.0);
         }
 
+        if (st.is_term() || st.quiz_val() != 0) {
+            b_start.push_back(0.0);
+        } else {
+            double pr = 1.0;
+            for ( size_t i = 0; i < n_skills; ++i ) {
+                if (st.has_skill(i)) {
+                    pr *= p_s[i];
+                } else {
+                    pr *= 1 - p_s[i];
+                }
+            }
+            b_start.push_back(pr);
+        }
+    }
+    for ( size_t it = 0; it < iterations; ++it ) {
+        std::cout << "Iteration " << it << std::endl;
+        size_t s_start = sampleProbability(S, b_start, rand);
+
         // Iterate over policies.
-        for (const unsigned h : horizon) {
+        for (auto& pdef : policies) {
+            std::string pname = pdef.second.get<std::string>("name");
+            std::string ptype = pdef.second.get<std::string>("type");
+            size_t h;
+            if (ptype == "ip" || ptype == "pbvi") {
+                h = pdef.second.get<size_t>("horizon");
+            }
 
             POMDP::Belief b = b_start;
             size_t s = s_start;
-            unsigned t = 0;
+            size_t t = 0;
             output << it << ","
                    << t << ","
-                   << "h" << std::setfill('0') << std::setw(2) << h << "," // horizon policy
+                   << pname << ","
                    << "," // empty action
                    << s << "," 
                    << "," // empty observation
@@ -164,22 +197,38 @@ int main(int argc, char** argv) {
             std::stringstream ss;
             std::copy(b.begin(), b.end(), std::ostream_iterator<double>(ss, " "));
             output << ss.str() << "\n";
-            ss.str("");  // clear.
+            ss.str("");  // clear
 
             while (b != b_term) {
-                t++;
-                size_t a = std::get<0>(p.sampleAction(b, h));
+                size_t a;
+                if (ptype == "train") {
+                    if (POMDP::beliefExpectedReward(model, b, A_ASK) > 0) {
+                        a = A_ASK;
+                    } else if (!is_quiz(b, n_skills, S)) {
+                        // BUG: Teach only first rule.
+                        a = N_RES_A;
+                    } else {
+                        a = A_EXP;
+                    }
+                } else if (ptype == "ip") {
+                    a = std::get<0>(policy_map["ip"]->sampleAction(b, h));
+                } else if (ptype == "pbvi") {
+                    a = std::get<0>(policy_map["pbvi"]->sampleAction(b, h));
+                } else {
+                    throw std::invalid_argument( "Unknown policy type" );
+                }
                 auto res = model.sampleSOR(s, a);
                 s = std::get<0>(res);
                 size_t o = std::get<1>(res);
                 double r = std::get<2>(res);
+                ++t;
 
                 POMDP::Belief b_new = POMDP::updateBelief(model, b, a, o);
-                b = b_new;  // Copies vector.
+                b = b_new;  // copies vector
 
                 output << it << ","
                        << t << ","
-                       << "h" << std::setfill('0') << std::setw(2) << h << "," // horizon policy
+                       << pname << ","
                        << a << ","
                        << s << "," 
                        << o << ","
@@ -190,55 +239,20 @@ int main(int argc, char** argv) {
             }
         }  // end policy run
 
-        // Special training policy.
-        // BUG: Duplicate code.
-        POMDP::Belief b = b_start;
-        size_t s = s_start;
-        unsigned t = 0;
-        output << it << ","
-               << t << ","
-               << "train,"
-               << "," // empty action
-               << s << "," 
-               << "," // empty observation
-               << ","; // empty reward
-        std::stringstream ss;
-        std::copy(b.begin(), b.end(), std::ostream_iterator<double>(ss, " "));
-        output << ss.str() << "\n";
-        ss.str("");  // clear.
-
-        while (b != b_term) {
-            t++;
-            size_t a;
-            if (POMDP::beliefExpectedReward(model, b, A_ASK) > 0) {
-                a = A_ASK;
-            } else if (b[0] > 0) /* Non-quiz state */ {
-                a = A_QUIZ_0;
-            } else {
-                a = A_EXP_0;
-            }
-            auto res = model.sampleSOR(s, a);
-            s = std::get<0>(res);
-            size_t o = std::get<1>(res);
-            double r = std::get<2>(res);
-
-            POMDP::Belief b_new = POMDP::updateBelief(model, b, a, o);
-            b = b_new;  // Copies vector.
-
-            output << it << ","
-                   << t << ","
-                   << "train,"
-                   << a << ","
-                   << s << "," 
-                   << o << ","
-                   << r << ",";
-            std::copy(b.begin(), b.end(), std::ostream_iterator<double>(ss, " "));
-            output << ss.str() << "\n";
-            ss.str("");
-        }
-
-
     }  // end iteration
+
+    // Save state names.
+    {
+        std::ofstream output("res/" + exp_name + "_names.csv");
+        output << "i,type,s\n";
+        for ( size_t s = 0; s < S; ++s ) {
+            auto st = WorkerState(s, n_skills);
+            output << s << ",";
+            output << "state,";
+            output << st << "\n";
+        }
+    }
+
 
     return 0;
 }

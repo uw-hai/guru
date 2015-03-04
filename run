@@ -1,0 +1,4 @@
+#!/bin/bash
+./work_learn -i config/$1.json;
+echo "Plotting...";
+python analyze.py -i res/$1.txt -o res/$1/ -n res/$1_names.csv;

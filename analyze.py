@@ -8,12 +8,35 @@ import time
 import os
 import csv
 import argparse
+import collections
 import pandas as pd
 import numpy as np
 import matplotlib as mpl
 mpl.use('agg')
 from matplotlib import pyplot as plt
 import seaborn as sns
+
+def str_action(a):
+    reserved_actions = ['EXP', 'NOEXP', 'ASK', 'BOOT']
+    N_RES_A = len(reserved_actions)
+    a = int(a)
+    if a < N_RES_A:
+        s = reserved_actions[a]
+    else:
+        s = "Q{}".format(a - N_RES_A)
+    return '{} ({})'.format(a, s)
+
+def str_state(d=None):
+    if d == None:
+        return lambda s: s
+    return lambda s: '{} ({})'.format(s, d['state', s])
+
+
+def str_observation(o):
+    o_names = ['WRONG', 'RIGHT', 'TERM']
+    o = int(o)
+    return '{} ({})'.format(o, o_names[o])
+
 
 def plot_cumrewards(infile, outdir):
     dr = csv.DictReader(infile)
@@ -56,7 +79,7 @@ def plot_cumrewards(infile, outdir):
 
     infile.seek(0)
 
-def plot_beliefs(df, outdir, t_frac=1.0):
+def plot_beliefs(df, outdir, t_frac=1.0, formatter=None):
     df = df[df.t <= df.t.max() * t_frac]
 
     df_b = pd.DataFrame(df.b.str.split().tolist()).astype(float)
@@ -64,6 +87,9 @@ def plot_beliefs(df, outdir, t_frac=1.0):
 
     df = df.join(df_b)
     b_sums = df.groupby(['policy','t'], as_index=False).sum()
+    if formatter:
+        b_sums.rename(columns=dict((x, formatter(x)) for x in states), inplace=True)
+        states = [formatter(x) for x in df_b.columns]
     for p, df_b in b_sums.groupby('policy', as_index=False):
         df_b.plot(x='t', y=states, kind='area',
                   title='Belief counts', logx=True)
@@ -72,10 +98,12 @@ def plot_beliefs(df, outdir, t_frac=1.0):
         plt.close()
         df_b.to_csv(fname + '.csv')
 
-def plot_actions(df, outdir, t_frac=1.0):
+def plot_actions(df, outdir, t_frac=1.0, formatter=None):
     df = df[df.t <= df.t.max() * t_frac]
 
     actions = df.groupby(['policy', 't'])['a'].value_counts().unstack().fillna(0.).reset_index()
+    if formatter:
+        actions.rename(columns=dict((x, formatter(x)) for x in actions.columns[2:]), inplace=True)
     for p, df_a in actions.groupby('policy', as_index=False):
         df_a.plot(x='t', y=actions.columns[2:], kind='area',
                   title='Action counts', logx=True)
@@ -84,10 +112,12 @@ def plot_actions(df, outdir, t_frac=1.0):
         plt.close()
         df_a.to_csv(fname + '.csv')
 
-def plot_observations(df, outdir, t_frac=1.0):
+def plot_observations(df, outdir, t_frac=1.0, formatter=None):
     df = df[df.t <= df.t.max() * t_frac]
 
     obs = df.groupby(['policy', 't'])['o'].value_counts().unstack().fillna(0.).reset_index()
+    if formatter:
+        obs.rename(columns=dict((x, formatter(x)) for x in obs.columns[2:]), inplace=True)
     for p, df_o in obs.groupby('policy', as_index=False):
         df_o.plot(x='t', y=obs.columns[2:], kind='area',
                   title='Observation counts', logx=True)
@@ -96,6 +126,13 @@ def plot_observations(df, outdir, t_frac=1.0):
         plt.close()
         df_o.to_csv(fname + '.csv')
 
+def parse_names(f):
+    d = dict()
+    dr = csv.DictReader(f)
+    for r in dr:
+        d[r['type'],int(r['i'])] = r['s']
+    return d
+
 
 if __name__ == '__main__':
     start_time = time.clock()
@@ -103,7 +140,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Visualize policies.')
     parser.add_argument('-i', '--infile', type=argparse.FileType('r'))
     parser.add_argument('-o', '--outdir', type=str)
+    parser.add_argument('-n', '--names', type=argparse.FileType('r'))
     args = parser.parse_args()
+
+    if args.names:
+        names = parse_names(args.names)
+    else:
+        names = None
 
     if not os.path.exists(args.outdir):
         os.makedirs(args.outdir)
@@ -113,9 +156,9 @@ if __name__ == '__main__':
     # Pandas approach.
     df = pd.read_csv(args.infile)
 
-    plot_beliefs(df, args.outdir)
-    plot_actions(df, args.outdir)
-    plot_observations(df, args.outdir)
+    plot_beliefs(df, args.outdir, formatter=str_state(names))
+    plot_actions(df, args.outdir, formatter=str_action)
+    plot_observations(df, args.outdir, formatter=str_observation)
 
     """
     # Record timing.
