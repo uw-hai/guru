@@ -37,6 +37,16 @@ def str_observation(o):
     o = int(o)
     return '{} ({})'.format(o, o_names[o])
 
+def step_by_t(df, interval=0.1):
+    dfs = []
+    for i in np.arange(0, 1, interval):
+        df2 = df.copy()
+        df2['t'] = df2['t'].map(lambda x: x + i)
+        dfs.append(df2)
+    df_out = pd.concat(dfs, ignore_index=True)
+    df_out.sort(['policy','t'], inplace=True)
+    df_out.reset_index()
+    return df_out
 
 def plot_cumrewards(infile, outdir):
     dr = csv.DictReader(infile)
@@ -91,8 +101,8 @@ def plot_beliefs(df, outdir, t_frac=1.0, formatter=None):
         b_sums.rename(columns=dict((x, formatter(x)) for x in states), inplace=True)
         states = [formatter(x) for x in df_b.columns]
     for p, df_b in b_sums.groupby('policy', as_index=False):
-        df_b.plot(x='t', y=states, kind='area',
-                  title='Belief counts', logx=True)
+        step_by_t(df_b).plot(x='t', y=states, kind='area',
+                             title='Belief counts', logx=True)
         fname = os.path.join(outdir, 'b_{}'.format(p))
         plt.savefig(fname + '.png')
         plt.close()
@@ -105,8 +115,9 @@ def plot_actions(df, outdir, t_frac=1.0, formatter=None):
     if formatter:
         actions.rename(columns=dict((x, formatter(x)) for x in actions.columns[2:]), inplace=True)
     for p, df_a in actions.groupby('policy', as_index=False):
-        df_a.plot(x='t', y=actions.columns[2:], kind='area',
-                  title='Action counts', logx=True)
+        step_by_t(df_a).plot(x='t', y=actions.columns[2:], kind='area',
+                             title='Action counts', logx=True)
+
         fname = os.path.join(outdir, 'a_{}'.format(p))
         plt.savefig(fname + '.png')
         plt.close()
@@ -119,8 +130,8 @@ def plot_observations(df, outdir, t_frac=1.0, formatter=None):
     if formatter:
         obs.rename(columns=dict((x, formatter(x)) for x in obs.columns[2:]), inplace=True)
     for p, df_o in obs.groupby('policy', as_index=False):
-        df_o.plot(x='t', y=obs.columns[2:], kind='area',
-                  title='Observation counts', logx=True)
+        step_by_t(df_o).plot(x='t', y=obs.columns[2:], kind='area',
+                             title='Observation counts', logx=True)
         fname = os.path.join(outdir, 'o_{}'.format(p))
         plt.savefig(fname + '.png')
         plt.close()
@@ -151,7 +162,7 @@ if __name__ == '__main__':
     if not os.path.exists(args.outdir):
         os.makedirs(args.outdir)
 
-    plot_cumrewards(args.infile, args.outdir)
+    #plot_cumrewards(args.infile, args.outdir)
 
     # Pandas approach.
     df = pd.read_csv(args.infile)
