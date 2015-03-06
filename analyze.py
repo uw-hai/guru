@@ -162,7 +162,7 @@ if __name__ == '__main__':
     if not os.path.exists(args.outdir):
         os.makedirs(args.outdir)
 
-    #plot_cumrewards(args.infile, args.outdir)
+    plot_cumrewards(args.infile, args.outdir)
 
     # Pandas approach.
     df = pd.read_csv(args.infile)

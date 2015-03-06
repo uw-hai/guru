@@ -118,7 +118,7 @@ int main(int argc, char **argv) {
         std::cout << "Saving policy to file...\n";
         {
             std::ofstream output("res/" + exp_name + "_p_ip.txt");
-            output << p;
+            output << *p;
         }
     }
     if (max_horizon_pbvi > 0) {
@@ -134,7 +134,7 @@ int main(int argc, char **argv) {
         std::cout << "Saving policy to file...\n";
         {
             std::ofstream output("res/" + exp_name + "_p_pbvi.txt");
-            output << p;
+            output << *p;
         }
     }
 

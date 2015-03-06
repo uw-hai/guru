@@ -211,11 +211,12 @@ inline AIToolbox::POMDP::Model<AIToolbox::MDP::Model> makeWorkLearnProblem(const
             rewards[s][A_NOEXP][s] = NINF;
         } else {
             // Must be a quiz state.
-            // Not allowed to quiz or boot from a quiz state.
+            // Not allowed to quiz, boot, or ask from a quiz state.
             for ( size_t a = 0; a < n_skills; ++a ) {
                 rewards[s][action_index(a)][s] = NINF;
             }
             rewards[s][A_BOOT][s] = NINF;
+            rewards[s][A_ASK][s] = NINF;
         }
         for ( size_t s1 = 0; s1 < S; ++s1 ) {
             auto st1 = WorkerState(s1, n_skills);
@@ -305,11 +306,11 @@ inline AIToolbox::POMDP::Model<AIToolbox::MDP::Model> makeWorkLearnProblem(const
         }
     }
 
-    // Print transition table.
+    // Print transitions & rewards.
     for ( size_t s = 0; s < S; ++s )
         for ( size_t a = 0; a < A; ++a )
             for ( size_t s1 = 0; s1 < S; ++s1 )
-                std::cout << "|" << WorkerState(s, n_skills) << "|" << " . " << a << " . " << "|" << WorkerState(s1, n_skills) << "|" << " -> " << transitions[s][a][s1] << std::endl;
+                std::cout << "|" << WorkerState(s, n_skills) << "|" << " . " << a << " . " << "|" << WorkerState(s1, n_skills) << "|" << " -> " << transitions[s][a][s1] << " (" << rewards[s][a][s1] << ")" << std::endl;
 
     model.setTransitionFunction(transitions);
     model.setRewardFunction(rewards);
