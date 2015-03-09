@@ -82,9 +82,9 @@ std::ostream &operator<<(std::ostream &os, const WorkerState &st) {
 }
 
 enum {
-    A_EXP = 0,
-    A_NOEXP = 1,
-    A_ASK = 2,
+    A_ASK = 0,
+    A_EXP = 1,
+    A_NOEXP = 2,
     A_BOOT = 3,
     N_RES_A = 4
     /* Quiz actions: 4 to N_SKILLS + 3 */

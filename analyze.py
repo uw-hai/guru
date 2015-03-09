@@ -17,7 +17,7 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 
 def str_action(a):
-    reserved_actions = ['EXP', 'NOEXP', 'ASK', 'BOOT']
+    reserved_actions = ['ASK', 'EXP', 'NOEXP', 'BOOT']
     N_RES_A = len(reserved_actions)
     a = int(a)
     if a < N_RES_A:
