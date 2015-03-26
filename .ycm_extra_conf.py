@@ -57,6 +57,7 @@ flags = [
 '-x',
 'c++',
 '-I../ai-toolbox/include/',
+'-I./include/',
 ]
 
 # Set this to the absolute path to the folder (NOT the file!) containing the
