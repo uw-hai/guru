@@ -13,6 +13,8 @@
 #include <AIToolbox/POMDP/Algorithms/IncrementalPruning.hpp>
 #include <AIToolbox/POMDP/Algorithms/PBVI.hpp>
 #include <AIToolbox/POMDP/Policies/Policy.hpp>
+#include <AIToolbox/POMDP/Model.hpp>
+#include <AIToolbox/POMDP/RLModel.hpp>
 #include <AIToolbox/Impl/Seeder.hpp>
 
 #include "WorkLearnProblem.hpp"
@@ -81,16 +83,6 @@ int main(int argc, char **argv) {
     const double discount = pt.get<double>("params.discount");
     ptree &policies = pt.get_child("policies");
 
-    // Process input.
-    std::cout << "Loading...\n";
-    size_t n_skills = p_r.size();
-    size_t S = (n_skills + 1) * std::pow(2, n_skills) + 1;
-    auto model = makeWorkLearnProblem(cost, cost_exp, cost_living, p_learn, p_leave, p_slip, p_guess, p_r, p_1, n_skills, S);
-    model.setDiscount(discount);
-
-    // Ground truth proxy.
-    std::cout << "Solving...\n";
-
     // Find maximum horizons.
     size_t max_horizon_pbvi = 0;
     size_t max_horizon_ip = 0;
@@ -103,40 +95,16 @@ int main(int argc, char **argv) {
         }
     }
 
-    // BUG: Fix duplicate code.
+    // Process input.
+    std::cout << "Loading...\n";
+    size_t n_skills = p_r.size();
+    size_t S = (n_skills + 1) * std::pow(2, n_skills) + 1;
+    auto model_true = makeWorkLearnProblem(cost, cost_exp, cost_living, p_learn, p_leave, p_slip, p_guess, p_r, p_1, n_skills, S);
+    POMDP::Experience exp;
+    POMDP::RLModel<MDP::Model> model(exp, model_true);
+    model.setDiscount(discount);
+
     std::map<std::string, POMDP::Policy*> policy_map;
-    if (max_horizon_ip > 0) {
-        POMDP::IncrementalPruning solver(max_horizon_ip, 0.0 /* BUG */);
-        auto solution = solver(model);
-        if (!std::get<0>(solution)) {
-            std::cout << "Solver failed." << std::endl;
-            return 1;
-        }
-        auto& vf = std::get<1>(solution);
-        auto* p = new POMDP::Policy(model.getS(), model.getA(), model.getO(), vf);
-        policy_map["ip"] = p;
-        std::cout << "Saving policy to file...\n";
-        {
-            std::ofstream output("res/" + exp_name + "_p_ip.txt");
-            output << *p;
-        }
-    }
-    if (max_horizon_pbvi > 0) {
-        POMDP::PBVI solver(PBVI_NBELIEFS, max_horizon_pbvi, PBVI_EPSILON);
-        auto solution = solver(model);
-        if (!std::get<0>(solution)) {
-            std::cout << "Solver failed." << std::endl;
-            return 1;
-        }
-        auto& vf = std::get<1>(solution);
-        auto* p = new POMDP::Policy(model.getS(), model.getA(), model.getO(), vf);
-        policy_map["pbvi"] = p;
-        std::cout << "Saving policy to file...\n";
-        {
-            std::ofstream output("res/" + exp_name + "_p_pbvi.txt");
-            output << *p;
-        }
-    }
 
     // Perform experiments
     // Make experiments reproducible. For true randomness, use:
@@ -171,18 +139,68 @@ int main(int argc, char **argv) {
             b_start.push_back(pr);
         }
     }
-    for ( size_t it = 0; it < iterations; ++it ) {
-        std::cout << "Iteration " << it << std::endl;
-        size_t s_start = sampleProbability(S, b_start, rand);
+    // Iterate over policies.
+    for (auto& pdef : policies) {
+        exp.reset();
+        std::string pname = pdef.second.get<std::string>("name");
+        std::cout << "Policy " << pname << std::endl;
+        std::string ptype = pdef.second.get<std::string>("type");
+        size_t h;
+        if (ptype == "ip" || ptype == "pbvi") {
+            h = pdef.second.get<size_t>("horizon");
+        }
 
-        // Iterate over policies.
-        for (auto& pdef : policies) {
-            std::string pname = pdef.second.get<std::string>("name");
-            std::string ptype = pdef.second.get<std::string>("type");
-            size_t h;
-            if (ptype == "ip" || ptype == "pbvi") {
-                h = pdef.second.get<size_t>("horizon");
+        for ( size_t it = 0; it < iterations; ++it ) {
+            std::cout << "Iteration " << it << std::endl;
+            size_t s_start = sampleProbability(S, b_start, rand);
+
+            exp.newEpisode();
+            model.runEM();
+            std::cout << "start solving\n";
+            /********** BEGIN SOLVE ******/
+            // BUG: Fix duplicate code.
+            if (max_horizon_ip > 0) {
+                POMDP::IncrementalPruning solver(max_horizon_ip, 0.0 /* BUG */);
+                auto solution = solver(model);
+                if (!std::get<0>(solution)) {
+                    std::cout << "Solver failed." << std::endl;
+                    return 1;
+                }
+                auto& vf = std::get<1>(solution);
+                auto* p = new POMDP::Policy(model.getS(), model.getA(), model.getO(), vf);
+                if (policy_map.count("ip") > 0)
+                    delete policy_map["ip"];
+                policy_map["ip"] = p;
+                /*
+                std::cout << "Saving policy to file...\n";
+                {
+                    std::ofstream output("res/" + exp_name + "_p_ip.txt");
+                    output << *p;
+                }
+                */
             }
+            if (max_horizon_pbvi > 0) {
+                POMDP::PBVI solver(PBVI_NBELIEFS, max_horizon_pbvi, PBVI_EPSILON);
+                auto solution = solver(model);
+                if (!std::get<0>(solution)) {
+                    std::cout << "Solver failed." << std::endl;
+                    return 1;
+                }
+                auto& vf = std::get<1>(solution);
+                auto* p = new POMDP::Policy(model.getS(), model.getA(), model.getO(), vf);
+                if (policy_map.count("pbvi") > 0)
+                    delete policy_map["pbvi"];
+                policy_map["pbvi"] = p;
+                /*
+                std::cout << "Saving policy to file...\n";
+                {
+                    std::ofstream output("res/" + exp_name + "_p_pbvi.txt");
+                    output << *p;
+                }
+                */
+            }
+            /************ END SOLVE *******/
+            std::cout << "done solving\n";
 
             POMDP::Belief b = b_start;
             size_t s = s_start;
@@ -199,7 +217,7 @@ int main(int argc, char **argv) {
             output << ss.str() << "\n";
             ss.str("");  // clear
 
-            while (b != b_term) {
+            while (s != WorkerState::TERM) {
                 size_t a;
                 if (ptype == "train") {
                     if (POMDP::beliefExpectedReward(model, b, A_ASK) > 0) {
@@ -217,11 +235,12 @@ int main(int argc, char **argv) {
                 } else {
                     throw std::invalid_argument( "Unknown policy type" );
                 }
-                auto res = model.sampleSOR(s, a);
+                auto res = model_true.sampleSOR(s, a);
                 s = std::get<0>(res);
                 size_t o = std::get<1>(res);
                 double r = std::get<2>(res);
                 ++t;
+                std::cout << s << "," << a << "," << o << "," << r << "\n";
 
                 POMDP::Belief b_new = POMDP::updateBelief(model, b, a, o);
                 b = b_new;  // copies vector
@@ -236,6 +255,8 @@ int main(int argc, char **argv) {
                 std::copy(b.begin(), b.end(), std::ostream_iterator<double>(ss, " "));
                 output << ss.str() << "\n";
                 ss.str("");
+
+                exp.record(a, o, r);
             }
         }  // end policy run
 
