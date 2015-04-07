@@ -9,6 +9,7 @@
 #include <boost/program_options.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
+#include <boost/optional.hpp>
 
 #include <AIToolbox/POMDP/Algorithms/IncrementalPruning.hpp>
 #include <AIToolbox/POMDP/Algorithms/PBVI.hpp>
@@ -99,9 +100,10 @@ int main(int argc, char **argv) {
     std::cout << "Loading...\n";
     size_t n_skills = p_r.size();
     size_t S = (n_skills + 1) * std::pow(2, n_skills) + 1;
-    auto model_true = makeWorkLearnProblem(cost, cost_exp, cost_living, p_learn, p_leave, p_slip, p_guess, p_r, p_1, n_skills, S);
     POMDP::Experience exp;
-    POMDP::RLModel<MDP::Model> model(exp, model_true);
+    auto res = makeWorkLearnProblem(cost, cost_exp, cost_living, p_learn, p_leave, p_slip, p_guess, p_r, p_1, n_skills, S, &exp);
+    auto model_true = std::get<0>(res);
+    auto model = std::get<1>(res);
     model.setDiscount(discount);
 
     std::map<std::string, POMDP::Policy*> policy_map;
@@ -125,7 +127,7 @@ int main(int argc, char **argv) {
             b_term.push_back(0.0);
         }
 
-        if (st.is_term() || st.quiz_val() != 0) {
+        if (st.is_term() || st.is_quiz()) {
             b_start.push_back(0.0);
         } else {
             double pr = 1.0;
@@ -149,17 +151,62 @@ int main(int argc, char **argv) {
         if (ptype == "ip" || ptype == "pbvi") {
             h = pdef.second.get<size_t>("horizon");
         }
+        boost::optional<double> epsilon = pdef.second.get_optional<double>("learn.epsilon");
+        // Assume all RL policies must specify a value of epsilon.
+        // BUG: Non-RL model is randomized if a RL model is specified.
+        if (epsilon) {
+            model.setRandParams();
+        }
 
         for ( size_t it = 0; it < iterations; ++it ) {
             std::cout << "Iteration " << it << std::endl;
             size_t s_start = sampleProbability(S, b_start, rand);
+            auto st = WorkerState(s_start, n_skills);
+            //std::cout << "Start state: " << st << std::endl;
 
             exp.newEpisode();
-            model.runEM();
+            if (epsilon) {
+                model.runEM();
+                // Print transitions & rewards.
+                std::cout << "---T---" << std::endl;
+                for ( size_t s = 0; s < model.getS(); ++s )
+                    for ( size_t a = 0; a < model.getA(); ++a )
+                        for ( size_t s1 = 0; s1 < model.getS(); ++s1 ) {
+                            auto ws = WorkerState(s, n_skills);
+                            auto ws1 = WorkerState(s1, n_skills);
+                            if (!model.isTransitionClamped(s, a, s1)) {
+                                std::cout << "|" << ws << "|" << " . " << a << " . " << "|" << ws1 << "|" << " -> " << model.getTransitionProbability(s, a, s1) << " (" << model.getExpectedReward(s, a, s1) << ")";
+                                std::cout << std::endl;
+                            }
+                        }
+
+                // Print observations.
+                std::cout << "---O---" << std::endl;
+                for ( size_t s1 = 0; s1 < model.getS(); ++s1 )
+                    for ( size_t a = 0; a < model.getA(); ++a )
+                        for ( size_t o = 0; o < model.getO(); ++o ) {
+                            auto ws1 = WorkerState(s1, n_skills);
+                            if (!model.isObservationClamped(s1, a, o)) {
+                                std::cout << "|" << ws1 << "|" << " . " << a << " . " << "|" << o << "|" << " -> " << model.getObservationProbability(s1, a, o);
+                                std::cout << std::endl;
+                            }
+                        }
+
+                // Print initial beliefs.
+                std::cout << "---IB---" << std::endl;
+                for ( size_t s = 0; s < model.getS(); ++s ) {
+                    auto ws = WorkerState(s, n_skills);
+                    if (!model.isInitialBeliefClamped(s)) {
+                        std::cout << "|" << ws << "|" << " -> " << model.getInitialBeliefProbability(s);
+                        std::cout << std::endl;
+                    }
+                }
+            }
             std::cout << "start solving\n";
             /********** BEGIN SOLVE ******/
             // BUG: Fix duplicate code.
-            if (max_horizon_ip > 0) {
+            // Resolve only if we're doing RL or it's the first iteration.
+            if (max_horizon_ip > 0 && (epsilon || it == 0)) {
                 POMDP::IncrementalPruning solver(max_horizon_ip, 0.0 /* BUG */);
                 auto solution = solver(model);
                 if (!std::get<0>(solution)) {
@@ -179,7 +226,7 @@ int main(int argc, char **argv) {
                 }
                 */
             }
-            if (max_horizon_pbvi > 0) {
+            if (max_horizon_pbvi > 0 && (epsilon || it == 0)) {
                 POMDP::PBVI solver(PBVI_NBELIEFS, max_horizon_pbvi, PBVI_EPSILON);
                 auto solution = solver(model);
                 if (!std::get<0>(solution)) {
@@ -219,7 +266,22 @@ int main(int argc, char **argv) {
 
             while (s != WorkerState::TERM) {
                 size_t a;
-                if (ptype == "train") {
+                // Choose random valid action (other than booting).
+                if (epsilon && uniformDistribution(rand) <= epsilon.get()) {
+                    size_t sample_s = sampleProbability(S, b, rand);
+                    auto st = WorkerState(sample_s, n_skills);
+                    size_t A = model.getA();
+                    std::vector<size_t> aprobs;
+                    for ( size_t a1 = 0; a1 < A; ++a1 ) {
+                        if (st.is_valid_action(a1) && a1 != A_BOOT) {
+                            aprobs.push_back(1.0);
+                        } else {
+                            aprobs.push_back(0.0);
+                        }
+                    }
+                    normalizeProbability(aprobs.begin(), aprobs.end(), aprobs.begin());
+                    a = sampleProbability(A, aprobs, rand);
+                } else if (ptype == "train") {
                     if (POMDP::beliefExpectedReward(model, b, A_ASK) > 0) {
                         a = A_ASK;
                     } else if (!is_quiz(b, n_skills, S)) {
@@ -239,14 +301,19 @@ int main(int argc, char **argv) {
                 s = std::get<0>(res);
                 size_t o = std::get<1>(res);
                 double r = std::get<2>(res);
-                ++t;
-                std::cout << s << "," << a << "," << o << "," << r << "\n";
+                exp.record(a, o, r);
+                //std::cout << exp.getEpisodeN() << " (" << it << ") x " << exp.getEventN(it) << " (" << t << ")" << std::endl;
+                //std::cout << a << " " << exp.getAction(it, t) << std::endl;
+                //std::cout << o << " " << exp.getObservation(it, t) << std::endl;
+                //std::cout << r << " " << exp.getReward(it, t) << std::endl << std::endl;
+                //auto st = WorkerState(s, n_skills);
+                //std::cout << "'" << st << "'" << "," << a << "," << o << "," << r << "\n";
 
                 POMDP::Belief b_new = POMDP::updateBelief(model, b, a, o);
                 b = b_new;  // copies vector
 
                 output << it << ","
-                       << t << ","
+                       << ++t << ","
                        << pname << ","
                        << a << ","
                        << s << "," 
@@ -255,8 +322,6 @@ int main(int argc, char **argv) {
                 std::copy(b.begin(), b.end(), std::ostream_iterator<double>(ss, " "));
                 output << ss.str() << "\n";
                 ss.str("");
-
-                exp.record(a, o, r);
             }
         }  // end policy run
 
@@ -273,7 +338,6 @@ int main(int argc, char **argv) {
             output << st << "\n";
         }
     }
-
 
     return 0;
 }
