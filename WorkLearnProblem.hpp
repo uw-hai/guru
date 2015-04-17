@@ -431,6 +431,7 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
                 std::cout << std::endl;
             }
 
+    /*
     // Print observations.
     for ( size_t s1 = 0; s1 < S; ++s1 )
         for ( size_t a = 0; a < A; ++a )
@@ -442,6 +443,7 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
                 }
                 std::cout << std::endl;
             }
+    */
 
     return std::make_tuple(model, RLmodel);
 }
