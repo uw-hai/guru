@@ -81,6 +81,7 @@ int main(int argc, char **argv) {
     const std::vector<double> p_r = as_vector<double>(pt, "params.p_r");
     const std::vector<double> p_s = as_vector<double>(pt, "params.p_s");
     const double p_1 = pt.get<double>("params.p_1");
+    std::string utility_type = pt.get<std::string>("params.utility_type", "posterior");
     const size_t iterations = pt.get<size_t>("params.iterations", 1);
     const size_t episodes = pt.get<size_t>("params.episodes");
     const double discount = pt.get<double>("params.discount");
@@ -108,7 +109,7 @@ int main(int argc, char **argv) {
     std::cout << "Set S...\n";
     POMDP::Experience exp;
     std::cout << "Made exp...\n";
-    auto res = makeWorkLearnProblem(cost, cost_exp, cost_living, p_learn, p_leave, p_slip, p_guess, p_r, p_1, n_skills, S, &exp);
+    auto res = makeWorkLearnProblem(cost, cost_exp, cost_living, p_learn, p_leave, p_slip, p_guess, p_r, p_1, utility_type, n_skills, S, &exp);
     std::cout << "Made models...\n";
     auto model_true = std::get<0>(res);
     auto model = std::get<1>(res);
@@ -221,7 +222,7 @@ int main(int argc, char **argv) {
             }
 
             for ( size_t ep = 0; ep < episodes; ++ep ) {
-                std::cout << "Episode " << ep << std::endl;
+                std::cout << "Episode " << ep << "\r";
                 exp.newEpisode();
                 size_t s_start = sampleProbability(S, b_start, rand);
                 auto st = WorkerState(s_start, n_skills);
@@ -361,7 +362,7 @@ int main(int argc, char **argv) {
 
                 // Run episode.
                 while (s != WorkerState::TERM) {
-                    std::cout << "t: " << t << std::endl;
+                    //std::cout << "t: " << t << std::endl;
                     size_t a;
                     // Choose random valid action (other than booting).
                     if (epsilon && uniformDistribution(rand) <= epsilon.get()) {

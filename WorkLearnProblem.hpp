@@ -125,11 +125,19 @@ std::ostream &operator<<(std::ostream &os, const WorkerState &st) {
 
 /* Helper functions */
 // Reward of new posterior.
-double rewardNewPosterior(const double prior, const double posterior) {
-    if ((prior >= 0.5 && posterior >= 0.5) || (prior < 0.5 && posterior < 0.5)) {
-        return 0.0;
+// Utility type "posterior" follows the modified definition, while
+// other utility types default to the usual change in accuracy.
+double rewardNewPosterior(const double prior, const double posterior, const std::string& utility_type) {
+    if (utility_type == "posterior") {
+        std::cout << "WARNING: using posterior!" << std::endl;
+        if ((prior >= 0.5 && posterior >= 0.5) || (prior < 0.5 && posterior < 0.5)) {
+            return 0.0;
+        }
+        return std::abs(prior - posterior);
+    } else {
+        std::cout << "Using accuracy-based utility" << std::endl;
+        return std::max(posterior, 1-posterior) - std::max(prior, 1-prior);
     }
-    return std::abs(prior - posterior);
 }
 
 double pHasSkills(const WorkerState& st, const std::vector<double>& p_rule) {
@@ -193,7 +201,7 @@ int stateCompare(const WorkerState& st, const WorkerState& st1) {
     return skill_flipped;    
 }
 
-double rewardsAsk(const WorkerState& st, const std::vector<double>& p_r, const double p_slip, const double p_guess, const double p_1) {
+double rewardsAsk(const WorkerState& st, const std::vector<double>& p_r, const double p_slip, const double p_guess, const double p_1, const std::string& utility_type) {
     double r = 0;
     for ( int obsVal = 0; obsVal < 2; ++obsVal ) {
         double pObs = pJoint(st, p_r, p_slip, p_guess, p_1, 0, obsVal) +
@@ -201,15 +209,15 @@ double rewardsAsk(const WorkerState& st, const std::vector<double>& p_r, const d
 
         double posterior = pJoint(st, p_r, p_slip, p_guess, p_1, 1, obsVal) / pObs;
 
-        r += pObs * rewardNewPosterior(p_1, posterior);
+        r += pObs * rewardNewPosterior(p_1, posterior, utility_type);
     }
     return r;
-} 
+}
 
 
 std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
            AIToolbox::POMDP::RLModel<AIToolbox::MDP::Model> >
-           makeWorkLearnProblem(const double cost, const double cost_exp, const double cost_living, const double p_learn, const double p_leave, const double p_slip, const double p_guess, const std::vector<double> p_r, const double p_1, const size_t n_skills, const size_t S, AIToolbox::POMDP::Experience* const exp) {
+           makeWorkLearnProblem(const double cost, const double cost_exp, const double cost_living, const double p_learn, const double p_leave, const double p_slip, const double p_guess, const std::vector<double> p_r, const double p_1, const std::string& utility_type, const size_t n_skills, const size_t S, AIToolbox::POMDP::Experience* const exp) {
 
     size_t A = n_skills + N_RES_A;
 
@@ -302,7 +310,7 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
                 transitions_shared_order[s][A_ASK][s] = 1;
                 // Reward for asking a question.
                 rewards[s][A_ASK][s] += cost;
-                rewards[s][A_ASK][s] += rewardsAsk(st, p_r, p_slip, p_guess, p_1);
+                rewards[s][A_ASK][s] += rewardsAsk(st, p_r, p_slip, p_guess, p_1, utility_type);
             } else if (st1.is_term()) {
                 // Done with terminal state.
                 // IMPORTANT: We don't allow booting from quiz states.
