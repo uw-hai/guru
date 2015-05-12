@@ -59,43 +59,134 @@ class WorkerState {
         return bool(state_[skill]);
     };
 
-    int quiz_val() const {
+    size_t quiz_val() const {
         if (term_) {
             throw std::invalid_argument( "Terminal state has no quiz val" );
+        } else if (!is_quiz()) {
+            throw std::invalid_argument( "Non-quiz state has no quiz val" );
         }
-        return state_[n_skills_];
+        return state_[n_skills_] - 2;
     };
 
     bool is_quiz() const {
        if (is_term()) {
            return false;
        } else {
-           return quiz_val() != 0;
+           return state_[n_skills_] > 1;
+       }
+    };
+
+    bool is_ask() const {
+       if (is_term()) {
+           return false;
+       } else {
+           return state_[n_skills_] == 1;
        }
     };
 
     bool is_valid_action(size_t a) const {
         bool valid_from_quiz = (a == A_EXP || a == A_NOEXP);
+        bool valid_from_ask = (a == A_NOEXP);
         if (is_term()) {
             return false;
         } else if (is_quiz()) {
             return valid_from_quiz;
+        } else if (is_ask()) {
+            return valid_from_ask;
         } else {
             // Mutually exclusive.
             return !valid_from_quiz;
         }
     };
 
+    size_t n_skills_known() const {
+        if (is_term()) {
+            throw std::invalid_argument( "Unexpected terminal state" );
+        }
+        size_t n = 0;
+        for ( size_t i = 0; i < n_skills_; ++i )
+            if (has_skill(i))
+                ++n;
+        return n;
+    }
+
+    // Return the number of skills learned in the input state.
+    size_t n_skills_learned(const WorkerState& st) const {
+        if (st.is_term() || is_term()) {
+            throw std::invalid_argument( "Unexpected terminal state" );
+        } else if (n_skills_ != st.n_skills_) {
+            throw std::invalid_argument( "Unequal number of skills" );
+        }
+
+        size_t n = 0;
+        for ( size_t i = 0; i < n_skills_; ++i )
+            if (!has_skill(i) && st.has_skill(i))
+                ++n;
+        return n;
+    };
+
+    // Return the first skill learned, or -1.
+    int skill_learned(const WorkerState& st) const {
+        if (st.is_term() || is_term()) {
+            throw std::invalid_argument( "Unexpected terminal state" );
+        } else if (n_skills_ != st.n_skills_) {
+            throw std::invalid_argument( "Unequal number of skills" );
+        }
+
+        for ( size_t i = 0; i < n_skills_; ++i )
+            if (!has_skill(i) && st.has_skill(i))
+                return i;
+        return -1;
+    };
+
+    // Return the number of skills lost in the input state.
+    size_t n_skills_lost(const WorkerState& st) const {
+        if (st.is_term() || is_term()) {
+            throw std::invalid_argument( "Unexpected terminal state" );
+        } else if (n_skills_ != st.n_skills_) {
+            throw std::invalid_argument( "Unequal number of skills" );
+        }
+
+        size_t n = 0;
+        for ( size_t i = 0; i < n_skills_; ++i )
+            if (has_skill(i) && !st.has_skill(i))
+                ++n;
+        return n;
+    };
+
+    bool has_same_skills(const WorkerState& st) const {
+        return ((n_skills_learned(st) == 0) && (n_skills_lost(st) == 0));
+    };
+
+    // Return whether the state is reachable with or without explanation,
+    // in terms of skills learned or lost.
+    bool is_reachable(const WorkerState& st, bool exp) const {
+        if (!is_quiz() && exp) {
+            throw std::invalid_argument( "Can't explain from non-quiz state");
+        }
+
+        size_t n_learned = n_skills_learned(st);
+        if (exp && n_learned == 1) {
+            // Can only learn explained skill.
+            return skill_learned(st) == static_cast<int>(quiz_val());
+        } else if (exp && n_learned == 0) {
+            // Cannot lose explained skill.
+            return has_skill(quiz_val()) == st.has_skill(quiz_val());
+        } else {
+            return n_learned == 0;
+        }
+    };
+
     const size_t n_skills_;
   private:
     // Decodes a state s into an array of type
-    // [S_0 (2), S_1 (2), ..., S_N (2), QUIZ (N_SKILLS + 1)]
+    // [S_0 (2), S_1 (2), ..., S_N (2), LAST_A (N_SKILLS + 2)]
     void decodeState(size_t s) {
         size_t length = n_skills_ + 1;
         size_t divisor;
         for ( size_t i = 0; i < length; ++i ) {
             if (i == 0) {
-                divisor = n_skills_ + 1;
+                divisor = n_skills_ + 2;
             } else {
                 divisor = 2;
             }
@@ -119,7 +210,11 @@ std::ostream &operator<<(std::ostream &os, const WorkerState &st) {
     for ( size_t i = 0; i < st.n_skills_; ++i ) {
         os << st.has_skill(i) << " ";
     }
-    os << "q" << st.quiz_val();
+    if (st.is_quiz()) {
+        os << "q" << st.quiz_val();
+    } else if (st.is_ask()) {
+        os << "a";
+    }
     return os;
 }
 
@@ -217,7 +312,7 @@ double rewardsAsk(const WorkerState& st, const std::vector<double>& p_r, const d
 
 std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
            AIToolbox::POMDP::RLModel<AIToolbox::MDP::Model> >
-           makeWorkLearnProblem(const double cost, const double cost_exp, const double cost_living, const double p_learn, const double p_leave, const double p_slip, const double p_guess, const std::vector<double> p_r, const double p_1, const std::string& utility_type, const size_t n_skills, const size_t S, AIToolbox::POMDP::Experience* const exp) {
+           makeWorkLearnProblem(const double cost, const double cost_exp, const double cost_living, const double p_learn, const double p_lose, const double p_leave, const double p_slip, const double p_guess, const std::vector<double> p_r, const double p_1, const std::string& utility_type, const size_t n_skills, const size_t S, AIToolbox::POMDP::Experience* const exp) {
 
     size_t A = n_skills + N_RES_A;
 
@@ -271,23 +366,33 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
                 for ( size_t s1 = 0; s1 < S; ++s1 )
                     transitions_clamped[s][a][s1] = true;
             continue;
-        } else if (st.quiz_val() == 0) {
-            // Not allowed to explain from non-quiz state.
-            rewards[s][A_EXP][s] = NINF;
-            rewards[s][A_NOEXP][s] = NINF;
         } else {
-            // Must be a quiz state.
-            // Not allowed to quiz, boot, or ask from a quiz state.
+            for ( size_t a = 0; a < A; ++a )
+                if (!st.is_valid_action(a))
+                    rewards[s][a][s] = NINF;
+        }
+        /* else if (st.is_quiz() || st.is_ask()) {
+            // Not allowed to quiz, boot, or ask from non-root states.
             for ( size_t a = 0; a < n_skills; ++a ) {
                 rewards[s][action_index(a)][s] = NINF;
             }
             rewards[s][A_BOOT][s] = NINF;
             rewards[s][A_ASK][s] = NINF;
+
+            // Not allowed to EXP from ask states.
+            if (st.is_ask()) {
+                rewards[s][A_EXP][s] = NINF;
+            }
+        } else {
+            // Not allowed to explain (or no-explain) from root states.
+            rewards[s][A_EXP][s] = NINF;
+            rewards[s][A_NOEXP][s] = NINF;
         }
+        */
         for ( size_t s1 = 0; s1 < S; ++s1 ) {
             auto st1 = WorkerState(s1, n_skills);
-            if (st.quiz_val() == 0 && st1.is_term()) {
-                // Executed once for each non-quiz starting state.
+            if (!st.is_quiz() && !st.is_ask() && st1.is_term()) {
+                // Executed once for each root starting state.
 
                 // Booting takes to terminal state.
                 transitions[s][A_BOOT][s1] = 1.0;
@@ -304,51 +409,89 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
                 transitions_clamped[s][A_ASK][s1] = false;
                 transitions_shared_group[s][A_ASK] = 0;
                 transitions_shared_order[s][A_ASK][s1] = 0;
-                transitions[s][A_ASK][s] = 1.0 - p_leave;
-                transitions_clamped[s][A_ASK][s] = false;
-                transitions_shared_group[s][A_ASK] = 0;
-                transitions_shared_order[s][A_ASK][s] = 1;
-                // Reward for asking a question.
-                rewards[s][A_ASK][s] += cost;
-                rewards[s][A_ASK][s] += rewardsAsk(st, p_r, p_slip, p_guess, p_1, utility_type);
+                transitions[s][A_ASK][s] = 0.0;
             } else if (st1.is_term()) {
                 // Done with terminal state.
-                // IMPORTANT: We don't allow booting from quiz states.
+                // IMPORTANT: We don't allow booting from quiz or ask states.
                 continue;
-            } else if (stateCompare(st, st1) == -1 /* same skills */ &&
-                       st.quiz_val() == 0 && st1.quiz_val() != 0) {
+            } else if (!st.is_quiz() && !st.is_ask() &&
+                       st.has_same_skills(st1) && st1.is_quiz()) {
                 // Quizzing takes to quiz state with same latent skills.
-                size_t sk = st1.quiz_val() - 1;
+                size_t sk = st1.quiz_val();
                 transitions[s][action_index(sk)][s1] = 1.0 - p_leave;
                 transitions_clamped[s][action_index(sk)][s1] = false;
                 transitions_shared_group[s][action_index(sk)] = 0;
                 transitions_shared_order[s][action_index(sk)][s1] = 1;
                 rewards[s][action_index(sk)][s1] += cost;
-            } else if (st.quiz_val() != 0 && st1.quiz_val() == 0 ) {
+            } else if (!st.is_quiz() && !st.is_ask() &&
+                       st.has_same_skills(st1) && st1.is_ask()) {
+                // Asking takes to ask state with same latent skills.
+                transitions[s][A_ASK][s1] = 1.0 - p_leave;
+                transitions_clamped[s][A_ASK][s1] = false;
+                transitions_shared_group[s][A_ASK] = 0;
+                transitions_shared_order[s][A_ASK][s1] = 1;
+                rewards[s][A_ASK][s1] += cost;
+                rewards[s][A_ASK][s1] += rewardsAsk(st, p_r, p_slip, p_guess, p_1, utility_type);
+            } else if ((st.is_quiz() || st.is_ask()) &&
+                       !(st1.is_quiz() || st1.is_ask())) {
                 // Explaining happens from quiz state to non-quiz state.
-                size_t sk = st.quiz_val() - 1;
-                int compV = stateCompare(st, st1);
-                if (compV == -1 /* same skills */ && !st.has_skill(sk)) {
-                    transitions[s][A_EXP][s1] = 1.0 - p_learn;
-                    transitions_clamped[s][A_EXP][s1] = false;
-                    transitions_shared_group[s][A_EXP] = 1;
-                    transitions_shared_order[s][A_EXP][s1] = 1;
-                    transitions[s][A_EXP][s] = 0.0;
-                } else if (compV == static_cast<int>(sk)) {
-                    transitions[s][A_EXP][s1] = p_learn;
-                    transitions_clamped[s][A_EXP][s1] = false;
-                    transitions_shared_group[s][A_EXP] = 1;
-                    transitions_shared_order[s][A_EXP][s1] = 0;
-                } else if (compV == -1 /* same_skills */ && st.has_skill(sk)) {
-                    transitions[s][A_EXP][s1] = 1.0;
-                    transitions[s][A_EXP][s] = 0.0;
+                /*
+                if (st.is_quiz()) {
+                    size_t sk = st.quiz_val();
+                    int compV = stateCompare(st, st1);
+                    if (st.has_same_skills(st1) && !st.has_skill(sk)) {
+                        transitions[s][A_EXP][s1] = 1.0 - p_learn;
+                        transitions_clamped[s][A_EXP][s1] = false;
+                        transitions_shared_group[s][A_EXP] = 1;
+                        transitions_shared_order[s][A_EXP][s1] = 1;
+                        transitions[s][A_EXP][s] = 0.0;
+                    } else if (compV == static_cast<int>(sk)) {
+                        transitions[s][A_EXP][s1] = p_learn;
+                        transitions_clamped[s][A_EXP][s1] = false;
+                        transitions_shared_group[s][A_EXP] = 1;
+                        transitions_shared_order[s][A_EXP][s1] = 0;
+                    } else if (st.has_same_skills(st1) && st.has_skill(sk)) {
+                        transitions[s][A_EXP][s1] = 1.0;
+                        transitions[s][A_EXP][s] = 0.0;
+                    }
+                    rewards[s][A_EXP][s1] += cost_exp;
                 }
-                rewards[s][A_EXP][s1] += cost_exp;
+                */
 
-                if (compV == -1 /* same skills */) {
-                    transitions[s][A_NOEXP][s1] = 1.0;
+                // TODO: Serious bug: how to define shared params for RLModel?
+                if (st.is_reachable(st1, false)) {
+                    size_t n_known = st.n_skills_known();
+                    size_t n_lost = st.n_skills_lost(st1);
+                    size_t n_lost_not = n_known - n_lost;
+                    double prob = 1.0 * pow(p_lose, n_lost) *
+                                  pow(1.0 - p_lose,  n_lost_not);
+                    transitions[s][A_NOEXP][s1] = prob;
+                    // This happens more times than needed, but who cares.
                     transitions[s][A_NOEXP][s] = 0.0;
                 }
+                if (st.is_quiz() && st.is_reachable(st1, true)) {
+                    bool quiz_skill_known = st.has_skill(st.quiz_val());
+                    size_t n_known = st.n_skills_known();
+                    size_t n_lost = st.n_skills_lost(st1);
+                    size_t n_lost_not = n_known - n_lost;
+                    if (quiz_skill_known) {
+                        // Can't lose the quiz skill.
+                        n_lost_not -= 1;
+                    }
+                    double prob = 1.0 * pow(p_lose, n_lost) *
+                                  pow(1.0 - p_lose,  n_lost_not);
+                    if (st.n_skills_learned(st1) == 1) {
+                        prob *= p_learn;
+                    } else if (!quiz_skill_known) {
+                        // Missed opportunity.
+                        prob *= 1.0 - p_learn;
+                    }
+                    transitions[s][A_EXP][s1] = prob;
+                    // This happens more times than needed, but who cares.
+                    transitions[s][A_EXP][s] = 0.0;
+                    rewards[s][A_EXP][s1] += cost_exp;
+                }
+
             }
         }
     }
@@ -363,10 +506,10 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
                 observations[s][a][O_WRONG] = 0.0;
                 observations[s][a][O_TERM] = 1.0;
             }
-        } else if (st.quiz_val() != 0) {
+        } else if (st.is_quiz()) {
             // Assume that teaching actions ask questions that require only
             // the skill being taught.
-            size_t sk = st.quiz_val() - 1;
+            size_t sk = st.quiz_val();
             std::vector<double> p_rule_gold;
             for ( size_t i = 0; i < n_skills; ++i ) {
                 if (i == sk) {
@@ -398,7 +541,7 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
         if (st.is_term()) {
             initial_belief_clamped.push_back(1);
             initial_belief.push_back(0.0);
-        } else if (st.quiz_val() != 0) {
+        } else if (st.is_quiz() || st.is_ask()) {
             initial_belief_clamped.push_back(1);
             initial_belief.push_back(0.0);
         } else {
@@ -406,6 +549,18 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
             initial_belief.push_back(1.0 / std::pow(2, n_skills));
         }
     }
+
+    // BUG: Move to test.
+    // Print transitions & rewards.
+    for ( size_t s = 0; s < S; ++s )
+        for ( size_t a = 0; a < A; ++a )
+            for ( size_t s1 = 0; s1 < S; ++s1 ) {
+                auto ws = WorkerState(s, n_skills);
+                auto ws1 = WorkerState(s1, n_skills);
+                std::cout << "|" << ws << "|" << " . " << a << " . " << "|" << ws1 << "|" << " -> " << transitions[s][a][s1] << " (" << rewards[s][a][s1] << ")";
+                std::cout << std::endl;
+            }
+
 
     model.setTransitionFunction(transitions);
     model.setRewardFunction(rewards);
@@ -427,17 +582,17 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
 
     // BUG: Move to test.
     // Print transitions & rewards.
-    for ( size_t s = 0; s < S; ++s )
-        for ( size_t a = 0; a < A; ++a )
-            for ( size_t s1 = 0; s1 < S; ++s1 ) {
-                auto ws = WorkerState(s, n_skills);
-                auto ws1 = WorkerState(s1, n_skills);
-                std::cout << "|" << ws << "|" << " . " << a << " . " << "|" << ws1 << "|" << " -> " << model.getTransitionProbability(s, a, s1) << " (" << model.getExpectedReward(s, a, s1) << ")";
-                if (RLmodel.isTransitionClamped(s, a, s1)) {
-                    std::cout << " C";
-                }
-                std::cout << std::endl;
-            }
+//    for ( size_t s = 0; s < S; ++s )
+//        for ( size_t a = 0; a < A; ++a )
+//            for ( size_t s1 = 0; s1 < S; ++s1 ) {
+//                auto ws = WorkerState(s, n_skills);
+//                auto ws1 = WorkerState(s1, n_skills);
+//                std::cout << "|" << ws << "|" << " . " << a << " . " << "|" << ws1 << "|" << " -> " << model.getTransitionProbability(s, a, s1) << " (" << model.getExpectedReward(s, a, s1) << ")";
+//                if (RLmodel.isTransitionClamped(s, a, s1)) {
+//                    std::cout << " C";
+//                }
+//                std::cout << std::endl;
+//            }
 
     /*
     // Print observations.

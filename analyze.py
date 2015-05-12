@@ -214,6 +214,7 @@ if __name__ == '__main__':
 
     df, max_episode = finished(pd.read_csv(args.infile))
 
+    # TODO: Change to range(0, max_episode + 1, args.episode_step) ?
     episode_pairs = range(0, max_episode, args.episode_step) + [max_episode + 1]
     for p in zip(episode_pairs[:-1], episode_pairs[1:]):
         df_filter = df[(df.episode >= p[0]) & (df.episode < p[1])]

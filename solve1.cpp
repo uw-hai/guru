@@ -41,19 +41,26 @@ std::vector<T> as_vector(ptree const& pt, ptree::key_type const& key)
     return r;
 }
 
-// Checks if belief state is quiz or non-quiz.
+// Check if _belief_ state has probability mass only over quiz states.
 bool is_quiz(const POMDP::Belief& b, const size_t n_skills, const size_t S) {
     for ( size_t s = 0 ; s < S; ++s ) {
         auto st = WorkerState(s, n_skills);
-        if (st.is_term()) {
-            continue;
-        } else if (st.quiz_val() == 0) {
-            return b[s] == 0.0;
-        } else {
-            return b[s] > 0.0;
+        if (!st.is_quiz() && b[s] > 0.0) {
+            return false;
         }
     }
-    return false;  // should never get here
+    return true;
+}
+
+// Check if _belief_ state has probability mass only over ask states.
+bool is_ask(const POMDP::Belief& b, const size_t n_skills, const size_t S) {
+    for ( size_t s = 0 ; s < S; ++s ) {
+        auto st = WorkerState(s, n_skills);
+        if (!st.is_ask() && b[s] > 0.0) {
+            return false;
+        }
+    }
+    return true;
 }
 
 int main(int argc, char **argv) {
@@ -75,6 +82,7 @@ int main(int argc, char **argv) {
     const double cost_exp = pt.get<double>("params.cost_exp");
     const double cost_living = pt.get<double>("params.cost_living");
     const double p_learn = pt.get<double>("params.p_learn");
+    const double p_lose = pt.get<double>("params.p_lose", 0.0);
     const double p_leave = pt.get<double>("params.p_leave");
     const double p_slip = pt.get<double>("params.p_slip");
     const double p_guess = pt.get<double>("params.p_guess");
@@ -105,11 +113,11 @@ int main(int argc, char **argv) {
     std::cout << "Loading...\n";
     size_t n_skills = p_r.size();
     std::cout << "Got size...\n";
-    size_t S = (n_skills + 1) * std::pow(2, n_skills) + 1;
+    size_t S = (n_skills + 2) * std::pow(2, n_skills) + 1;
     std::cout << "Set S...\n";
     POMDP::Experience exp;
     std::cout << "Made exp...\n";
-    auto res = makeWorkLearnProblem(cost, cost_exp, cost_living, p_learn, p_leave, p_slip, p_guess, p_r, p_1, utility_type, n_skills, S, &exp);
+    auto res = makeWorkLearnProblem(cost, cost_exp, cost_living, p_learn, p_lose, p_leave, p_slip, p_guess, p_r, p_1, utility_type, n_skills, S, &exp);
     std::cout << "Made models...\n";
     auto model_true = std::get<0>(res);
     auto model = std::get<1>(res);
@@ -126,7 +134,7 @@ int main(int argc, char **argv) {
             b_term.push_back(0.0);
         }
 
-        if (st.is_term() || st.is_quiz()) {
+        if (st.is_term() || st.is_quiz() || st.is_ask()) {
             b_start.push_back(0.0);
         } else {
             double pr = 1.0;
@@ -380,13 +388,21 @@ int main(int argc, char **argv) {
                         normalizeProbability(aprobs.begin(), aprobs.end(), aprobs.begin());
                         a = sampleProbability(A, aprobs, rand);
                     } else if (ptype == "train") {
-                        if (POMDP::beliefExpectedReward(model, b, A_ASK) > 0) {
+                        // Teach until expected belief is positive.
+                        if (!is_quiz(b, n_skills, S) &&
+                            !is_ask(b, n_skills, S) &&
+                            POMDP::beliefExpectedReward(model, b, A_ASK) > 0) {
                             a = A_ASK;
-                        } else if (!is_quiz(b, n_skills, S)) {
+                        } else if (!is_quiz(b, n_skills, S) &&
+                                   !is_ask(b, n_skills, S)) {
                             // BUG: Teach only first rule.
-                            a = N_RES_A;
-                        } else {
+                            a = action_index(0);
+                        } else if (is_quiz(b, n_skills, S)) {
                             a = A_EXP;
+                        } else if (is_ask(b, n_skills, S)) {
+                            a = A_NOEXP;
+                        } else {
+                            throw std::runtime_error( "The train policy encountered an unexpected belief state" );
                         }
                     } else if (ptype == "ip" || ptype == "pbvi") {
                         a = std::get<0>(p->sampleAction(b, h));
