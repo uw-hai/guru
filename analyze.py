@@ -19,8 +19,9 @@ import seaborn as sns
 INTERPOLATE_MIN = 11
 CI = 95  # Confidence interval
 
+reserved_actions = ['ASK', 'EXP', 'NOEXP', 'BOOT']
+
 def str_action(a):
-    reserved_actions = ['ASK', 'EXP', 'NOEXP', 'BOOT']
     N_RES_A = len(reserved_actions)
     a = int(a)
     if a < N_RES_A:
@@ -51,7 +52,7 @@ def step_by_t(df, interval=0.1):
     df_out.reset_index()
     return df_out
 
-def plot_beliefs(df, outfname, t_frac=1.0, formatter=None):
+def plot_beliefs(df, outfname, t_frac=1.0, formatter=None, logx=True):
     df = df[df.t <= df.t.max() * t_frac]
 
     df_b = pd.DataFrame(df.b.str.split().tolist()).astype(float)
@@ -64,13 +65,13 @@ def plot_beliefs(df, outfname, t_frac=1.0, formatter=None):
         states = [formatter(x) for x in df_b.columns]
     for p, df_b in b_sums.groupby('policy', as_index=False):
         step_by_t(df_b).plot(x='t', y=states, kind='area',
-                             title='Belief counts', logx=True)
+                             title='Belief counts', logx=logx)
         fname = outfname + '_p-{}'.format(p)
         plt.savefig(fname + '.png')
         plt.close()
         df_b.to_csv(fname + '.csv')
 
-def plot_actions(df, outfname, t_frac=1.0, formatter=None):
+def plot_actions(df, outfname, t_frac=1.0, formatter=None, logx=True):
     df = df[df.t <= df.t.max() * t_frac]
 
     actions = df.groupby(['policy', 't'])['a'].value_counts().unstack().fillna(0.).reset_index()
@@ -78,14 +79,14 @@ def plot_actions(df, outfname, t_frac=1.0, formatter=None):
         actions.rename(columns=dict((x, formatter(x)) for x in actions.columns[2:]), inplace=True)
     for p, df_a in actions.groupby('policy', as_index=False):
         step_by_t(df_a).plot(x='t', y=actions.columns[2:], kind='area',
-                             title='Action counts', logx=True)
+                             title='Action counts', logx=logx)
 
         fname = outfname + '_p-{}'.format(p)
         plt.savefig(fname + '.png')
         plt.close()
         df_a.to_csv(fname + '.csv')
 
-def plot_observations(df, outfname, t_frac=1.0, formatter=None):
+def plot_observations(df, outfname, t_frac=1.0, formatter=None, logx=True):
     df = df[df.t <= df.t.max() * t_frac]
 
     obs = df.groupby(['policy', 't'])['o'].value_counts().unstack().fillna(0.).reset_index()
@@ -93,7 +94,7 @@ def plot_observations(df, outfname, t_frac=1.0, formatter=None):
         obs.rename(columns=dict((x, formatter(x)) for x in obs.columns[2:]), inplace=True)
     for p, df_o in obs.groupby('policy', as_index=False):
         step_by_t(df_o).plot(x='t', y=obs.columns[2:], kind='area',
-                             title='Observation counts', logx=True)
+                             title='Observation counts', logx=logx)
         fname = outfname + '_p-{}'.format(p)
         plt.savefig(fname + '.png')
         plt.close()
@@ -108,6 +109,15 @@ def plot_reward_by_episode(df, outfname):
     plt.savefig(outfname + '.png')
     plt.close()
     #df.sort(['iteration','policy']).to_csv(fname + '.csv')
+
+    # Plot bar version. Only useful for non-RL.
+    # Select only certain policies for printing.
+    #df = df[(df.policy == 'pbvi-h10') | (df.policy == 'pbvi-h50')]
+    df['it-ep'] = df['iteration'].map(str) + ',' + df['episode'].map(str)
+    df_sums = df.groupby(['policy', 'it-ep'], as_index=False)['r'].sum()
+    sns.barplot('policy', y='r', data=df_sums, ci=CI)
+    plt.savefig(outfname + '_bar.png')
+    plt.close()
 
 def plot_reward_by_t(df, outfname):
     df = df[['policy','iteration','episode','t','r']]
@@ -202,6 +212,10 @@ if __name__ == '__main__':
     parser.add_argument('--model_true', type=argparse.FileType('r'))
     parser.add_argument('--model_est', type=argparse.FileType('r'))
     parser.add_argument('--episode_step', type=int, default=100, help='Episode step size for plotting t on x-axis')
+    parser.add_argument('--no-noexp', dest='noexp', action='store_false', help='Do not plot NOEXP actions')
+    parser.add_argument('--no-log', dest='log', action='store_false', help='Do not use log scale for breakdown plots')
+    parser.set_defaults(log=True)
+    parser.set_defaults(noexp=True)
     args = parser.parse_args()
 
     if args.names:
@@ -213,19 +227,19 @@ if __name__ == '__main__':
         os.makedirs(args.outdir)
 
     df, max_episode = finished(pd.read_csv(args.infile))
-
-    # TODO: Change to range(0, max_episode + 1, args.episode_step) ?
-    episode_pairs = range(0, max_episode, args.episode_step) + [max_episode + 1]
-    for p in zip(episode_pairs[:-1], episode_pairs[1:]):
-        df_filter = df[(df.episode >= p[0]) & (df.episode < p[1])]
-        e_str = 'e{}-{}'.format(*p)
-        plot_reward_by_t(df_filter, os.path.join(args.outdir, 'r_t_' + e_str))
-        plot_beliefs(df_filter, os.path.join(args.outdir, 'b_' + e_str), formatter=str_state(names))
-        plot_actions(df_filter, os.path.join(args.outdir, 'a_' + e_str), formatter=str_action)
-        plot_observations(df_filter, os.path.join(args.outdir, 'o_' + e_str), formatter=str_observation)
-
     plot_reward_by_episode(df, os.path.join(args.outdir, 'r'))
     plot_solve_t_by_episode(df, os.path.join(args.outdir, 't'))
+
+    episode_pairs = range(0, max_episode + 2, args.episode_step)
+    for p in zip(episode_pairs[:-1], episode_pairs[1:]):
+        df_filter = df[(df.episode >= p[0]) & (df.episode < p[1])]
+        if not args.noexp:
+            df_filter = df[df.a != reserved_actions.index('NOEXP')]
+        e_str = 'e{}-{}'.format(*p)
+        plot_reward_by_t(df_filter, os.path.join(args.outdir, 'r_t_' + e_str))
+        plot_beliefs(df_filter, os.path.join(args.outdir, 'b_' + e_str), formatter=str_state(names), logx=args.log)
+        plot_actions(df_filter, os.path.join(args.outdir, 'a_' + e_str), formatter=str_action, logx=args.log)
+        plot_observations(df_filter, os.path.join(args.outdir, 'o_' + e_str), formatter=str_observation, logx=args.log)
 
     if args.model_true and args.model_est:
         df_model_t = pd.read_csv(args.model_true)
