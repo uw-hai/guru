@@ -30,6 +30,13 @@ enum {
     O_TERM = 2
 };
 
+size_t num_states(const size_t n_skills, const bool has_ask) {
+    if (has_ask) {
+        return (n_skills + 2) * std::pow(2, n_skills) + 1;
+    } else {
+        return (n_skills + 1) * std::pow(2, n_skills) + 1;
+    }
+};
 
 class WorkerState {
   public:
@@ -42,7 +49,8 @@ class WorkerState {
     // - terminal state, plus
     // - quiz state for each skill (or no skill), plus
     // - latent bit for each skill.
-    WorkerState(const size_t encoded_state, const size_t n_skills) : n_skills_(n_skills), S_(1 + (n_skills + 1) * std::pow(2, n_skills)), term_(encoded_state == TERM) {
+    //WorkerState(const size_t encoded_state, const size_t n_skills, const bool has_ask) : n_skills_(n_skills), S_(num_states(n_skills, has_ask)), term_(encoded_state == TERM) {
+    WorkerState(const size_t encoded_state, const size_t n_skills, const bool has_ask) : n_skills_(n_skills), S_(num_states(n_skills, has_ask)), has_ask_(has_ask), term_(encoded_state == TERM) {
         if (!term_) {
             decodeState(encoded_state - N_RES_S);
         }
@@ -65,22 +73,30 @@ class WorkerState {
         } else if (!is_quiz()) {
             throw std::invalid_argument( "Non-quiz state has no quiz val" );
         }
-        return state_[n_skills_] - 2;
+        if (has_ask_) {
+            return state_[n_skills_] - 2;
+        } else {
+            return state_[n_skills_] - 1;
+        }
     };
 
     bool is_quiz() const {
        if (is_term()) {
            return false;
-       } else {
+       } else if (has_ask_) {
            return state_[n_skills_] > 1;
+       } else {
+           return state_[n_skills_] > 0;
        }
     };
 
     bool is_ask() const {
        if (is_term()) {
            return false;
-       } else {
+       } else if (has_ask_) {
            return state_[n_skills_] == 1;
+       } else {
+           return false;
        }
     };
 
@@ -185,8 +201,10 @@ class WorkerState {
         size_t length = n_skills_ + 1;
         size_t divisor;
         for ( size_t i = 0; i < length; ++i ) {
-            if (i == 0) {
+            if (i == 0 && has_ask_) {
                 divisor = n_skills_ + 2;
+            } else if (i == 0 && !has_ask_) {
+                divisor = n_skills_ + 1;
             } else {
                 divisor = 2;
             }
@@ -198,6 +216,7 @@ class WorkerState {
     };
 
     const size_t S_;
+    const bool has_ask_;
     const bool term_;
     std::vector<int> state_;
 };
@@ -312,7 +331,7 @@ double rewardsAsk(const WorkerState& st, const std::vector<double>& p_r, const d
 
 std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
            AIToolbox::POMDP::RLModel<AIToolbox::MDP::Model> >
-           makeWorkLearnProblem(const double cost, const double cost_exp, const double cost_living, const double p_learn, const double p_lose, const double p_leave, const double p_slip, const double p_guess, const std::vector<double> p_r, const double p_1, const std::string& utility_type, const size_t n_skills, const size_t S, AIToolbox::POMDP::Experience* const exp) {
+           makeWorkLearnProblem(const double cost, const double cost_exp, const double cost_living, const bool has_ask, const double p_learn, const double p_lose, const double p_leave, const double p_slip, const double p_guess, const std::vector<double> p_r, const double p_1, const std::string& utility_type, const size_t n_skills, const size_t S, AIToolbox::POMDP::Experience* const exp) {
 
     size_t A = n_skills + N_RES_A;
 
@@ -350,7 +369,7 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
      *          depending on whether or not the state is a quiz state.
      */
     for ( size_t s = 0; s < S; ++s ) {
-        auto st = WorkerState(s, n_skills);
+        auto st = WorkerState(s, n_skills, has_ask);
         if (!st.is_term()) {
             for ( size_t a = 0; a < A; ++a )
                 for ( size_t s1 = 0; s1 < S; ++s1 )
@@ -360,7 +379,7 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
 
     // Transitions
     for ( size_t s = 0; s < S; ++s ) {
-        auto st = WorkerState(s, n_skills);
+        auto st = WorkerState(s, n_skills, has_ask);
         if (st.is_term()) {
             for ( size_t a = 0; a < A; ++a )
                 for ( size_t s1 = 0; s1 < S; ++s1 )
@@ -390,7 +409,7 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
         }
         */
         for ( size_t s1 = 0; s1 < S; ++s1 ) {
-            auto st1 = WorkerState(s1, n_skills);
+            auto st1 = WorkerState(s1, n_skills, has_ask);
             if (!st.is_quiz() && !st.is_ask() && st1.is_term()) {
                 // Executed once for each root starting state.
 
@@ -415,6 +434,22 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
                 // IMPORTANT: We don't allow booting from quiz or ask states.
                 continue;
             } else if (!st.is_quiz() && !st.is_ask() &&
+                       !st1.is_quiz() && !st1.is_ask()) {
+                if (!has_ask && st.is_reachable(st1, false)) {
+                    // When there are no ask states, asking transitions
+                    // to another non-quiz state.
+                    // TODO: Fix duplicate code (similar to below).
+                    // TODO: Serious bug with RL / clamping.
+                    size_t n_known = st.n_skills_known();
+                    size_t n_lost = st.n_skills_lost(st1);
+                    size_t n_lost_not = n_known - n_lost;
+                    double prob = 1.0 * pow(p_lose, n_lost) *
+                                  pow(1.0 - p_lose,  n_lost_not);
+                    transitions[s][A_ASK][s1] = prob * (1.0 - p_leave);
+                    rewards[s][A_ASK][s1] += cost;
+                    rewards[s][A_ASK][s1] += rewardsAsk(st, p_r, p_slip, p_guess, p_1, utility_type);
+                }
+            } else if (!st.is_quiz() && !st.is_ask() &&
                        st.has_same_skills(st1) && st1.is_quiz()) {
                 // Quizzing takes to quiz state with same latent skills.
                 size_t sk = st1.quiz_val();
@@ -426,6 +461,7 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
             } else if (!st.is_quiz() && !st.is_ask() &&
                        st.has_same_skills(st1) && st1.is_ask()) {
                 // Asking takes to ask state with same latent skills.
+                // Never executed if has_ask = false.
                 transitions[s][A_ASK][s1] = 1.0 - p_leave;
                 transitions_clamped[s][A_ASK][s1] = false;
                 transitions_shared_group[s][A_ASK] = 0;
@@ -498,7 +534,7 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
 
     // Observations.
     for ( size_t s = 0; s < S; ++s ) {
-        auto st = WorkerState(s, n_skills);
+        auto st = WorkerState(s, n_skills, has_ask);
         if (st.is_term()) {
             // Always know when we enter terminal state.
             for ( size_t a = 0; a < A; ++a ) {
@@ -537,7 +573,7 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
     std::vector<double> initial_belief;
     std::vector<double> initial_belief_clamped;
     for ( size_t s = 0; s < S; ++s ) {
-        WorkerState st(s, n_skills);
+        WorkerState st(s, n_skills, has_ask);
         if (st.is_term()) {
             initial_belief_clamped.push_back(1);
             initial_belief.push_back(0.0);
@@ -555,8 +591,8 @@ std::tuple<AIToolbox::POMDP::Model<AIToolbox::MDP::Model>,
     for ( size_t s = 0; s < S; ++s )
         for ( size_t a = 0; a < A; ++a )
             for ( size_t s1 = 0; s1 < S; ++s1 ) {
-                auto ws = WorkerState(s, n_skills);
-                auto ws1 = WorkerState(s1, n_skills);
+                auto ws = WorkerState(s, n_skills, has_ask);
+                auto ws1 = WorkerState(s1, n_skills, has_ask);
                 std::cout << "|" << ws << "|" << " . " << a << " . " << "|" << ws1 << "|" << " -> " << transitions[s][a][s1] << " (" << rewards[s][a][s1] << ")";
                 std::cout << std::endl;
             }

@@ -42,9 +42,9 @@ std::vector<T> as_vector(ptree const& pt, ptree::key_type const& key)
 }
 
 // Check if _belief_ state has probability mass only over quiz states.
-bool is_quiz(const POMDP::Belief& b, const size_t n_skills, const size_t S) {
+bool is_quiz(const POMDP::Belief& b, const size_t n_skills, const size_t S, const bool has_ask) {
     for ( size_t s = 0 ; s < S; ++s ) {
-        auto st = WorkerState(s, n_skills);
+        auto st = WorkerState(s, n_skills, has_ask);
         if (!st.is_quiz() && b[s] > 0.0) {
             return false;
         }
@@ -53,9 +53,9 @@ bool is_quiz(const POMDP::Belief& b, const size_t n_skills, const size_t S) {
 }
 
 // Check if _belief_ state has probability mass only over ask states.
-bool is_ask(const POMDP::Belief& b, const size_t n_skills, const size_t S) {
+bool is_ask(const POMDP::Belief& b, const size_t n_skills, const size_t S, const bool has_ask) {
     for ( size_t s = 0 ; s < S; ++s ) {
-        auto st = WorkerState(s, n_skills);
+        auto st = WorkerState(s, n_skills, has_ask);
         if (!st.is_ask() && b[s] > 0.0) {
             return false;
         }
@@ -81,6 +81,7 @@ int main(int argc, char **argv) {
     const double cost = pt.get<double>("params.cost");
     const double cost_exp = pt.get<double>("params.cost_exp");
     const double cost_living = pt.get<double>("params.cost_living");
+    const size_t has_ask = pt.get<size_t>("params.has_ask", 0);
     const double p_learn = pt.get<double>("params.p_learn");
     const double p_lose = pt.get<double>("params.p_lose", 0.0);
     const double p_leave = pt.get<double>("params.p_leave");
@@ -113,11 +114,11 @@ int main(int argc, char **argv) {
     std::cout << "Loading...\n";
     size_t n_skills = p_r.size();
     std::cout << "Got size...\n";
-    size_t S = (n_skills + 2) * std::pow(2, n_skills) + 1;
+    size_t S = num_states(n_skills, has_ask);
     std::cout << "Set S...\n";
     POMDP::Experience exp;
     std::cout << "Made exp...\n";
-    auto res = makeWorkLearnProblem(cost, cost_exp, cost_living, p_learn, p_lose, p_leave, p_slip, p_guess, p_r, p_1, utility_type, n_skills, S, &exp);
+    auto res = makeWorkLearnProblem(cost, cost_exp, cost_living, has_ask, p_learn, p_lose, p_leave, p_slip, p_guess, p_r, p_1, utility_type, n_skills, S, &exp);
     std::cout << "Made models...\n";
     auto model_true = std::get<0>(res);
     auto model = std::get<1>(res);
@@ -127,7 +128,7 @@ int main(int argc, char **argv) {
     POMDP::Belief b_start;
     POMDP::Belief b_term;
     for ( size_t s = 0; s < S; ++s ) {
-        auto st = WorkerState(s, n_skills);
+        auto st = WorkerState(s, n_skills, has_ask);
         if (st.is_term()) {
             b_term.push_back(1.0);
         } else {
@@ -155,7 +156,7 @@ int main(int argc, char **argv) {
         std::ofstream output("res/" + exp_name + "_names.csv");
         output << "i,type,s\n";
         for ( size_t s = 0; s < S; ++s ) {
-            auto st = WorkerState(s, n_skills);
+            auto st = WorkerState(s, n_skills, has_ask);
             output << s << ",";
             output << "state,";
             output << st << "\n";
@@ -233,7 +234,7 @@ int main(int argc, char **argv) {
                 std::cout << "Episode " << ep << "\r";
                 exp.newEpisode();
                 size_t s_start = sampleProbability(S, b_start, rand);
-                auto st = WorkerState(s_start, n_skills);
+                auto st = WorkerState(s_start, n_skills, has_ask);
                 //std::cout << "Start state: " << st << std::endl;
                 POMDP::Belief b;
                 size_t s = s_start;
@@ -375,7 +376,7 @@ int main(int argc, char **argv) {
                     // Choose random valid action (other than booting).
                     if (epsilon && uniformDistribution(rand) <= epsilon.get()) {
                         size_t sample_s = sampleProbability(S, b, rand);
-                        auto st = WorkerState(sample_s, n_skills);
+                        auto st = WorkerState(sample_s, n_skills, has_ask);
                         size_t A = model.getA();
                         std::vector<double> aprobs;
                         for ( size_t a1 = 0; a1 < A; ++a1 ) {
@@ -389,17 +390,17 @@ int main(int argc, char **argv) {
                         a = sampleProbability(A, aprobs, rand);
                     } else if (ptype == "train") {
                         // Teach until expected belief is positive.
-                        if (!is_quiz(b, n_skills, S) &&
-                            !is_ask(b, n_skills, S) &&
+                        if (!is_quiz(b, n_skills, S, has_ask) &&
+                            !is_ask(b, n_skills, S, has_ask) &&
                             POMDP::beliefExpectedReward(model, b, A_ASK) > 0) {
                             a = A_ASK;
-                        } else if (!is_quiz(b, n_skills, S) &&
-                                   !is_ask(b, n_skills, S)) {
+                        } else if (!is_quiz(b, n_skills, S, has_ask) &&
+                                   !is_ask(b, n_skills, S, has_ask)) {
                             // BUG: Teach only first rule.
                             a = action_index(0);
-                        } else if (is_quiz(b, n_skills, S)) {
+                        } else if (is_quiz(b, n_skills, S, has_ask)) {
                             a = A_EXP;
-                        } else if (is_ask(b, n_skills, S)) {
+                        } else if (is_ask(b, n_skills, S, has_ask)) {
                             a = A_NOEXP;
                         } else {
                             throw std::runtime_error( "The train policy encountered an unexpected belief state" );
