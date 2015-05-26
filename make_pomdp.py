@@ -19,7 +19,22 @@ class POMDPWriter:
 
         self.p_t, self.p_o, self.rewards = self.make_tables()
 
-    def write(self, fo, discount):
+    def write_txt(self, fo):
+        """Write model to .txt file as needed for AI-Toolbox."""
+        for s,_ in enumerate(self.states):
+            for a,_ in enumerate(self.actions):
+                for s1,_ in enumerate(self.states):
+                    fo.write('{}\t{}\t'.format(self.p_t[s][a][s1],
+                                               self.rewards[s][a][s1]))
+            fo.write('\n')
+        for s,_ in enumerate(self.states):
+            for a,_ in enumerate(self.actions):
+                for o,_ in enumerate(self.observations):
+                    fo.write('{}\t'.format(self.p_o[s][a][o]))
+            fo.write('\n')
+                                           
+
+    def write_pomdp(self, fo, discount):
         """Write a Cassandra-style POMDP spec with the given discount"""
         if discount >= 1.0:
             raise Exception('Discount must be less than 1.0')

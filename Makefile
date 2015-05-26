@@ -1,2 +1,4 @@
-all:
-	g++ -O3 -std=c++11 ./solve1.cpp -o work_learn -I../ai-toolbox/include -I./include -L../ai-toolbox/build -L./build -lAIToolboxMDP -lAIToolboxPOMDP -lWorkLearn -llpsolve55 -ldl -lcolamd -lboost_program_options -lboost_system -lboost_filesystem
+all: pomdpsol
+
+pomdpsol:
+	/opt/gcc-4.9.2/bin/g++ -O3 -std=c++11 ./pomdpsol.cpp -o bin/pomdpsol -I../ai-toolbox/include -L../ai-toolbox/build -lAIToolboxMDP -lAIToolboxPOMDP -lboost_program_options

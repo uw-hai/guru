@@ -497,20 +497,40 @@ class POMDPPolicy:
         pMatrix        The policy matrix, constructed from all of the
                        alpha vectors.
     '''
-    def __init__(self, filename):
-        tree = parse(filename)
-        root = tree.getroot()
-        avec = list(root)[0]
-        alphas = list(avec)
-        self.action_nums = []
-        val_arrs = []
-        for alpha in alphas:
-            self.action_nums.append(int(alpha.attrib['action']))
-            vals = []
-            for val in alpha.text.split():
-                vals.append(float(val))
-            val_arrs.append(vals)
-        self.pMatrix = array(val_arrs)
+    def __init__(self, filename, file_format='policyx', n_states=None):
+        if file_format == 'policyx':
+            tree = parse(filename)
+            root = tree.getroot()
+            avec = list(root)[0]
+            alphas = list(avec)
+            self.action_nums = []
+            val_arrs = []
+            for alpha in alphas:
+                self.action_nums.append(int(alpha.attrib['action']))
+                vals = []
+                for val in alpha.text.split():
+                    vals.append(float(val))
+                val_arrs.append(vals)
+            self.pMatrix = array(val_arrs)
+        elif file_format == 'aitoolbox':
+            # Retrieve max horizon alpha vectors.
+            # TODO: Allow retrieval of horizons other than max.
+            horizons = [[]]
+            with open(filename, 'r') as f:
+                for line in f:
+                    if line.startswith('@'):
+                        horizons.append([])
+                    else:
+                        horizons[-1].append(line)
+            horizons = [lst for lst in horizons if len(lst) > 0]
+            lines_max_horizon = horizons[-1]
+            alphas = [[float(v) for v in line.split()[:n_states]] for
+                      line in lines_max_horizon]
+            self.pMatrix = array(alphas)
+            self.action_nums = [int(line.split()[n_states]) for
+                                line in lines_max_horizon]
+        else:
+            raise NotImplementedError
 
     def get_best_action(self, belief):
         '''

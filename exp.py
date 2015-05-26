@@ -45,12 +45,16 @@ class Policy:
 
     """
     def __init__(self, policy_type, exp_name, **kwargs):
+        default_discount = 0.99
         self.policy = policy_type
         self.exp_name = exp_name
         self.epsilon = get_or_default(kwargs, 'epsilon', None)
         if self.policy == 'appl':
-            self.discount = get_or_default(kwargs, 'discount', .99)
+            self.discount = get_or_default(kwargs, 'discount', default_discount)
             self.timeout = get_or_default(kwargs, 'timeout', None)
+        elif self.policy == 'aitoolbox':
+            self.discount = get_or_default(kwargs, 'discount', default_discount)
+            self.horizon = kwargs['horizon']
         elif self.policy == 'fixed':
             self.n = kwargs['n']
         else:
@@ -64,9 +68,9 @@ class Policy:
             history (dict):         Contains 'actions' and 'observations',
                                     each of which is a list of lists
                                     containing values.
-            states (list):          State objects. UNUSED
+            states (list):          State objects.
             actions (list):         Action objects.
-            observations (list):    Observation names. UNUSED
+            observations (list):    Observation names.
 
         Returns: Action index.
 
@@ -99,10 +103,12 @@ class Policy:
                     return next_action
             else:
                 return actions.index(wlp.Action('ask'))
-        elif self.policy == 'appl':
+        elif self.policy in ('appl', 'aitoolbox'):
             if n_actions == 0:
-                self.get_appl_policy(iteration, episode, params)
-            rewards = self.appl_policy.get_action_rewards(belief)
+                self.get_external_policy(iteration, episode, params,
+                                         states=states, actions=actions,
+                                         observations=observations)
+            rewards = self.external_policy.get_action_rewards(belief)
             valid_actions = self.get_valid_actions(belief, states, actions)
             valid_actions_with_rewards = set(valid_actions).intersection(
                 set(rewards))
@@ -118,9 +124,12 @@ class Policy:
                 [a for a in valid_rewards if
                  valid_rewards[a] == max_valid_reward])
             return best_valid_action
+        else:
+            raise NotImplementedError
 
-    def get_appl_policy(self, iteration, episode, params):
-        """Load APPL policy (recompute if necessary)
+    def get_external_policy(self, iteration, episode, params,
+                            states, actions, observations):
+        """Load external policy (recompute if necessary)
         
         Store POMDP files as
         'models/exp_name/iteration/episode/policy_name.pomdp',
@@ -147,16 +156,35 @@ class Policy:
         if not (self.epsilon is None and iteration + episode > 0):
             # Recompute always, except only once for non-RL policies.
             writer = POMDPWriter(**params)
-            with open(pomdp_fpath, 'w') as f:
-                writer.write(f, discount=self.discount)
-            args = [os.path.join(APPL_PATH, 'src', 'pomdpsol'),
-                    pomdp_fpath,
-                    '-o', policy_fpath]
-            if self.timeout is not None:
-                args += ['--timeout', str(self.timeout)]
-            subprocess.call(args)
+            if self.policy == 'appl':
+                with open(pomdp_fpath, 'w') as f:
+                    writer.write_pomdp(f, discount=self.discount)
+                args = [os.path.join(APPL_PATH, 'src', 'pomdpsol'),
+                        pomdp_fpath,
+                        '-o', policy_fpath]
+                if self.timeout is not None:
+                    args += ['--timeout', str(self.timeout)]
+                subprocess.call(args)
+                self.external_policy = pp.POMDPPolicy(policy_fpath,
+                                                      file_format='policyx')
+            elif self.policy == 'aitoolbox':
+                with open(pomdp_fpath, 'w') as f:
+                    writer.write_txt(f)
+                args = [os.path.join('bin', 'pomdpsol'),
+                        '--input', pomdp_fpath,
+                        '--output', policy_fpath,
+                        '--discount', str(self.discount),
+                        '--horizon', str(self.horizon),
+                        '--n_states', str(len(states)),
+                        '--n_actions', str(len(actions)),
+                        '--n_observations', str(len(observations))]
+                subprocess.call(args)
+                self.external_policy = pp.POMDPPolicy(policy_fpath,
+                                                      file_format='aitoolbox',
+                                                      n_states=len(states))
+            else:
+                raise NotImplementedError
 
-        self.appl_policy = pp.POMDPPolicy(policy_fpath)
 
     def get_valid_actions(self, belief, states, actions):
         """Return valid actions given the current belief.
@@ -175,6 +203,8 @@ class Policy:
             s = self.policy + '-d{:.3f}'.format(self.discount)
             if self.timeout is not None:
                 s += '-tl{}'.format(self.timeout)
+        elif self.policy == 'aitoolbox':
+            s = self.policy + '-d{:.3f}'.format(self.discount)
         elif self.policy == 'fixed':
             s = self.policy + '-n{}'.format(self.n)
         else:
@@ -204,7 +234,7 @@ def run_experiment(config_fp):
     model_writer_gt = POMDPWriter(**params_gt)
     model_gt_path = os.path.join('models', name_exp, 'gt', 'gt.pomdp')
     with open(model_gt_path, 'w') as f:
-        model_writer_gt.write(f, discount=0.99)
+        model_writer_gt.write_pomdp(f, discount=0.99)
     # TODO: Should get_start_belief() be in model_writer?
     start_belief = model_writer_gt.get_start_belief()
     model_actions = model_writer_gt.actions
