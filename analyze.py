@@ -4,6 +4,7 @@ Analyze work_learn output.
 
 """
 
+import multiprocessing as mp
 import time
 import os
 import csv
@@ -105,7 +106,7 @@ def plot_reward_by_episode(df, outfname):
     df = df.groupby(['iteration','policy','episode']).sum().fillna(0).reset_index()[['iteration','policy','episode','r']]
 
     df['csr'] = df.sort(['episode']).groupby(['iteration','policy'])['r'].cumsum()
-    sns.tsplot(df, time='episode', condition='policy', unit='iteration', value='csr', ci=CI, interpolate=df['episode'].max() >= INTERPOLATE_MIN)
+    ax = sns.tsplot(df, time='episode', condition='policy', unit='iteration', value='csr', ci=CI, interpolate=df['episode'].max() >= INTERPOLATE_MIN)
     plt.savefig(outfname + '.png')
     plt.close()
     #df.sort(['iteration','policy']).to_csv(fname + '.csv')
@@ -115,7 +116,7 @@ def plot_reward_by_episode(df, outfname):
     #df = df[(df.policy == 'pbvi-h10') | (df.policy == 'pbvi-h50')]
     df['it-ep'] = df['iteration'].map(str) + ',' + df['episode'].map(str)
     df_sums = df.groupby(['policy', 'it-ep'], as_index=False)['r'].sum()
-    sns.barplot('policy', y='r', data=df_sums, ci=CI)
+    ax = sns.barplot('policy', y='r', data=df_sums, ci=CI)
     plt.savefig(outfname + '_bar.png')
     plt.close()
 
@@ -127,7 +128,7 @@ def plot_reward_by_t(df, outfname):
 
     df['csr'] = df.sort(['t']).groupby(['policy','iteration','episode'])['r'].cumsum()
     df['it-ep'] = df['iteration'].map(str) + ',' + df['episode'].map(str)
-    sns.tsplot(df, time='t', condition='policy', unit='it-ep', value='csr', ci=CI, interpolate=df['t'].max() >= INTERPOLATE_MIN)
+    ax = sns.tsplot(df, time='t', condition='policy', unit='it-ep', value='csr', ci=CI, interpolate=df['t'].max() >= INTERPOLATE_MIN)
     plt.savefig(outfname + '.png')
     plt.close()
     #df.sort(['policy','iteration','episode']).to_csv(fname + '.csv')
@@ -202,54 +203,72 @@ def finished(df):
     df = df[df.episode_max == max_episode]
     return df, max_episode
 
-if __name__ == '__main__':
-    start_time = time.clock()
+def make_plots(infile, outdir, model_true=None, model_est=None, names=None,
+               episode_step=100, exclude=[], noexp=True, log=True):
+    """Make plots.
 
-    parser = argparse.ArgumentParser(description='Visualize policies.')
-    parser.add_argument('-i', '--infile', type=argparse.FileType('r'))
-    parser.add_argument('-o', '--outdir', type=str)
-    parser.add_argument('-n', '--names', type=argparse.FileType('r'))
-    parser.add_argument('--model_true', type=argparse.FileType('r'))
-    parser.add_argument('--model_est', type=argparse.FileType('r'))
-    parser.add_argument('--episode_step', type=int, default=100, help='Episode step size for plotting t on x-axis')
-    parser.add_argument('--no-noexp', dest='noexp', action='store_false', help='Do not plot NOEXP actions')
-    parser.add_argument('--no-log', dest='log', action='store_false', help='Do not use log scale for breakdown plots')
-    parser.set_defaults(log=True)
-    parser.set_defaults(noexp=True)
-    args = parser.parse_args()
+    Args:
+        episode_step:   Episode step size for plotting t on x-axis
+        noexp:          Plot NOEXP actions
+        log:            Use log scale for breakdown plots
+        exclude:        List of policies to exclude
 
-    if args.names:
-        names = parse_names(args.names)
-    else:
-        names = None
+    """
+    if names:
+        with open(names, 'r') as f:
+            names = parse_names(f)
 
-    if not os.path.exists(args.outdir):
-        os.makedirs(args.outdir)
+    if not os.path.exists(outdir):
+        os.makedirs(outdir)
 
-    df, max_episode = finished(pd.read_csv(args.infile))
-    plot_reward_by_episode(df, os.path.join(args.outdir, 'r'))
-    plot_solve_t_by_episode(df, os.path.join(args.outdir, 't'))
+    df, max_episode = finished(pd.read_csv(infile))
+    if not noexp:
+        df = df[df.a != reserved_actions.index('NOEXP')]
+    if exclude:
+        for p in exclude:
+            df = df[df.policy != p]
 
-    episode_pairs = range(0, max_episode + 2, args.episode_step)
+    plot_reward_by_episode(df, os.path.join(outdir, 'r'))
+    plot_solve_t_by_episode(df, os.path.join(outdir, 't'))
+
+    episode_pairs = range(0, max_episode + 2, episode_step)
     for p in zip(episode_pairs[:-1], episode_pairs[1:]):
         df_filter = df[(df.episode >= p[0]) & (df.episode < p[1])]
-        if not args.noexp:
-            df_filter = df[df.a != reserved_actions.index('NOEXP')]
         e_str = 'e{}-{}'.format(*p)
-        plot_reward_by_t(df_filter, os.path.join(args.outdir, 'r_t_' + e_str))
-        plot_beliefs(df_filter, os.path.join(args.outdir, 'b_' + e_str), formatter=str_state(names), logx=args.log)
-        plot_actions(df_filter, os.path.join(args.outdir, 'a_' + e_str), formatter=str_action, logx=args.log)
-        plot_observations(df_filter, os.path.join(args.outdir, 'o_' + e_str), formatter=str_observation, logx=args.log)
+        plot_reward_by_t(df_filter, os.path.join(outdir, 'r_t_' + e_str))
+        plot_beliefs(df_filter, os.path.join(outdir, 'b_' + e_str), formatter=str_state(names), logx=log)
+        plot_actions(df_filter, os.path.join(outdir, 'a_' + e_str), formatter=str_action, logx=log)
+        plot_observations(df_filter, os.path.join(outdir, 'o_' + e_str), formatter=str_observation, logx=log)
 
-    if args.model_true and args.model_est:
-        df_model_t = pd.read_csv(args.model_true)
-        df_model = pd.read_csv(args.model_est)
+    if model_true and model_est:
+        df_model_t = pd.read_csv(model_true)
+        df_model = pd.read_csv(model_est)
         if len(df_model) > 0:
             df_model, _ = finished(df_model)
-            plot_params(df_model_t, df_model, os.path.join(args.outdir, 'params'), formatter=str_state(names))
+            plot_params(df_model_t, df_model, os.path.join(outdir, 'params'), formatter=str_state(names))
 
-    """
-    # Record timing.
-    end_time = time.clock()
-    print 'took {:2f} seconds'.format(end_time - start_time)
-    """
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Visualize policies.')
+    parser.add_argument('config', type=str, nargs='+', help='config files')
+    parser.add_argument('--episode_step', type=int, default=100)
+    parser.add_argument('--exclude', type=str, nargs='*', help='Policies to exclude')
+    args = parser.parse_args()
+    
+    jobs = []
+    for f in args.config:
+        basename = os.path.basename(f)
+        name_exp = os.path.splitext(basename)[0]
+
+        infile = os.path.join('res', '{}.txt'.format(name_exp))
+        names = os.path.join('res', '{}_names.csv'.format(name_exp))
+        outdir = os.path.join('res', name_exp)
+
+        p = mp.Process(target=make_plots, kwargs=dict(
+            infile=infile,
+            outdir=outdir,
+            names=names,
+            episode_step=args.episode_step,
+            exclude=args.exclude))
+        jobs.append(p)
+        p.start()
+
