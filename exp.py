@@ -16,6 +16,7 @@ from util import get_or_default, ensure_dir
 APPL_PATH = '/homes/gws/jbragg/dev/appl-0.96/'
 
 def get_start_belief(fp):
+    """DEPRECATED"""
     for line in fp:
         if line.strip().startswith('start:'):
             start_belief = np.array([float(s) for s in line[6:].split()])
@@ -27,7 +28,6 @@ def belief_to_str(lst):
 
 def write_names(fp, model):
     """Write csv file with mapping from indices to names."""
-    
     writer = csv.writer(fp)
     writer.writerow(['i','type','s'])
     for i,a in enumerate(model.actions):
@@ -204,7 +204,8 @@ class Policy:
             if self.timeout is not None:
                 s += '-tl{}'.format(self.timeout)
         elif self.policy == 'aitoolbox':
-            s = self.policy + '-d{:.3f}'.format(self.discount)
+            s = 'ait' + '-d{:.3f}'.format(self.discount)
+            s += '-h{}'.format(self.horizon)
         elif self.policy == 'fixed':
             s = self.policy + '-n{}'.format(self.n)
         else:
@@ -235,7 +236,6 @@ def run_experiment(config_fp):
     model_gt_path = os.path.join('models', name_exp, 'gt', 'gt.pomdp')
     with open(model_gt_path, 'w') as f:
         model_writer_gt.write_pomdp(f, discount=0.99)
-    # TODO: Should get_start_belief() be in model_writer?
     start_belief = model_writer_gt.get_start_belief()
     model_actions = model_writer_gt.actions
     model_states = model_writer_gt.states
