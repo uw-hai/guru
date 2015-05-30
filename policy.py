@@ -19,6 +19,11 @@ class Policy:
         self.policy = policy_type
         self.exp_name = exp_name
         self.epsilon = get_or_default(kwargs, 'epsilon', None)
+        if self.epsilon is not None:
+            self.estimate_interval = get_or_default(
+                kwargs, 'estimate_interval', 1)
+            self.resolve_interval = get_or_default(
+                kwargs, 'resolve_interval', 1)
         if self.policy == 'appl':
             self.discount = get_or_default(kwargs, 'discount', default_discount)
             self.timeout = get_or_default(kwargs, 'timeout', None)
@@ -121,8 +126,10 @@ class Policy:
         pomdp_fpath = os.path.join(pomdp_dirpath, str(self) + '.pomdp')
         policy_fpath = os.path.join(policy_dirpath, str(self) + '.policy')
 
-        if not (self.epsilon is None and iteration + episode > 0):
-            # Recompute always, except only once for non-RL policies.
+        resolve_p = ((iteration == 0 and episode == 0) or
+                     (self.epsilon is not None and
+                      episode % self.resolve_interval == 0))
+        if resolve_p:
             model = POMDPModel(n_skills=n_skills, **params)
             if self.policy == 'appl':
                 with open(pomdp_fpath, 'w') as f:
@@ -181,4 +188,8 @@ class Policy:
 
         if self.epsilon is not None:
             s += '-e{:3f}'.format(self.epsilon)
+            if (self.estimate_interval > 1):
+                s += '-e_int{}'.format(self.estimate_interval)
+            if (self.resolve_interval > 1):
+                s += '-s_int{}'.format(self.resolve_interval)
         return s

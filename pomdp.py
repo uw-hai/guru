@@ -16,22 +16,40 @@ import elementtree.ElementTree as ee
 
 class POMDPModel:
     """POMDP model"""
-    def __init__(self, n_skills, history=None, **params):
+    def __init__(self, n_skills, **params):
         self.n_skills = n_skills
         self.actions = wlp.actions(self.n_skills)
         self.states = wlp.states_all(self.n_skills)
         self.observations = wlp.observations
-        self.single_params = ['p_guess', 'p_slip', 'p_lose', 'p_learn', 'p_leave']
-
+        self.single_params = [
+            'p_guess', 'p_slip', 'p_lose', 'p_learn', 'p_leave']
         self.params = params
-        self.params['utility_type'] = get_or_default(
-            params, 'utility_type', 'acc')
-        self.params['p_lose'] = get_or_default(params, 'p_lose', 0)
-        if history is not None:
-            self.params.update(self.estimate(history))
 
-        self.p_t, self.p_o, self.p_i, self.rewards = self.make_tables(
-            self.params)
+        self.beta_priors = {
+            'p_s': [(1.1,1.1) for i in xrange(n_skills)],
+            'p_guess': (1.1, 1.1),
+            'p_slip': (2, 5), # Lower probability of making a mistake.
+            'p_lose': (2, 5), # Lower probability of forgetting.
+            'p_learn': (1.1, 1.1),
+            'p_leave': (1.1, 1.1)}
+
+    def write_params(self, fo, writeheader=True, iteration=None, episode=None, policy=None):
+        """Write params to model csv file"""
+        fieldnames = ['iteration', 'episode', 'policy', 'param', 'v']
+        writer = csv.DictWriter(fo, fieldnames=fieldnames)
+        if writeheader:
+            writer.writeheader()
+        row_base = {'iteration': iteration,
+                     'episode': episode,
+                     'policy': policy}
+        for i in xrange(self.n_skills):
+            row = {'param': 'p_s{}'.format(i), 'v': self.params['p_s'][i]}
+            row.update(row_base)
+            writer.writerow(row)
+        for p in self.single_params:
+            row = {'param': p, 'v': self.params[p]}
+            row.update(row_base)
+            writer.writerow(row)
 
     def write_names(self, fo):
         """Write csv file mapping state/action/observation indices to names"""
@@ -49,13 +67,13 @@ class POMDPModel:
         for s,_ in enumerate(self.states):
             for a,_ in enumerate(self.actions):
                 for s1,_ in enumerate(self.states):
-                    fo.write('{}\t{}\t'.format(self.p_t[s][a][s1],
-                                               self.rewards[s][a][s1]))
+                    fo.write('{}\t{}\t'.format(self.get_transition(s, a, s1),
+                                               self.get_reward(s, a, s1)))
             fo.write('\n')
         for s,_ in enumerate(self.states):
             for a,_ in enumerate(self.actions):
                 for o,_ in enumerate(self.observations):
-                    fo.write('{}\t'.format(self.p_o[s][a][o]))
+                    fo.write('{}\t'.format(self.get_observation(s, a, o)))
             fo.write('\n')
                                            
 
@@ -79,7 +97,7 @@ class POMDPModel:
             for a,act in enumerate(self.actions):
                 for s1,st1 in enumerate(self.states):
                     fo.write('T: {} : {} : {} {}\n'.format(
-                        act, st, st1, self.p_t[s][a][s1]))
+                        act, st, st1, self.get_transition(s, a, s1)))
                 fo.write('\n')
 
         fo.write('\n\n### Observations\n')
@@ -87,7 +105,7 @@ class POMDPModel:
             for a,act in enumerate(self.actions):
                 for o,obs in enumerate(self.observations):
                     fo.write('O: {} : {} : {} {}\n'.format(
-                        act, st, obs, self.p_o[s][a][o]))
+                        act, st, obs, self.get_observation(s, a, o)))
                 fo.write('\n')
 
         fo.write('\n\n### Rewards\n')
@@ -95,7 +113,7 @@ class POMDPModel:
             for a,act in enumerate(self.actions):
                 for s1,st1 in enumerate(self.states):
                     fo.write('R: {} : {} : {} : * {}\n'.format(
-                        act, st, st1, self.rewards[s][a][s1]))
+                        act, st, st1, self.get_reward(s, a, s1)))
                 fo.write('\n')
 
     def get_start_belief(self, params=None):
@@ -104,7 +122,7 @@ class POMDPModel:
         return [self.get_start_probability(s, params) for
                 s in xrange(len(self.states))]
 
-    def get_start_probability(self, s, params, derivative=None):
+    def get_start_probability(self, s, params=None, derivative=None):
         """Get start probability, or
         derivative with respect to a parameter.
 
@@ -114,6 +132,8 @@ class POMDPModel:
             derivative: Skill number
 
         """
+        if params is None:
+            params = self.params
         st = self.states[s]
         if st.term or st.is_quiz():
             return 0
@@ -136,7 +156,7 @@ class POMDPModel:
             else:
                 return dprob
 
-    def get_transition(self, s, a, s1, params, derivative=None):
+    def get_transition(self, s, a, s1, params=None, derivative=None):
         """Get transition probability, or derivative
 
         Args:
@@ -148,6 +168,8 @@ class POMDPModel:
                         'p_lose', 'p_learn'
 
         """
+        if params is None:
+            params = self.params
         p_slip = params['p_slip']
         p_guess = params['p_guess']
         p_leave = params['p_leave']
@@ -308,7 +330,7 @@ class POMDPModel:
             else:
                 return cval(0)
 
-    def get_reward(self, s, a, s1, params):
+    def get_reward(self, s, a, s1, params=None):
         """Get reward
 
         Args:
@@ -318,6 +340,8 @@ class POMDPModel:
             params:
 
         """
+        if params is None:
+            params = self.params
         p_r = params['p_r']
         p_slip = params['p_slip']
         p_guess = params['p_guess']
@@ -344,7 +368,7 @@ class POMDPModel:
         else:
             return 0
 
-    def get_observation(self, s, a, o, params, derivative=None):
+    def get_observation(self, s, a, o, params=None, derivative=None):
         """Get observation probability, or derivative
 
         Args:
@@ -354,6 +378,8 @@ class POMDPModel:
             params:
 
         """
+        if params is None:
+            params = self.params
         p_slip = params['p_slip']
         p_guess = params['p_guess']
 
@@ -461,13 +487,14 @@ class POMDPModel:
         action_num      int
         return          tuple(s, o, r)
         '''
-        p_s_prime = [self.p_t[state_num][action_num][s_num] for
+        p_s_prime = [self.get_transition(state_num, action_num, s_num) for
                      s_num in xrange(len(self.states))]
         s_prime = np.random.choice(range(len(self.states)), p=p_s_prime)
-        p_o_prime = [self.p_o[s_prime][action_num][observation_num] for
-                     observation_num in xrange(len(self.observations))]
+        p_o_prime = [
+            self.get_observation(s_prime, action_num, observation_num) for
+            observation_num in xrange(len(self.observations))]
         o_prime = np.random.choice(range(len(self.observations)), p=p_o_prime)
-        r = self.rewards[state_num][action_num][s_prime]
+        r = self.get_reward(state_num, action_num, s_prime)
         return s_prime, o_prime, r
 
     def update_belief(self, prev_belief, action_num, observation_num):
@@ -482,10 +509,11 @@ class POMDPModel:
         '''
         b_new_nonnormalized = []
         for s_prime in xrange(len(self.states)):
-            p_o_prime = self.p_o[s_prime][action_num][observation_num]
+            p_o_prime = self.get_observation(
+                s_prime, action_num, observation_num)
             summation = 0.0
             for s in xrange(len(self.states)):
-                p_s_prime = self.p_t[s][action_num][s_prime]
+                p_s_prime = self.get_transition(s, action_num, s_prime)
                 b_s = float(prev_belief[s])
                 summation = summation + p_s_prime * b_s
             b_new_nonnormalized.append(p_o_prime * summation)
@@ -621,10 +649,9 @@ class POMDPModel:
 
         # Add param likelihood.
         arr = self.params_to_array(params)
-        for i in xrange(self.n_skills + len(self.single_params)):
-            # TODO: Fix duplicate code.
-            ll += log(util.beta(arr[i], 1.1, 1.1))
-
+        for i,beta_p in enumerate(self.params_to_array(self.beta_priors)):
+            ll += log(util.beta(arr[i], *beta_p))
+ 
         return ess_t, ess_o, ess_i, ll
 
     def get_param_index(self, param):
@@ -674,11 +701,10 @@ class POMDPModel:
                                     self.get_observation(s, a, o, params,
                                                          derivative=p)
 
-            for i in xrange(self.n_skills + len(self.single_params)):
-                # Uninformative prior
-                ell += log(util.beta(array[i], 1.1, 1.1))
-                grad[i] += 1 / util.beta(array[i], 1.1, 1.1) * \
-                           util.dbeta(array[i], 1.1, 1.1)
+            for i,beta_p in enumerate(self.params_to_array(self.beta_priors)):
+                ell += log(util.beta(array[i], *beta_p))
+                grad[i] += 1 / util.beta(array[i], *beta_p) * \
+                           util.dbeta(array[i], *beta_p)
         
 
 
@@ -693,15 +719,23 @@ class POMDPModel:
                        bounds=[(0.0001,0.9999) for x in x0], options={'disp': False})
         return self.array_to_params(res['x'])
 
-    def estimate(self, history, ll_max_improv=0.001):
-        """Estimate parameters from history"""
-        # Random parameters
-        params = {'p_s': np.random.random((self.n_skills)),
-                  'p_guess': random.random(),
-                  'p_slip': random.random(),
-                  'p_lose': random.random(),
-                  'p_learn': random.random(),
-                  'p_leave': random.random()}
+    def estimate(self, history, random_init=False, ll_max_improv=0.001):
+        """Estimate parameters from history
+        
+        Args:
+            random_init:    Initialize randomly rather than with last values.
+            
+        """
+        if random_init:
+            params = {'p_s': np.random.random((self.n_skills)),
+                      'p_guess': random.random(),
+                      'p_slip': random.random(),
+                      'p_lose': random.random(),
+                      'p_learn': random.random(),
+                      'p_leave': random.random()}
+        else:
+            params = dict((k, self.params[k]) for k in 
+                          ['p_s'] + self.single_params)
 
         ess_t, ess_o, ess_i, ll = self.estimate_E(history, params)
         ll_improv = float('inf')
@@ -717,8 +751,7 @@ class POMDPModel:
             print 'EM step {}: {} ({})'.format(t, ll, ll_improv)
             print params
 
-        return params
-
+        self.params.update(params)
 
 class POMDPPolicy:
     '''

@@ -146,47 +146,25 @@ def plot_solve_t_by_episode(df, outfname):
     plt.savefig(outfname + '.png')
     plt.close()
 
-def model_cleanup(df):
-    #df['a1'] = df['a1'].map(formatter)
+def plot_params(df_model, outfname):
+    # Separate ground truth params
+    df_gt = df_model[df_model.iteration.isnull()]
+    df_est = df_model[df_model.iteration.notnull()]
 
-    # Set shared group order for initial to state id.
-    df.ix[df.param_type == 'initial', 'shared_o'] = df['a1']
+    # Find dist from true param.
+    df_est = df_model.merge(df_gt, how='left', on='param', suffixes=('', '_t'))
+    df_est['dist'] = np.abs(df_est['v'] - df_est['v_t'])
 
-    # Fill a2 and a3 for initial.
-    df = df.fillna(-1)
-    df['a1'] = df['a1'].astype(int)  # had NaN?
-    df['a2'] = df['a2'].astype(int)  # had NaN
-    df['a3'] = df['a3'].astype(int)  # had NaN
-    df['type'] = df['param_type'] + '(' + df['a1'].map(str) + ',' + df['a2'].map(str) + ',' + df['a3'].map(str) + ')'
-    return df
-
-def plot_params(df_model_t, df_model, outfname, formatter):
-    # Ignore rewards and clamped probabilities in true model.
-    df_model_t = df_model_t[df_model_t.param_type != 'reward']
-    if 'clamped' in df_model_t:
-        df_model_t = df_model_t[~df_model_t.clamped.astype(bool)]
-
-    df_t = model_cleanup(df_model_t)
-    # One parameter from each shared group.
-    df_t = df_t.groupby(['param_type','shared_g','shared_o']).first().reset_index()
-    df = model_cleanup(df_model)
-    df_merged = pd.merge(df, df_t, on=['type'], how='inner', suffixes=('_l', '_r'))
-    # Distance from true param.
-    df_merged['dist'] = np.abs(df_merged['v_l'] - df_merged['v_r'])
-
-    for p, df_p in df_merged.groupby('policy', as_index=False):
-        # To plot actual params, use value='v_l' instead of value='dist'.
-        sns.tsplot(df_p, time='episode', unit='iteration', condition='type', value='dist', ci=CI)
+    for p, df_p in df_est.groupby('policy', as_index=False):
+        sns.tsplot(df_p, time='episode', unit='iteration', condition='param', value='v', ci=CI)
         fname = outfname + '_p-{}'.format(p)
         plt.savefig(fname + '.png')
         plt.close()
 
-    # Plot aggregate learned model all policies.
-    # TODO: Refactor to avoid code duplication.
-    df_merged['it-pol'] = df_merged['iteration'].map(str) + ',' + df_merged['policy'].map(str)
-    sns.tsplot(df_merged, time='episode', unit='it-pol', condition='type', value='dist', ci=CI)
-    plt.savefig(fname + '.png')
-    plt.close()
+        sns.tsplot(df_p, time='episode', unit='iteration', condition='param', value='dist', ci=CI)
+        fname = outfname + '_dist_p-{}'.format(p)
+        plt.savefig(fname + '.png')
+        plt.close()
 
 def parse_names(f):
     d = dict()
@@ -200,10 +178,10 @@ def finished(df):
     df.drop(df.tail(1).index, inplace=True)  # in case last row is incomplete
     df = df.join(df.groupby(['iteration','policy'])['episode'].max(), on=['iteration','policy'], rsuffix='_max')
     max_episode = df['episode'].max()
-    df = df[df.episode_max == max_episode]
+    df = df[~(df.episode_max < max_episode)]  # TODO: Double-check
     return df, max_episode
 
-def make_plots(infile, outdir, model_true=None, model_est=None, names=None,
+def make_plots(infile, outdir, model=None, names=None,
                episode_step=100, exclude=[], noexp=True, log=True):
     """Make plots.
 
@@ -240,12 +218,11 @@ def make_plots(infile, outdir, model_true=None, model_est=None, names=None,
         plot_actions(df_filter, os.path.join(outdir, 'a_' + e_str), formatter=str_action, logx=log)
         plot_observations(df_filter, os.path.join(outdir, 'o_' + e_str), formatter=str_observation, logx=log)
 
-    if model_true and model_est:
-        df_model_t = pd.read_csv(model_true)
-        df_model = pd.read_csv(model_est)
+    if model is not None:
+        df_model = pd.read_csv(model)
         if len(df_model) > 0:
             df_model, _ = finished(df_model)
-            plot_params(df_model_t, df_model, os.path.join(outdir, 'params'), formatter=str_state(names))
+            plot_params(df_model, os.path.join(outdir, 'params'))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Visualize policies.')
@@ -261,12 +238,14 @@ if __name__ == '__main__':
 
         infile = os.path.join('res', '{}.txt'.format(name_exp))
         names = os.path.join('res', '{}_names.csv'.format(name_exp))
+        model = os.path.join('res', '{}_model.csv'.format(name_exp))
         outdir = os.path.join('res', name_exp)
 
         p = mp.Process(target=make_plots, kwargs=dict(
             infile=infile,
             outdir=outdir,
             names=names,
+            model=model,
             episode_step=args.episode_step,
             exclude=args.exclude))
         jobs.append(p)

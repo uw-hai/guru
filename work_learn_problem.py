@@ -196,7 +196,6 @@ class State:
 def reward_new_posterior(prior, posterior, utility_type='acc'):
     """Return reward of new posterior"""
     if utility_type == 'posterior':
-        print 'WARNING: using posterior!'
         if (
             (prior >= 0.5 and posterior >= 0.5) or
             (prior < 0.5 and posterior < 0.5)):
@@ -204,6 +203,5 @@ def reward_new_posterior(prior, posterior, utility_type='acc'):
         return abs(prior - posterior)
     else:
         # Chris style.
-        print 'Using accuracy-based utility'
         return max(posterior, 1-posterior) - max(prior, 1-prior)
 
