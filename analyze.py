@@ -117,8 +117,10 @@ def plot_reward_by_episode(df, outfname):
     df['it-ep'] = df['iteration'].map(str) + ',' + df['episode'].map(str)
     df_sums = df.groupby(['policy', 'it-ep'], as_index=False)['r'].sum()
     ax = sns.barplot('policy', y='r', data=df_sums, ci=CI)
-    plt.savefig(outfname + '_bar.png')
+    fname = outfname + '_bar'
+    plt.savefig(fname + '.png')
     plt.close()
+    df_sums.groupby('policy', as_index=False)['r'].mean().to_csv(fname + '.csv')
 
 def plot_reward_by_t(df, outfname):
     df = df[['policy','iteration','episode','t','r']]
