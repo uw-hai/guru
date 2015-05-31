@@ -3,17 +3,35 @@ import argparse
 import itertools
 import csv
 import os
+import sys
 import time
 import json
 import logging
 import numpy as np
+import functools as ft
 from pomdp import POMDPModel
 from policy import Policy
 from history import History
 from util import get_or_default, ensure_dir
 
+logger = mp.log_to_stderr()
+logger.setLevel(logging.INFO)
 
-logger = mp.log_to_stderr(logging.WARNING)
+def run_functor(functor, x):
+    """
+    Given a functor, run it and return its result. We can 
+    use this with multiprocessing.map and map it over a list of job 
+    functors to do them.
+
+    Handles getting more than multiprocessing's pitiful exception output
+    """
+
+    try:
+        # This is where you do your actual work
+        return functor(x)
+    except:
+        # Put all exception text into an exception and raise that
+        raise Exception("".join(traceback.format_exception(*sys.exc_info())))
 
 def get_start_belief(fp):
     """DEPRECATED"""
@@ -65,8 +83,9 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
 
     # Parse config
     params_gt = config_params
+    # TODO: Blacklist estimated params instead.
     params_gt_fixed = dict((k, params_gt[k]) for k in
-                           ['cost', 'cost_exp', 'p_r', 'p_1'])
+                           ['cost', 'cost_exp', 'p_r', 'p_1', 'utility_type'])
     n_skills = len(params_gt['p_s'])
     episodes = params_gt['episodes']
 
@@ -89,7 +108,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
         model_est = model_gt
 
     for ep in xrange(episodes):
-        print '{} ({}, {})'.format(pol, it, ep)
+        logger.info('{} ({}, {})'.format(pol, it, ep))
         if pol.epsilon is not None and ep % pol.estimate_interval == 0:
             # TODO: Reestimate only for policies that use POMDP solvers?
             first_ep = ep == 0
@@ -110,7 +129,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
         results.append({'iteration': it,
                         'episode': ep,
                         't': t,
-                        'policy': pol,
+                        'policy': str(pol),
                         'sys_t': time.clock(),
                         'a': '',
                         's': s,
@@ -140,7 +159,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
             results.append({'iteration': it,
                             'episode': ep,
                             't': t,
-                            'policy': pol,
+                            'policy': str(pol),
                             'sys_t': time.clock(),
                             'a': a,
                             's': s,
@@ -153,6 +172,10 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
 def run_experiment(config_fp):
     basename = os.path.basename(config_fp.name)
     exp_name = os.path.splitext(basename)[0]
+
+    ensure_dir('res')
+    ensure_dir(os.path.join('models', exp_name))
+    ensure_dir(os.path.join('policies', exp_name))
 
     config = json.load(config_fp)
     config = set_config_defaults(config)
@@ -196,8 +219,9 @@ def run_experiment(config_fp):
         import signal
         signal.signal(signal.SIGINT, signal.SIG_IGN)
     pool = mp.Pool(initializer=init_worker)
+    f = ft.partial(run_policy_iteration_from_json)
     try:
-        for res in pool.imap(run_policy_iteration_from_json, args_iter):
+        for res in pool.imap(f, args_iter):
             results_rows, models_rows = res
             for r in results_rows:
                 r_writer.writerow(r)
@@ -220,8 +244,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run an experiment')
     parser.add_argument('config', type=argparse.FileType('r'), nargs='+', help='Config files')
     args = parser.parse_args()
-
-    ensure_dir('res')
 
     for fp in args.config:
         run_experiment(fp)

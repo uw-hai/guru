@@ -48,7 +48,7 @@ class POMDPModel:
         rows = []
         row_base = {'iteration': iteration,
                     'episode': episode,
-                    'policy': policy}
+                    'policy': str(policy)}
         for i in xrange(self.n_skills):
             row = {'param': 'p_s{}'.format(i), 'v': self.params['p_s'][i]}
             row.update(row_base)
@@ -790,6 +790,8 @@ class POMDPPolicy:
                 for val in alpha.text.split():
                     vals.append(float(val))
                 val_arrs.append(vals)
+            if len(val_arrs) == 0:
+                raise Exception( 'APPL policy contained no alpha vectors' )
             self.pMatrix = np.array(val_arrs)
         elif file_format == 'aitoolbox':
             # Retrieve max horizon alpha vectors.
@@ -802,6 +804,8 @@ class POMDPPolicy:
                     else:
                         horizons[-1].append(line)
             horizons = [lst for lst in horizons if len(lst) > 0]
+            if len(horizons) == 0:
+                raise Exception( 'AIToolbox policy contained no alpha vectors' )
             lines_max_horizon = horizons[-1]
             alphas = [[float(v) for v in line.split()[:n_states]] for
                       line in lines_max_horizon]

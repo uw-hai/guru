@@ -154,7 +154,7 @@ def plot_params(df_model, outfname):
     df_est = df_model[df_model.iteration.notnull()]
 
     # Find dist from true param.
-    df_est = df_model.merge(df_gt, how='left', on='param', suffixes=('', '_t'))
+    df_est = df_est.merge(df_gt, how='left', on='param', suffixes=('', '_t'))
     df_est['dist'] = np.abs(df_est['v'] - df_est['v_t'])
 
     for p, df_p in df_est.groupby('policy', as_index=False):
@@ -211,7 +211,7 @@ def make_plots(infile, outdir, model=None, names=None,
     plot_reward_by_episode(df, os.path.join(outdir, 'r'))
     plot_solve_t_by_episode(df, os.path.join(outdir, 't'))
 
-    episode_pairs = range(0, max_episode + 2, episode_step)
+    episode_pairs = range(0, max_episode + 2, min(max_episode + 1, episode_step))
     for p in zip(episode_pairs[:-1], episode_pairs[1:]):
         df_filter = df[(df.episode >= p[0]) & (df.episode < p[1])]
         e_str = 'e{}-{}'.format(*p)

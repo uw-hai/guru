@@ -1,3 +1,10 @@
+"""policy.py
+
+Requirements: $PATH must include pomdpsol-appl for 'appl' policies and
+pomdpsol-aitoolbox for 'aitoolbox' policies.
+
+"""
+
 import collections
 import os
 import random
@@ -5,8 +12,6 @@ import subprocess
 from pomdp import POMDPPolicy, POMDPModel
 from util import get_or_default, ensure_dir
 import work_learn_problem as wlp
-
-APPL_PATH = '/homes/gws/jbragg/dev/appl-0.96/'
 
 class Policy:
     """Policy class
@@ -23,7 +28,7 @@ class Policy:
             self.estimate_interval = get_or_default(
                 kwargs, 'estimate_interval', 1)
             self.resolve_interval = get_or_default(
-                kwargs, 'resolve_interval', 1)
+                kwargs, 'resolve_interval', self.estimate_interval)
         if self.policy == 'appl':
             self.discount = get_or_default(kwargs, 'discount', default_discount)
             self.timeout = get_or_default(kwargs, 'timeout', None)
@@ -113,20 +118,18 @@ class Policy:
         or as 'policies/exp_name/gt/policy_name.policy when not using RL.
 
         """
-        if self.epsilon is None:
-            pomdp_dirpath = os.path.join('models', self.exp_name, 'gt')
-            policy_dirpath = os.path.join('policies', self.exp_name, 'gt')
-        else:
-            pomdp_dirpath = os.path.join(
-                'models', self.exp_name, str(iteration), str(episode))
-            policy_dirpath = os.path.join(
-                'policies', self.exp_name, str(iteration), str(episode))
+        pomdp_dirpath = os.path.join('models', self.exp_name)
+        policy_dirpath = os.path.join('policies', self.exp_name)
         ensure_dir(pomdp_dirpath)
         ensure_dir(policy_dirpath)
-        pomdp_fpath = os.path.join(pomdp_dirpath, str(self) + '.pomdp')
-        policy_fpath = os.path.join(policy_dirpath, str(self) + '.policy')
+        pomdp_fpath = os.path.join(
+            pomdp_dirpath,
+            '{}-{}-{}.pomdp'.format(iteration, episode, self))
+        policy_fpath = os.path.join(
+            policy_dirpath,
+            '{}-{}-{}.policy'.format(iteration, episode, self))
 
-        resolve_p = ((iteration == 0 and episode == 0) or
+        resolve_p = (self.epsilon is None and episode == 0 or
                      (self.epsilon is not None and
                       episode % self.resolve_interval == 0))
         if resolve_p:
@@ -134,7 +137,7 @@ class Policy:
             if self.policy == 'appl':
                 with open(pomdp_fpath, 'w') as f:
                     model.write_pomdp(f, discount=self.discount)
-                args = [os.path.join(APPL_PATH, 'src', 'pomdpsol'),
+                args = ['pomdpsol-appl',
                         pomdp_fpath,
                         '-o', policy_fpath]
                 if self.timeout is not None:
@@ -145,7 +148,7 @@ class Policy:
             elif self.policy == 'aitoolbox':
                 with open(pomdp_fpath, 'w') as f:
                     model.write_txt(f)
-                args = [os.path.join('bin', 'pomdpsol'),
+                args = ['pomdpsol-aitoolbox',
                         '--input', pomdp_fpath,
                         '--output', policy_fpath,
                         '--discount', str(self.discount),
@@ -187,7 +190,7 @@ class Policy:
             raise NotImplementedError
 
         if self.epsilon is not None:
-            s += '-e{:3f}'.format(self.epsilon)
+            s += '-e{:.3f}'.format(self.epsilon)
             if (self.estimate_interval > 1):
                 s += '-e_int{}'.format(self.estimate_interval)
             if (self.resolve_interval > 1):
