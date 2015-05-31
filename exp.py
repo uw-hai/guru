@@ -1,14 +1,19 @@
 import multiprocessing as mp
 import argparse
+import itertools
 import csv
 import os
 import time
 import json
+import logging
 import numpy as np
 from pomdp import POMDPModel
 from policy import Policy
 from history import History
 from util import get_or_default, ensure_dir
+
+
+logger = mp.log_to_stderr(logging.WARNING)
 
 def get_start_belief(fp):
     """DEPRECATED"""
@@ -21,137 +26,202 @@ def get_start_belief(fp):
 def belief_to_str(lst):
     return ' '.join(str(x) for x in lst)
 
-def run_experiment(config_fp):
-    basename = os.path.basename(config_fp.name)
-    name_exp = os.path.splitext(basename)[0]
+def set_config_defaults(config):
+    """Mutates and returns original object"""
+    config['params']['utility_type'] = get_or_default(
+        config['params'], 'utility_type', 'acc')
+    config['params']['p_lose'] = get_or_default(
+        config['params'], 'p_lose', 0)
+    config['params']['iterations'] = get_or_default(
+        config['params'], 'iterations', 1)
+    return config
+
+
+def run_policy_iteration_from_json(s):
+    """Helper for Pool.map(), which can only use functions that take a single
+    argument"""
+    d = json.loads(s)
+    config_params = d['params']
+    exp_name = d['exp_name']
+    policy = d['policy']
+    iteration = d['iteration']
+    return run_policy_iteration(exp_name, config_params, policy, iteration)
+ 
+def run_policy_iteration(exp_name, config_params, policy, iteration):
+    """
+    Args:
+        exp_name (str):         Experiment name, without file ending.
+        config_params (json):   Params portion of config
+        policy (json):
+        iteration (int):
+
+    Returns:
+        tuple:
+            - Experiment rows to be written
+            - Model rows to be written
+    """
+    name_exp = exp_name
+    it = iteration
 
     # Parse config
-    config = json.load(config_fp)
-    params_gt = config['params']
-    params_gt['utility_type'] = get_or_default(
-        params_gt, 'utility_type', 'acc')
-    params_gt['p_lose'] = get_or_default(params_gt, 'p_lose', 0)
+    params_gt = config_params
     params_gt_fixed = dict((k, params_gt[k]) for k in
                            ['cost', 'cost_exp', 'p_r', 'p_1'])
-
     n_skills = len(params_gt['p_s'])
-    iterations = get_or_default(params_gt, 'iterations', 1)
     episodes = params_gt['episodes']
-    policies = [Policy(policy_type=p['type'],
-                       exp_name=name_exp, **p) for p in config['policies']]
 
+    pol = Policy(policy_type=policy['type'], exp_name=name_exp, **policy)
 
-    # Always write a 0.99 discount ground truth .pomdp file.
-    # TODO: We don't need this.
-    ensure_dir(os.path.join('models', name_exp, 'gt'))
+    # GT model
     model_gt = POMDPModel(n_skills=n_skills, **params_gt)
-    model_gt_path = os.path.join('models', name_exp, 'gt', 'gt.pomdp')
-    with open(model_gt_path, 'w') as f:
-        model_gt.write_pomdp(f, discount=0.99)
     model_actions = model_gt.actions
     model_states = model_gt.states
     model_observations = model_gt.observations
 
-    #ensure_dir(os.path.join('policies', name_exp))
-    # TODO: Why doesn't this work without the name_exp part?
-    ensure_dir(os.path.join('res', name_exp))
+    results = []
+    models = []
 
-    #filename_policy = '../appl-0.96/src/{}.policy'.format(name_exp)
-    #filename_env = '{}.pomdp'.format(name_exp)
-    #pomdp = pp.POMDP(filename_env, filename_policy, start_belief)
+    # Begin experiment
+    history = History()
+    if pol.epsilon is not None:
+        model_est = POMDPModel(n_skills=n_skills, **params_gt_fixed)
+    else:
+        model_est = model_gt
 
-    model_est_path= os.path.join('res', '{}_model.csv'.format(name_exp))
-    with open(model_est_path, 'wb') as f:
-        model_gt.write_params(f, writeheader=True)
-    with open(os.path.join('res', '{}_names.csv'.format(name_exp)), 'wb') as f:
+    for ep in xrange(episodes):
+        print '{} ({}, {})'.format(pol, it, ep)
+        if pol.epsilon is not None and ep % pol.estimate_interval == 0:
+            # TODO: Reestimate only for policies that use POMDP solvers?
+            first_ep = ep == 0
+            model_est.estimate(history, random_init=first_ep)
+        params_est = model_est.params
+        models += model_est.get_params_est(
+            iteration=it, episode=ep, policy=pol)
+
+        history.new_episode()
+        start_belief = model_gt.get_start_belief()
+        start_state = np.random.choice(range(len(start_belief)),
+                                       p=start_belief)
+        s = start_state
+
+        # Belief using estimated model.
+        belief = model_est.get_start_belief()
+        t = 0
+        results.append({'iteration': it,
+                        'episode': ep,
+                        't': t,
+                        'policy': pol,
+                        'sys_t': time.clock(),
+                        'a': '',
+                        's': s,
+                        'o': '',
+                        'r': '',
+                        'b': belief_to_str(belief)})
+
+        while str(model_states[s]) != 'TERM':
+            if (pol.epsilon is not None and
+                    np.random.random() <= pol.epsilon):
+                valid_actions = [
+                    i for i,a in enumerate(model_actions) if
+                    model_states[s].is_valid_action(a) and
+                    a.name != 'boot']
+                a = np.random.choice(valid_actions)
+            else:
+                a = pol.get_best_action(
+                        params_est, it, history, model_states,
+                        model_actions, model_observations, belief)
+
+            # Simulate a step
+            s, o, r = model_gt.sample_SOR(s, a)
+            history.record(a, o)
+            belief = model_est.update_belief(belief, a, o)
+
+            t += 1
+            results.append({'iteration': it,
+                            'episode': ep,
+                            't': t,
+                            'policy': pol,
+                            'sys_t': time.clock(),
+                            'a': a,
+                            's': s,
+                            'o': o,
+                            'r': r,
+                            'b': belief_to_str(belief)})
+    return results, models
+
+
+def run_experiment(config_fp):
+    basename = os.path.basename(config_fp.name)
+    exp_name = os.path.splitext(basename)[0]
+
+    config = json.load(config_fp)
+    config = set_config_defaults(config)
+    params_gt = config['params']
+    n_skills = len(params_gt['p_s'])
+
+    # Prepare worker process arguments
+    policies = config['policies']
+    iterations = xrange(params_gt['iterations'])
+    args_iter = (json.dumps({'exp_name': exp_name,
+                             'params': params_gt,
+                             'policy': p,
+                             'iteration': i}) for i,p in
+                 itertools.product(iterations, policies))
+
+    # Write one-time files.
+    model_gt = POMDPModel(n_skills=n_skills, **params_gt)
+    with open(os.path.join('res', '{}_names.csv'.format(exp_name)), 'wb') as f:
         model_gt.write_names(f)
 
-    results_fields = ['iteration','episode','t','policy','sys_t',
-                      'a','s','o','r','b']
-    results_fp = open(os.path.join('res', '{}.txt'.format(name_exp)), 'wb')
-    r_writer = csv.DictWriter(results_fp, fieldnames=results_fields)
+    models_fp = open(os.path.join('res', '{}_model.csv'.format(exp_name)), 'wb')
+    models_fieldnames = ['iteration', 'episode', 'policy', 'param', 'v']
+    m_writer = csv.DictWriter(models_fp, fieldnames=models_fieldnames)
+    m_writer.writeheader()
+    for r in model_gt.get_params_est():
+        m_writer.writerow(r)
+
+    results_fp = open(os.path.join('res', '{}.txt'.format(exp_name)), 'wb')
+    results_fieldnames = [
+        'iteration','episode','t','policy','sys_t','a','s','o','r','b']
+    r_writer = csv.DictWriter(results_fp, fieldnames=results_fieldnames)
     r_writer.writeheader()
 
-    for it in xrange(iterations):
-        for pol in policies:
-            # TODO: Clear policy for new run.
-            history = History()
-            if pol.epsilon is not None:
-                model_est = POMDPModel(n_skills=n_skills, **params_gt_fixed)
-            else:
-                model_est = model_gt
+    # Create worker processes.
+    def init_worker():
+        """Function to make sure everyone happily exits on KeyboardInterrupt
 
-            for ep in xrange(episodes):
-                if pol.epsilon is not None and ep % pol.estimate_interval == 0:
-                    # TODO: Reestimate only for policies that use POMDP solvers?
-                    first_ep = ep == 0
-                    model_est.estimate(history, random_init=first_ep)
-                params_est = model_est.params
-                with open(model_est_path, 'ab') as f:
-                    model_est.write_params(
-                        f, writeheader=False,
-                        iteration=it, episode=ep, policy=pol)
+        See https://stackoverflow.com/questions/1408356/
+        keyboard-interrupts-with-pythons-multiprocessing-pool
+        """
+        import signal
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+    pool = mp.Pool(initializer=init_worker)
+    try:
+        for res in pool.imap(run_policy_iteration_from_json, args_iter):
+            results_rows, models_rows = res
+            for r in results_rows:
+                r_writer.writerow(r)
+            for r in models_rows:
+                m_writer.writerow(r)
+            models_fp.flush()
+            results_fp.flush()
+        pool.close()
+        pool.join()
+    except KeyboardInterrupt:
+        logger.warn('Control-C pressed')
+        pool.terminate()
+    finally:
+        # Cleanup.
+        results_fp.close()
+        models_fp.close()
 
-                history.new_episode()
-                start_belief = model_gt.get_start_belief()
-                start_state = np.random.choice(range(len(start_belief)),
-                                               p=start_belief)
-                s = start_state
-
-                # Belief using estimated model.
-                belief = model_est.get_start_belief()
-                t = 0
-                r_writer.writerow({'iteration': it,
-                                   'episode': ep,
-                                   't': t,
-                                   'policy': pol,
-                                   'sys_t': time.clock(),
-                                   'a': '',
-                                   's': s,
-                                   'o': '',
-                                   'r': '',
-                                   'b': belief_to_str(belief)})
-                results_fp.flush()
-
-                while str(model_states[s]) != 'TERM':
-                    if (pol.epsilon is not None and
-                            np.random.random() <= pol.epsilon):
-                        valid_actions = [
-                            i for i,a in enumerate(model_actions) if
-                            model_states[s].is_valid_action(a) and
-                            a.name != 'boot']
-                        a = np.random.choice(valid_actions)
-                    else:
-                        a = pol.get_best_action(
-                                params_est, it, history, model_states,
-                                model_actions, model_observations, belief)
-
-                    # Simulate a step
-                    s, o, r = model_gt.sample_SOR(s, a)
-                    history.record(a, o)
-                    belief = model_est.update_belief(belief, a, o)
-
-                    t += 1
-                    r_writer.writerow({'iteration': it,
-                                       'episode': ep,
-                                       't': t,
-                                       'policy': pol,
-                                       'sys_t': time.clock(),
-                                       'a': a,
-                                       's': s,
-                                       'o': o,
-                                       'r': r,
-                                       'b': belief_to_str(belief)})
-
-    results_fp.close()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run an experiment')
     parser.add_argument('config', type=argparse.FileType('r'), nargs='+', help='Config files')
     args = parser.parse_args()
 
-    jobs = []
+    ensure_dir('res')
+
     for fp in args.config:
-        p = mp.Process(target=run_experiment, args=(fp,))
-        jobs.append(p)
-        p.start()
+        run_experiment(fp)

@@ -34,22 +34,30 @@ class POMDPModel:
             'p_leave': (1.1, 1.1)}
 
     def write_params(self, fo, writeheader=True, iteration=None, episode=None, policy=None):
-        """Write params to model csv file"""
+        """DEPRECATED: Write params to model csv file"""
         fieldnames = ['iteration', 'episode', 'policy', 'param', 'v']
         writer = csv.DictWriter(fo, fieldnames=fieldnames)
         if writeheader:
             writer.writeheader()
+        rows = self.get_params_est()
+        for r in rows:
+            writer.writerow(r)
+
+    def get_params_est(self, iteration=None, episode=None, policy=None):
+        """Get estimated parameters in row format to write to model csv"""
+        rows = []
         row_base = {'iteration': iteration,
-                     'episode': episode,
-                     'policy': policy}
+                    'episode': episode,
+                    'policy': policy}
         for i in xrange(self.n_skills):
             row = {'param': 'p_s{}'.format(i), 'v': self.params['p_s'][i]}
             row.update(row_base)
-            writer.writerow(row)
+            rows.append(row)
         for p in self.single_params:
             row = {'param': p, 'v': self.params[p]}
             row.update(row_base)
-            writer.writerow(row)
+            rows.append(row)
+        return rows
 
     def write_names(self, fo):
         """Write csv file mapping state/action/observation indices to names"""
@@ -740,16 +748,16 @@ class POMDPModel:
         ess_t, ess_o, ess_i, ll = self.estimate_E(history, params)
         ll_improv = float('inf')
         t = 0
-        print 'EM step {}: {} ({})'.format(t, ll, ll_improv)
-        print params
+        #print 'EM step {}: {} ({})'.format(t, ll, ll_improv)
+        #print params
         while (ll_improv > ll_max_improv):
             t += 1
             params = self.estimate_M(ess_t, ess_o, ess_i, last_params=params) 
             ess_t, ess_o, ess_i, ll_new = self.estimate_E(history, params)
             ll_improv = abs((ll_new - ll) / ll)
             ll = ll_new
-            print 'EM step {}: {} ({})'.format(t, ll, ll_improv)
-            print params
+            #print 'EM step {}: {} ({})'.format(t, ll, ll_improv)
+            #print params
 
         self.params.update(params)
 
