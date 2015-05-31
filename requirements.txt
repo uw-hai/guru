@@ -1,0 +1,6 @@
+elementtree==1.2.6.post20050316
+matplotlib==1.4.2
+numpy==1.9.1
+pandas==0.15.2
+scipy==0.15.1
+seaborn==0.5.1
