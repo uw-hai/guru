@@ -8,7 +8,6 @@ import time
 import json
 import logging
 import numpy as np
-import functools as ft
 from pomdp import POMDPModel
 from policy import Policy
 from history import History
@@ -16,22 +15,6 @@ from util import get_or_default, ensure_dir
 
 logger = mp.log_to_stderr()
 logger.setLevel(logging.INFO)
-
-def run_functor(functor, x):
-    """
-    Given a functor, run it and return its result. We can 
-    use this with multiprocessing.map and map it over a list of job 
-    functors to do them.
-
-    Handles getting more than multiprocessing's pitiful exception output
-    """
-
-    try:
-        # This is where you do your actual work
-        return functor(x)
-    except:
-        # Put all exception text into an exception and raise that
-        raise Exception("".join(traceback.format_exception(*sys.exc_info())))
 
 def get_start_belief(fp):
     """DEPRECATED"""
@@ -219,9 +202,9 @@ def run_experiment(config_fp):
         import signal
         signal.signal(signal.SIGINT, signal.SIG_IGN)
     pool = mp.Pool(initializer=init_worker)
-    f = ft.partial(run_policy_iteration_from_json)
+    f = run_policy_iteration_from_json
     try:
-        for res in pool.imap(f, args_iter):
+        for res in pool.imap_unordered(f, args_iter):
             results_rows, models_rows = res
             for r in results_rows:
                 r_writer.writerow(r)
