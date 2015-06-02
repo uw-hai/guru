@@ -49,12 +49,10 @@ def belief_to_str(lst):
 
 def set_config_defaults(config):
     """Mutates and returns original object"""
-    config['params']['utility_type'] = get_or_default(
-        config['params'], 'utility_type', 'acc')
-    config['params']['p_lose'] = get_or_default(
-        config['params'], 'p_lose', 0)
-    config['params']['iterations'] = get_or_default(
-        config['params'], 'iterations', 1)
+    config['utility_type'] = get_or_default(config, 'utility_type', 'acc')
+    config['p_lose'] = get_or_default(config, 'p_lose', 0)
+    config['iterations'] = get_or_default(config, 'iterations', 1)
+    config['episodes'] = get_or_default(config, 'episodes', 1)
     return config
 
 
@@ -81,7 +79,6 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
             - Experiment rows to be written
             - Model rows to be written
     """
-    name_exp = exp_name
     it = iteration
 
     # Parse config
@@ -92,7 +89,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
     n_skills = len(params_gt['p_s'])
     episodes = params_gt['episodes']
 
-    pol = Policy(policy_type=policy['type'], exp_name=name_exp, **policy)
+    pol = Policy(policy_type=policy['type'], exp_name=exp_name, **policy)
 
     # GT model
     model_gt = POMDPModel(n_skills=n_skills, **params_gt)
@@ -173,41 +170,45 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
     return results, models
 
 
-def run_experiment(config_fp):
-    basename = os.path.basename(config_fp.name)
-    exp_name = os.path.splitext(basename)[0]
+def run_experiment(config, policies, iterations):
+    config_basename = os.path.basename(config.name)
+    exp_name = os.path.splitext(config_basename)[0]
+    policies_basename = os.path.basename(policies.name)
+    policies_name = os.path.splitext(policies_basename)[0]
 
-    ensure_dir('res')
-    ensure_dir(os.path.join('models', exp_name))
-    ensure_dir(os.path.join('policies', exp_name))
+    res_path = os.path.join('res', exp_name)
+    models_path = os.path.join('models', exp_name)
+    policies_path = os.path.join('policies', exp_name)
+    for d in [res_path, models_path, policies_path]:
+        ensure_dir(d)
 
-    config = json.load(config_fp)
-    config = set_config_defaults(config)
-    params_gt = config['params']
+    params_gt = json.load(config)
+    params_gt = set_config_defaults(params_gt)
     n_skills = len(params_gt['p_s'])
 
     # Prepare worker process arguments
-    policies = config['policies']
-    iterations = xrange(params_gt['iterations'])
+    policies = json.load(policies)
     args_iter = (json.dumps({'exp_name': exp_name,
                              'params': params_gt,
                              'policy': p,
                              'iteration': i}) for i,p in
-                 itertools.product(iterations, policies))
+                 itertools.product(xrange(iterations), policies))
 
     # Write one-time files.
     model_gt = POMDPModel(n_skills=n_skills, **params_gt)
-    with open(os.path.join('res', '{}_names.csv'.format(exp_name)), 'wb') as f:
+    with open(os.path.join(res_path, '{}_names.csv'.format(policies_name)), 'wb') as f:
         model_gt.write_names(f)
 
-    models_fp = open(os.path.join('res', '{}_model.csv'.format(exp_name)), 'wb')
+    # Open file pointers.
+    models_fp = open(
+        os.path.join(res_path, '{}_model.csv'.format(policies_name)), 'wb')
     models_fieldnames = ['iteration', 'episode', 'policy', 'param', 'v']
     m_writer = csv.DictWriter(models_fp, fieldnames=models_fieldnames)
     m_writer.writeheader()
     for r in model_gt.get_params_est():
         m_writer.writerow(r)
 
-    results_fp = open(os.path.join('res', '{}.txt'.format(exp_name)), 'wb')
+    results_fp = open(os.path.join(res_path, '{}.txt'.format(policies_name)), 'wb')
     results_fieldnames = [
         'iteration','episode','t','policy','sys_t','a','s','o','r','b']
     r_writer = csv.DictWriter(results_fp, fieldnames=results_fieldnames)
@@ -246,8 +247,11 @@ def run_experiment(config_fp):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run an experiment')
-    parser.add_argument('config', type=argparse.FileType('r'), nargs='+', help='Config files')
+    parser.add_argument('--config', '-c', type=argparse.FileType('r'), required=True, help='Config json file')
+    parser.add_argument('--policies', '-p', type=argparse.FileType('r'), required=True, help='Policies json file')
+    parser.add_argument('--iterations', '-i', type=int, default=100, help='Number of iterations')
     args = parser.parse_args()
 
-    for fp in args.config:
-        run_experiment(fp)
+    run_experiment(config=args.config,
+                   policies=args.policies,
+                   iterations=args.iterations)

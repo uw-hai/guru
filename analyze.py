@@ -16,6 +16,7 @@ import matplotlib as mpl
 mpl.use('agg')
 from matplotlib import pyplot as plt
 import seaborn as sns
+from util import ensure_dir
 
 INTERPOLATE_MIN = 11
 CI = 95  # Confidence interval
@@ -101,6 +102,17 @@ def plot_observations(df, outfname, t_frac=1.0, formatter=None, logx=True):
         plt.close()
         df_o.to_csv(fname + '.csv')
 
+def plot_reward(df, outfname):
+    df = df[['iteration','policy','episode','r']]
+    df = df.groupby(['iteration','policy','episode']).sum().fillna(0).reset_index()[['iteration','policy','episode','r']]
+
+    ax = sns.barplot('policy', y='r', data=df, ci=CI)
+    fname = outfname + '_bar'
+    plt.savefig(fname + '.png')
+    plt.close()
+    df.groupby('policy', as_index=False)['r'].mean().to_csv(fname + '.csv')
+
+
 def plot_reward_by_episode(df, outfname):
     df = df[['iteration','policy','episode','r']]
     df = df.groupby(['iteration','policy','episode']).sum().fillna(0).reset_index()[['iteration','policy','episode','r']]
@@ -109,18 +121,6 @@ def plot_reward_by_episode(df, outfname):
     ax = sns.tsplot(df, time='episode', condition='policy', unit='iteration', value='csr', ci=CI, interpolate=df['episode'].max() >= INTERPOLATE_MIN)
     plt.savefig(outfname + '.png')
     plt.close()
-    #df.sort(['iteration','policy']).to_csv(fname + '.csv')
-
-    # Plot bar version. Only useful for non-RL.
-    # Select only certain policies for printing.
-    #df = df[(df.policy == 'pbvi-h10') | (df.policy == 'pbvi-h50')]
-    df['it-ep'] = df['iteration'].map(str) + ',' + df['episode'].map(str)
-    df_sums = df.groupby(['policy', 'it-ep'], as_index=False)['r'].sum()
-    ax = sns.barplot('policy', y='r', data=df_sums, ci=CI)
-    fname = outfname + '_bar'
-    plt.savefig(fname + '.png')
-    plt.close()
-    df_sums.groupby('policy', as_index=False)['r'].mean().to_csv(fname + '.csv')
 
 def plot_reward_by_t(df, outfname):
     df = df[['policy','iteration','episode','t','r']]
@@ -135,6 +135,7 @@ def plot_reward_by_t(df, outfname):
     plt.close()
     #df.sort(['policy','iteration','episode']).to_csv(fname + '.csv')
 
+
 def plot_solve_t_by_episode(df, outfname):
     df = df[['iteration','policy','episode','sys_t']]
     df = df.sort('episode')
@@ -147,6 +148,7 @@ def plot_solve_t_by_episode(df, outfname):
     sns.tsplot(df, time='episode', condition='policy', unit='iteration', value='elapsed time', ci=CI, interpolate=df['episode'].max() >= INTERPOLATE_MIN)
     plt.savefig(outfname + '.png')
     plt.close()
+
 
 def plot_params(df_model, outfname):
     # Separate ground truth params
@@ -198,8 +200,7 @@ def make_plots(infile, outdir, model=None, names=None,
         with open(names, 'r') as f:
             names = parse_names(f)
 
-    if not os.path.exists(outdir):
-        os.makedirs(outdir)
+    ensure_dir(outdir)
 
     df, max_episode = finished(pd.read_csv(infile))
     if not noexp:
@@ -208,8 +209,17 @@ def make_plots(infile, outdir, model=None, names=None,
         for p in exclude:
             df = df[df.policy != p]
 
-    plot_reward_by_episode(df, os.path.join(outdir, 'r'))
-    plot_solve_t_by_episode(df, os.path.join(outdir, 't'))
+    plot_reward(df, os.path.join(outdir, 'r'))
+
+    if max_episode > 0:
+        # Make time series plots with episode as x-axis.
+        plot_reward_by_episode(df, os.path.join(outdir, 'r'))
+        plot_solve_t_by_episode(df, os.path.join(outdir, 't'))
+        if model is not None:
+            df_model = pd.read_csv(model)
+            if len(df_model) > 0:
+                df_model, _ = finished(df_model)
+                plot_params(df_model, os.path.join(outdir, 'params'))
 
     episode_pairs = range(0, max_episode + 2, min(max_episode + 1, episode_step))
     for p in zip(episode_pairs[:-1], episode_pairs[1:]):
@@ -220,36 +230,37 @@ def make_plots(infile, outdir, model=None, names=None,
         plot_actions(df_filter, os.path.join(outdir, 'a_' + e_str), formatter=str_action, logx=log)
         plot_observations(df_filter, os.path.join(outdir, 'o_' + e_str), formatter=str_observation, logx=log)
 
-    if model is not None:
-        df_model = pd.read_csv(model)
-        if len(df_model) > 0:
-            df_model, _ = finished(df_model)
-            plot_params(df_model, os.path.join(outdir, 'params'))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Visualize policies.')
-    parser.add_argument('config', type=str, nargs='+', help='config files')
+    parser.add_argument('result', type=str, nargs='+', help='main experiment result .txt files')
     parser.add_argument('--episode_step', type=int, default=100)
     parser.add_argument('--exclude', type=str, nargs='*', help='Policies to exclude')
     args = parser.parse_args()
     
     jobs = []
-    for f in args.config:
+    for f in args.result:
+        # If result file is of the form 'f.end', assume directory also
+        # contains 'f_model.csv' and 'f_names.csv'.
+        # Output plots in a subdirectory with name 'f'.
         basename = os.path.basename(f)
-        name_exp = os.path.splitext(basename)[0]
+        basename_no_ending = os.path.splitext(basename)[0]
+        dirname = os.path.dirname(f)
 
-        infile = os.path.join('res', '{}.txt'.format(name_exp))
-        names = os.path.join('res', '{}_names.csv'.format(name_exp))
-        model = os.path.join('res', '{}_model.csv'.format(name_exp))
-        outdir = os.path.join('res', name_exp)
+        plotdir = os.path.join(dirname, basename_no_ending)
+        ensure_dir(plotdir)
+
+        names = os.path.join(
+            dirname, '{}_names.csv'.format(basename_no_ending))
+        model = os.path.join(
+            dirname, '{}_model.csv'.format(basename_no_ending))
 
         p = mp.Process(target=make_plots, kwargs=dict(
-            infile=infile,
-            outdir=outdir,
+            infile=f,
+            outdir=plotdir,
             names=names,
             model=model,
             episode_step=args.episode_step,
             exclude=args.exclude))
         jobs.append(p)
         p.start()
-

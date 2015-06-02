@@ -123,12 +123,10 @@ class Policy:
         """Load external policy (recompute if necessary)
         
         Store POMDP files as
-        'models/exp_name/iteration/episode/policy_name.pomdp',
-        or as 'models/exp_name/gt/policy_name.pomdp when not using RL.
+        'models/exp_name/iteration-episode-policy_name.pomdp'.
 
-        Store learned policy files in same way, except prefixed with
-        'policies/exp_name/iteration/episode/policy_name.policy',
-        or as 'policies/exp_name/gt/policy_name.policy when not using RL.
+        Store learned policy files as
+        'policies/exp_name/iteration-episode-policy_name.policy'.
 
         """
         pomdp_dirpath = os.path.join('models', self.exp_name)

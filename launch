@@ -1,8 +1,23 @@
 #!/bin/env bash
 
-s=$2
-s=${s##*/}
-s=${s%.json}
+# $1: server
+# $2: config.json
+# $3: policies.json
+# $4: iterations
+
+defaulti=100
+
+c=$2
+cbase=${c##*/}
+cbase=${cbase%.json}
+
+p=$3
+pbase=${p##*/}
+pbase=${pbase%.json}
+
+sname=e.$cbase.$pbase
+
+i=${4:-$defaulti}
 
 cd ~/rv/dev/worklearn/; git pull;
-ssh $1 "screen -dm -S $s; screen -S $s -p 0 -X stuff $'cd ~/dev/worklearn/\nworkon worklearn\npython exp.py $2\n'";
+ssh $1 "screen -dm -S $sname; screen -S $sname -p 0 -X stuff $'cd ~/dev/worklearn/\nworkon worklearn\npython exp.py --config $c --policies $p --iterations $i \n'";
