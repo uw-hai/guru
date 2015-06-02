@@ -59,35 +59,48 @@ class Policy:
         current_observations = history.get_observations(episode)
         n_skills = len(params['p_s'])
         n_actions = len(current_actions)
+        valid_actions = self.get_valid_actions(belief, states, actions)
         if self.policy == 'fixed':
-            # Teach each skill n times.
+            # Make sure to teach each skill at least n times.
             # Select skills in random order, but teach each skill as a batch.
             # Alternate quizzing and explaining.
-            if n_actions < n_skills * self.n * 2:
-                a_exp = actions.index(wlp.Action('exp'))
-                if n_actions % 2 == 1:
-                    return a_exp
-                action_counts = collections.Counter(current_actions)
-                in_progress = [k for k in action_counts if
-                               k != a_exp and action_counts[k] < self.n]
-                if in_progress:
-                    assert len(in_progress) == 1
-                    return in_progress[0]
+            a_exp = actions.index(wlp.Action('exp'))
+            a_ask = actions.index(wlp.Action('ask'))
+            quiz_actions = [i for i,a in enumerate(actions) if a.is_quiz()]
+            quiz_counts = collections.Counter(
+                [a for a in current_actions if a in quiz_actions])
+            quiz_actions_remaining = [a for a in quiz_actions if
+                                      quiz_counts[a] < self.n]
+            quiz_actions_in_progress = [a for a in quiz_actions_remaining if
+                                        quiz_counts[a] > 0]
+            if n_actions == 0:
+                if quiz_actions_remaining:
+                    return random.choice(quiz_actions_remaining)
                 else:
-                    skill_actions = [i for i,a in enumerate(actions) if
-                                     a.is_quiz()]
-                    next_action = random.choice([i for i in skill_actions if
-                                                i not in action_counts])
-                    return next_action
+                    return a_ask
             else:
-                return actions.index(wlp.Action('ask'))
+                last_action = current_actions[-1]
+                if actions[last_action].is_quiz():
+                    if quiz_counts[last_action] <= self.n:
+                        # Explain n times for each quiz.
+                        return a_exp
+                    else:
+                        # We happened to get to a quiz state, so take a
+                        # random action.
+                        return random.choice(valid_actions)
+                else:
+                    if len(quiz_actions_in_progress) > 0:
+                        return random.choice(quiz_actions_in_progress)
+                    elif len(quiz_actions_remaining) > 0:
+                        return random.choice(quiz_actions_remaining)
+                    else:
+                        return a_ask
         elif self.policy in ('appl', 'aitoolbox'):
             if n_actions == 0:
                 self.get_external_policy(iteration, episode, params, n_skills,
                                          states=states, actions=actions,
                                          observations=observations)
             rewards = self.external_policy.get_action_rewards(belief)
-            valid_actions = self.get_valid_actions(belief, states, actions)
             valid_actions_with_rewards = set(valid_actions).intersection(
                 set(rewards))
             if len(valid_actions_with_rewards) == 0:

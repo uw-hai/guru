@@ -8,6 +8,8 @@ import time
 import json
 import logging
 import numpy as np
+import functools as ft
+import traceback
 from pomdp import POMDPModel
 from policy import Policy
 from history import History
@@ -15,6 +17,24 @@ from util import get_or_default, ensure_dir
 
 logger = mp.log_to_stderr()
 logger.setLevel(logging.INFO)
+
+def run_functor(functor, x):
+    """
+    Given a no-argument functor, run it and return its result. We can 
+    use this with multiprocessing.map and map it over a list of job 
+    functors to do them.
+
+    Handles getting more than multiprocessing's pitiful exception output
+
+    https://stackoverflow.com/questions/6126007/
+    python-getting-a-traceback-from-a-multiprocessing-process
+    """
+    try:
+        # This is where you do your actual work
+        return functor(x)
+    except:
+        # Put all exception text into an exception and raise that
+        raise Exception("".join(traceback.format_exception(*sys.exc_info())))
 
 def get_start_belief(fp):
     """DEPRECATED"""
@@ -92,6 +112,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
 
     for ep in xrange(episodes):
         logger.info('{} ({}, {})'.format(pol, it, ep))
+        # TODO: Move RL logic into Policy class.
         if pol.epsilon is not None and ep % pol.estimate_interval == 0:
             # TODO: Reestimate only for policies that use POMDP solvers?
             first_ep = ep == 0
@@ -202,7 +223,7 @@ def run_experiment(config_fp):
         import signal
         signal.signal(signal.SIGINT, signal.SIG_IGN)
     pool = mp.Pool(initializer=init_worker)
-    f = run_policy_iteration_from_json
+    f = ft.partial(run_functor, run_policy_iteration_from_json)
     try:
         for res in pool.imap_unordered(f, args_iter):
             results_rows, models_rows = res
