@@ -5,7 +5,7 @@
 # $3: policies.json
 # $4: iterations
 
-defaulti=100
+defaulti=400
 
 c=$2
 cbase=${c##*/}

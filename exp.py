@@ -249,7 +249,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run an experiment')
     parser.add_argument('--config', '-c', type=argparse.FileType('r'), required=True, help='Config json file')
     parser.add_argument('--policies', '-p', type=argparse.FileType('r'), required=True, help='Policies json file')
-    parser.add_argument('--iterations', '-i', type=int, default=100, help='Number of iterations')
+    parser.add_argument('--iterations', '-i', type=int, default=400, help='Number of iterations')
     args = parser.parse_args()
 
     run_experiment(config=args.config,

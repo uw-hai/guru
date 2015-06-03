@@ -12,6 +12,7 @@ import argparse
 import collections
 import pandas as pd
 import numpy as np
+import scipy.stats as ss
 import matplotlib as mpl
 mpl.use('agg')
 from matplotlib import pyplot as plt
@@ -102,16 +103,18 @@ def plot_observations(df, outfname, t_frac=1.0, formatter=None, logx=True):
         plt.close()
         df_o.to_csv(fname + '.csv')
 
-def plot_reward(df, outfname):
+def plot_reward(df, outfname, estimator=np.mean):
     df = df[['iteration','policy','episode','r']]
     df = df.groupby(['iteration','policy','episode']).sum().fillna(0).reset_index()[['iteration','policy','episode','r']]
 
-    ax = sns.barplot('policy', y='r', data=df, ci=CI)
+    ax = sns.barplot('policy', y='r', data=df, estimator=estimator, ci=CI)
     fname = outfname + '_bar'
+    estimator_name = estimator.__name__
+    if estimator_name != 'mean':
+        fname += '_{}'.format(estimator_name)
     plt.savefig(fname + '.png')
     plt.close()
     df.groupby('policy', as_index=False)['r'].mean().to_csv(fname + '.csv')
-
 
 def plot_reward_by_episode(df, outfname):
     df = df[['iteration','policy','episode','r']]
@@ -210,6 +213,8 @@ def make_plots(infile, outdir, model=None, names=None,
             df = df[df.policy != p]
 
     plot_reward(df, os.path.join(outdir, 'r'))
+    plot_reward(df, os.path.join(outdir, 'r'), estimator=np.std)
+    plot_reward(df, os.path.join(outdir, 'r'), estimator=ss.variation)
 
     if max_episode > 0:
         # Make time series plots with episode as x-axis.
