@@ -97,8 +97,12 @@ class Policy:
                     else:
                         return a_ask
         elif self.policy in ('appl', 'aitoolbox'):
-            if not self.external_policy_set[episode]:
-                self.get_external_policy(iteration, episode, params)
+            resolve_p = (not self.external_policy_set[episode] or
+                         (self.epsilon is not None and
+                          episode % self.resolve_interval == 0)
+            if resolve_p:
+                self.external_policy = self.get_external_policy(
+                    iteration, episode, params)
                 self.external_policy_set[episode] = True
             rewards = self.external_policy.get_action_rewards(belief)
             valid_actions_with_rewards = set(valid_actions).intersection(
@@ -119,13 +123,16 @@ class Policy:
             raise NotImplementedError
 
     def get_external_policy(self, iteration, episode, params):
-        """Load external policy (recompute if necessary)
+        """Compute external policy and store in unique locations.
         
         Store POMDP files as
         'models/exp_name/iteration-episode-policy_name.pomdp'.
 
         Store learned policy files as
         'policies/exp_name/iteration-episode-policy_name.policy'.
+
+        Returns:
+            policy (POMDPPolicy)
 
         """
         pomdp_dirpath = os.path.join('models', self.exp_name)
@@ -139,14 +146,9 @@ class Policy:
             policy_dirpath,
             '{}-{}-{}.policy'.format(iteration, episode, self))
 
-        resolve_p = (self.epsilon is None and episode == 0 or
-                     (self.epsilon is not None and
-                      episode % self.resolve_interval == 0))
-        if resolve_p:
-            self.external_policy = self.run_solver(
-                model_filename=pomdp_fpath,
-                policy_filename=policy_fpath,
-                params=params)
+        return self.run_solver(model_filename=pomdp_fpath,
+                               policy_filename=policy_fpath,
+                               params=params)
 
     def run_solver(self, model_filename, policy_filename, params):
         """Run POMDP solver, storing files at the given locations
