@@ -16,8 +16,8 @@ import elementtree.ElementTree as ee
 
 class POMDPModel:
     """POMDP model"""
-    def __init__(self, n_skills, **params):
-        self.n_skills = n_skills
+    def __init__(self, **params):
+        self.n_skills = len(params['p_r'])
         self.actions = wlp.actions(self.n_skills)
         self.states = wlp.states_all(self.n_skills)
         self.observations = wlp.observations
@@ -26,7 +26,7 @@ class POMDPModel:
         self.params = params
 
         self.beta_priors = {
-            'p_s': [(1.1,1.1) for i in xrange(n_skills)],
+            'p_s': [(1.1,1.1) for i in xrange(self.n_skills)],
             'p_guess': (1.1, 1.1),
             'p_slip': (2, 5), # Lower probability of making a mistake.
             'p_lose': (2, 5), # Lower probability of forgetting.
@@ -791,7 +791,7 @@ class POMDPPolicy:
                     vals.append(float(val))
                 val_arrs.append(vals)
             if len(val_arrs) == 0:
-                raise Exception( 'APPL policy contained no alpha vectors' )
+                raise Exception('APPL policy contained no alpha vectors')
             self.pMatrix = np.array(val_arrs)
         elif file_format == 'aitoolbox':
             # Retrieve max horizon alpha vectors.
@@ -805,7 +805,7 @@ class POMDPPolicy:
                         horizons[-1].append(line)
             horizons = [lst for lst in horizons if len(lst) > 0]
             if len(horizons) == 0:
-                raise Exception( 'AIToolbox policy contained no alpha vectors' )
+                raise Exception('AIToolbox policy contained no alpha vectors')
             lines_max_horizon = horizons[-1]
             alphas = [[float(v) for v in line.split()[:n_states]] for
                       line in lines_max_horizon]
@@ -828,7 +828,13 @@ class POMDPPolicy:
     def get_action_rewards(self, belief):
         '''
         Returns dictionary:
-            action-num: expected-reward.
+            action-num: max expected-reward.
         '''
         res = self.pMatrix.dot(belief)
-        return dict((a, r) for a,r in zip(self.action_nums, res))
+        d = dict()
+        for a,r in zip(self.action_nums, res):
+            if a not in d:
+                d[a] = r
+            else:
+                d[a] = max(d[a], r)
+        return d

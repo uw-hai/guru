@@ -86,13 +86,12 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
     # TODO: Blacklist estimated params instead.
     params_gt_fixed = dict((k, params_gt[k]) for k in
                            ['cost', 'cost_exp', 'p_r', 'p_1', 'utility_type'])
-    n_skills = len(params_gt['p_s'])
     episodes = params_gt['episodes']
 
     pol = Policy(policy_type=policy['type'], exp_name=exp_name, **policy)
 
     # GT model
-    model_gt = POMDPModel(n_skills=n_skills, **params_gt)
+    model_gt = POMDPModel(**params_gt)
     model_actions = model_gt.actions
     model_states = model_gt.states
     model_observations = model_gt.observations
@@ -103,7 +102,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
     # Begin experiment
     history = History()
     if pol.epsilon is not None:
-        model_est = POMDPModel(n_skills=n_skills, **params_gt_fixed)
+        model_est = POMDPModel(**params_gt_fixed)
     else:
         model_est = model_gt
 
@@ -114,7 +113,6 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
             # TODO: Reestimate only for policies that use POMDP solvers?
             first_ep = ep == 0
             model_est.estimate(history, random_init=first_ep)
-        params_est = model_est.params
         models += model_est.get_params_est(
             iteration=it, episode=ep, policy=pol)
 
@@ -147,6 +145,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
                     a.name != 'boot']
                 a = np.random.choice(valid_actions)
             else:
+                params_est = model_est.params
                 a = pol.get_best_action(
                         params_est, it, history, model_states,
                         model_actions, model_observations, belief)
@@ -184,7 +183,6 @@ def run_experiment(config, policies, iterations):
 
     params_gt = json.load(config)
     params_gt = set_config_defaults(params_gt)
-    n_skills = len(params_gt['p_s'])
 
     # Prepare worker process arguments
     policies = json.load(policies)
@@ -195,7 +193,7 @@ def run_experiment(config, policies, iterations):
                  itertools.product(xrange(iterations), policies))
 
     # Write one-time files.
-    model_gt = POMDPModel(n_skills=n_skills, **params_gt)
+    model_gt = POMDPModel(**params_gt)
     with open(os.path.join(res_path, '{}_names.csv'.format(policies_name)), 'wb') as f:
         model_gt.write_names(f)
 

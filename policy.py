@@ -97,9 +97,7 @@ class Policy:
                         return a_ask
         elif self.policy in ('appl', 'aitoolbox'):
             if n_actions == 0:
-                self.get_external_policy(iteration, episode, params, n_skills,
-                                         states=states, actions=actions,
-                                         observations=observations)
+                self.get_external_policy(iteration, episode, params)
             rewards = self.external_policy.get_action_rewards(belief)
             valid_actions_with_rewards = set(valid_actions).intersection(
                 set(rewards))
@@ -118,8 +116,7 @@ class Policy:
         else:
             raise NotImplementedError
 
-    def get_external_policy(self, iteration, episode, params, n_skills,
-                            states, actions, observations):
+    def get_external_policy(self, iteration, episode, params):
         """Load external policy (recompute if necessary)
         
         Store POMDP files as
@@ -144,36 +141,45 @@ class Policy:
                      (self.epsilon is not None and
                       episode % self.resolve_interval == 0))
         if resolve_p:
-            model = POMDPModel(n_skills=n_skills, **params)
-            if self.policy == 'appl':
-                with open(pomdp_fpath, 'w') as f:
-                    model.write_pomdp(f, discount=self.discount)
-                args = ['pomdpsol-appl',
-                        pomdp_fpath,
-                        '-o', policy_fpath]
-                if self.timeout is not None:
-                    args += ['--timeout', str(self.timeout)]
-                subprocess.call(args)
-                self.external_policy = POMDPPolicy(policy_fpath,
-                                                   file_format='policyx')
-            elif self.policy == 'aitoolbox':
-                with open(pomdp_fpath, 'w') as f:
-                    model.write_txt(f)
-                args = ['pomdpsol-aitoolbox',
-                        '--input', pomdp_fpath,
-                        '--output', policy_fpath,
-                        '--discount', str(self.discount),
-                        '--horizon', str(self.horizon),
-                        '--n_states', str(len(states)),
-                        '--n_actions', str(len(actions)),
-                        '--n_observations', str(len(observations))]
-                subprocess.call(args)
-                self.external_policy = POMDPPolicy(policy_fpath,
-                                                   file_format='aitoolbox',
-                                                   n_states=len(states))
-            else:
-                raise NotImplementedError
+            self.external_policy = self.run_solver(
+                model_filename=pomdp_fpath,
+                policy_filename=policy_fpath,
+                params=params)
 
+    def run_solver(self, model_filename, policy_filename, params):
+        """Run POMDP solver, storing files at the given locations
+
+        Returns:
+            policy (POMDPPolicy)
+
+        """
+        model = POMDPModel(**params)
+        if self.policy == 'appl':
+            with open(model_filename, 'w') as f:
+                model.write_pomdp(f, discount=self.discount)
+            args = ['pomdpsol-appl',
+                    model_filename,
+                    '-o', policy_filename]
+            if self.timeout is not None:
+                args += ['--timeout', str(self.timeout)]
+            subprocess.call(args)
+            return POMDPPolicy(policy_filename,
+                               file_format='policyx')
+        elif self.policy == 'aitoolbox':
+            with open(model_filename, 'w') as f:
+                model.write_txt(f)
+            args = ['pomdpsol-aitoolbox',
+                    '--input', model_filename,
+                    '--output', policy_filename,
+                    '--discount', str(self.discount),
+                    '--horizon', str(self.horizon),
+                    '--n_states', str(len(model.states)),
+                    '--n_actions', str(len(model.actions)),
+                    '--n_observations', str(len(model.observations))]
+            subprocess.call(args)
+            return POMDPPolicy(policy_filename,
+                               file_format='aitoolbox',
+                               n_states=len(model.states))
 
     def get_valid_actions(self, belief, states, actions):
         """Return valid actions given the current belief.
