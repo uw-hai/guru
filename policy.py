@@ -24,6 +24,7 @@ class Policy:
         self.policy = policy_type
         self.exp_name = exp_name
         self.epsilon = get_or_default(kwargs, 'epsilon', None)
+        self.external_policy_set = collections.defaultdict(bool)
         if self.epsilon is not None:
             self.estimate_interval = get_or_default(
                 kwargs, 'estimate_interval', 1)
@@ -96,8 +97,9 @@ class Policy:
                     else:
                         return a_ask
         elif self.policy in ('appl', 'aitoolbox'):
-            if n_actions == 0:
+            if not self.external_policy_set[episode]:
                 self.get_external_policy(iteration, episode, params)
+                self.external_policy_set[episode] = True
             rewards = self.external_policy.get_action_rewards(belief)
             valid_actions_with_rewards = set(valid_actions).intersection(
                 set(rewards))
