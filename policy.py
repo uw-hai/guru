@@ -99,7 +99,7 @@ class Policy:
         elif self.policy in ('appl', 'aitoolbox'):
             resolve_p = (not self.external_policy_set[episode] or
                          (self.epsilon is not None and
-                          episode % self.resolve_interval == 0)
+                          episode % self.resolve_interval == 0))
             if resolve_p:
                 self.external_policy = self.get_external_policy(
                     iteration, episode, params)
