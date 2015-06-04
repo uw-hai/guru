@@ -41,7 +41,7 @@ class Policy:
         else:
             raise NotImplementedError
 
-    def get_best_action(self, params, iteration, history, states, actions, observations, belief=None):
+    def get_best_action(self, params, iteration, history, states, actions, observations, valid_actions, belief=None):
         """Next action
 
         Args:
@@ -60,7 +60,6 @@ class Policy:
         current_observations = history.get_observations(episode)
         n_skills = len(params['p_s'])
         n_actions = len(current_actions)
-        valid_actions = self.get_valid_actions(belief, states, actions)
         if self.policy == 'fixed':
             # Make sure to teach each skill at least n times.
             # Select skills in random order, but teach each skill as a batch.
@@ -88,6 +87,10 @@ class Policy:
                     else:
                         # We happened to get to a quiz state, so take a
                         # random action.
+                        #
+                        # What we really want to do here is take EXP or NOEXP
+                        # and this is equivalent since booting isn't allowed
+                        # from quiz states.
                         return random.choice(valid_actions)
                 else:
                     if len(quiz_actions_in_progress) > 0:

@@ -92,9 +92,6 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
 
     # GT model
     model_gt = POMDPModel(**params_gt)
-    model_actions = model_gt.actions
-    model_states = model_gt.states
-    model_observations = model_gt.observations
 
     results = []
     models = []
@@ -136,19 +133,21 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
                         'r': '',
                         'b': belief_to_str(belief)})
 
-        while str(model_states[s]) != 'TERM':
+        while str(model_gt.states[s]) != 'TERM':
+            valid_actions = [i for i,a in enumerate(model_gt.actions) if
+                             model_gt.states[s].is_valid_action(a)]
+            valid_actions_no_boot = [i for i in valid_actions if
+                                     model_gt.actions[i].name != 'boot']
             if (pol.epsilon is not None and
                     np.random.random() <= pol.epsilon):
-                valid_actions = [
-                    i for i,a in enumerate(model_actions) if
-                    model_states[s].is_valid_action(a) and
-                    a.name != 'boot']
-                a = np.random.choice(valid_actions)
+                a = np.random.choice(valid_actions_no_boot)
             else:
                 params_est = model_est.params
                 a = pol.get_best_action(
-                        params_est, it, history, model_states,
-                        model_actions, model_observations, belief)
+                        params_est, it, history,
+                        model_gt.states, model_gt.actions,
+                        model_gt.observations,
+                        valid_actions, belief)
 
             # Simulate a step
             s, o, r = model_gt.sample_SOR(s, a)
