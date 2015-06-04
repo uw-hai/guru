@@ -262,7 +262,7 @@ class POMDPModel:
                 return cval(0)
 
         # Actions from quiz states.
-        if st.is_quiz() and act.name == 'neoxp':
+        if st.is_quiz() and act.name == 'noexp':
             if (not st1.term and not st1.is_quiz() and
                     st.is_reachable(st1, False)):
                 n_known = st.n_skills_known()
@@ -503,6 +503,8 @@ class POMDPModel:
             observation_num in xrange(len(self.observations))]
         o_prime = np.random.choice(range(len(self.observations)), p=p_o_prime)
         r = self.get_reward(state_num, action_num, s_prime)
+        if self.states[state_num].is_quiz() and self.states[s_prime].is_quiz():
+            raise Exception('Failed to leave quiz state')
         return s_prime, o_prime, r
 
     def update_belief(self, prev_belief, action_num, observation_num):
