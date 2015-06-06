@@ -163,12 +163,14 @@ def plot_params(df_model, outfname):
     df_est['dist'] = np.abs(df_est['v'] - df_est['v_t'])
 
     for p, df_p in df_est.groupby('policy', as_index=False):
-        sns.tsplot(df_p, time='episode', unit='iteration', condition='param', value='v', ci=CI)
+        ax = sns.tsplot(df_p, time='episode', unit='iteration', condition='param', value='v', ci=CI)
+        ax.set_ylim(0, 1);
         fname = outfname + '_p-{}'.format(p)
         plt.savefig(fname + '.png')
         plt.close()
 
-        sns.tsplot(df_p, time='episode', unit='iteration', condition='param', value='dist', ci=CI)
+        ax = sns.tsplot(df_p, time='episode', unit='iteration', condition='param', value='dist', ci=CI)
+        ax.set_ylim(0, 1);
         fname = outfname + '_dist_p-{}'.format(p)
         plt.savefig(fname + '.png')
         plt.close()
