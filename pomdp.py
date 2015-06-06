@@ -13,6 +13,7 @@ import work_learn_problem as wlp
 from work_learn_problem import Action
 
 import elementtree.ElementTree as ee
+import zmdp_util
 
 class POMDPModel:
     """POMDP model"""
@@ -779,6 +780,7 @@ class POMDPPolicy:
                        alpha vectors.
     '''
     def __init__(self, filename, file_format='policyx', n_states=None):
+        self.file_format = file_format
         if file_format == 'policyx':
             tree = ee.parse(filename)
             root = tree.getroot()
@@ -814,27 +816,60 @@ class POMDPPolicy:
             self.pMatrix = np.array(alphas)
             self.action_nums = [int(line.split()[n_states]) for
                                 line in lines_max_horizon]
+        elif file_format == 'zmdp':
+            actions, alphas = zmdp_util.read_zmdp_policy(filename, n_states)
+            self.action_nums = actions
+            self.pMatrix = np.array(alphas)
         else:
             raise NotImplementedError
+
+    def zmdp_filter(self, belief, alpha):
+        """Return true iff this alpha vector applies to this belief"""
+        return not any(b > 0 and a is None for b,a in zip(belief, alpha))
+
+    def zmdp_convert(self, alpha):
+        """Return new array with Nones replaced with 0's"""
+        return [a if a is not None else 0 for a in alpha]
 
     def get_best_action(self, belief):
         '''
         Returns tuple:
             (best-action-num, expected-reward-for-this-action).
         '''
+        """
         res = self.pMatrix.dot(belief)
         highest_expected_reward = res.max()
         best_action = self.action_nums[res.argmax()]
         return (best_action, highest_expected_reward)
+        """
+        raise NotImplementedError # Untested.
+        res = self.get_action_rewards(belief)
+        max_reward = max(res.itervalues())
+        best_action = random.choice([a for a in res if res[a] == max_reward])
+        return (best_action, max_reward)
+
 
     def get_action_rewards(self, belief):
         '''
         Returns dictionary:
             action-num: max expected-reward.
         '''
-        res = self.pMatrix.dot(belief)
+        if self.file_format == 'zmdp':
+            alpha_indices_relevant = [
+                i for i,alpha in enumerate(self.pMatrix) if
+                self.zmdp_filter(belief, alpha)]
+            alphas = []
+            actions = []
+            for i in alpha_indices_relevant:
+                alphas.append(self.zmdp_convert(self.pMatrix[i,:]))
+                actions.append(self.action_nums[i])
+            alphas = np.array(alphas)
+        else:
+            alphas = self.pMatrix
+            actions = self.action_nums
+        res = alphas.dot(belief)
         d = dict()
-        for a,r in zip(self.action_nums, res):
+        for a,r in zip(actions, res):
             if a not in d:
                 d[a] = r
             else:

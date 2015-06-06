@@ -30,7 +30,7 @@ class Policy:
                 kwargs, 'estimate_interval', 1)
             self.resolve_interval = get_or_default(
                 kwargs, 'resolve_interval', self.estimate_interval)
-        if self.policy == 'appl':
+        if self.policy in ('appl', 'zmdp'):
             self.discount = get_or_default(kwargs, 'discount', default_discount)
             self.timeout = get_or_default(kwargs, 'timeout', None)
         elif self.policy == 'aitoolbox':
@@ -99,7 +99,7 @@ class Policy:
                         return random.choice(quiz_actions_remaining)
                     else:
                         return a_ask
-        elif self.policy in ('appl', 'aitoolbox'):
+        elif self.policy in ('appl', 'aitoolbox', 'zmdp'):
             resolve_p = (not self.external_policy_set[episode] or
                          (self.epsilon is not None and
                           episode % self.resolve_interval == 0))
@@ -187,6 +187,19 @@ class Policy:
             return POMDPPolicy(policy_filename,
                                file_format='aitoolbox',
                                n_states=len(model.states))
+        elif self.policy == 'zmdp':
+            with open(model_filename, 'w') as f:
+                model.write_pomdp(f, discount=self.discount)
+            args = ['pomdpsol-zmdp',
+                    'solve', model_filename,
+                    '-o', policy_filename]
+            if self.timeout is not None:
+                args += ['-t', str(self.timeout)]
+            subprocess.call(args)
+            return POMDPPolicy(policy_filename,
+                               file_format='zmdp',
+                               n_states=len(model.states))
+
 
     def get_valid_actions(self, belief, states, actions):
         """Return valid actions given the current belief.
@@ -201,7 +214,7 @@ class Policy:
              
 
     def __str__(self):
-        if self.policy == 'appl':
+        if self.policy in ('appl', 'zmdp'):
             s = self.policy + '-d{:.3f}'.format(self.discount)
             if self.timeout is not None:
                 s += '-tl{}'.format(self.timeout)
