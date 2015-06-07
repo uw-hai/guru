@@ -293,7 +293,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run an experiment')
     parser.add_argument('--config', '-c', type=argparse.FileType('r'), required=True, help='Config json file')
     parser.add_argument('--policies', '-p', type=argparse.FileType('r'), required=True, help='Policies json file')
-    parser.add_argument('--iterations', '-i', type=int, default=400, help='Number of iterations')
+    parser.add_argument('--iterations', '-i', type=int, default=1000, help='Number of iterations')
     parser.add_argument('--epsilon', type=str, help='Epsilon to use for all policies')
     parser.add_argument('--resolve_interval', type=int, help='Resolve interval to use for all policies')
     args = parser.parse_args()
