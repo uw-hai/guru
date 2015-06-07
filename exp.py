@@ -1,3 +1,4 @@
+from __future__ import division
 import multiprocessing as mp
 import argparse
 import itertools
@@ -13,7 +14,7 @@ import traceback
 from pomdp import POMDPModel
 from policy import Policy
 from history import History
-from util import get_or_default, ensure_dir
+from util import get_or_default, ensure_dir, equation_safe_filename
 
 logger = mp.log_to_stderr()
 logger.setLevel(logging.INFO)
@@ -51,10 +52,26 @@ def set_config_defaults(config):
     """Mutates and returns original object"""
     config['utility_type'] = get_or_default(config, 'utility_type', 'acc')
     config['p_lose'] = get_or_default(config, 'p_lose', 0)
-    config['iterations'] = get_or_default(config, 'iterations', 1)
     config['episodes'] = get_or_default(config, 'episodes', 1)
     return config
 
+def params_to_rows(params, iteration=None, episode=None, policy=None):
+    """Convert params to list of dictionaries to write to models file"""
+    rows = []
+    row_base = {'iteration': iteration,
+                'episode': episode,
+                'policy': policy}
+    for p in params:
+        if p == 'p_s':
+            for i in xrange(len(params[p])):
+                row = {'param': 'p_s{}'.format(i), 'v': params['p_s'][i]}
+                row.update(row_base)
+                rows.append(row)
+        else:
+            row = {'param': p, 'v': params[p]}
+            row.update(row_base)
+            rows.append(row)
+    return rows
 
 def run_policy_iteration_from_json(s):
     """Helper for Pool.map(), which can only use functions that take a single
@@ -94,7 +111,6 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
     model_gt = POMDPModel(**params_gt)
 
     results = []
-    models = []
 
     # Begin experiment
     history = History()
@@ -105,14 +121,6 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
 
     for ep in xrange(episodes):
         logger.info('{} ({}, {})'.format(pol, it, ep))
-        # TODO: Move RL logic into Policy class.
-        if pol.epsilon is not None and ep % pol.estimate_interval == 0:
-            # TODO: Reestimate only for policies that use POMDP solvers?
-            first_ep = ep == 0
-            model_est.estimate(history, random_init=first_ep)
-        models += model_est.get_params_est(
-            iteration=it, episode=ep, policy=pol)
-
         history.new_episode()
         start_belief = model_gt.get_start_belief()
         start_state = np.random.choice(range(len(start_belief)),
@@ -120,6 +128,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
         s = start_state
 
         # Belief using estimated model.
+        pol.estimate_and_solve(model_est, iteration, history)
         belief = model_est.get_start_belief()
         t = 0
         results.append({'iteration': it,
@@ -136,18 +145,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
         while str(model_gt.states[s]) != 'TERM':
             valid_actions = [i for i,a in enumerate(model_gt.actions) if
                              model_gt.states[s].is_valid_action(a)]
-            valid_actions_no_boot = [i for i in valid_actions if
-                                     model_gt.actions[i].name != 'boot']
-            if (pol.epsilon is not None and
-                    np.random.random() <= pol.epsilon):
-                a = np.random.choice(valid_actions_no_boot)
-            else:
-                params_est = model_est.params
-                a = pol.get_best_action(
-                        params_est, it, history,
-                        model_gt.states, model_gt.actions,
-                        model_gt.observations,
-                        valid_actions, belief)
+            a = pol.get_next_action(model_est, it, history, valid_actions, belief)
 
             # Simulate a step
             s, o, r = model_gt.sample_SOR(s, a)
@@ -165,14 +163,41 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
                             'o': o,
                             'r': r,
                             'b': belief_to_str(belief)})
-    return results, models
+
+    # Record models, estimate times, and resolve times.
+    models = []
+    for ep in sorted(pol.params_estimated):
+        params = pol.params_estimated[ep]
+        models += params_to_rows(params, iteration, ep, str(pol))
+
+    timings = []
+    for ep in sorted(pol.estimate_times):
+        timings.append({'iteration': iteration,
+                        'episode': ep,
+                        'policy': str(pol),
+                        'type': 'estimate',
+                        'duration': pol.estimate_times[ep]})
+
+    for ep in sorted(pol.resolve_times):
+        timings.append({'iteration': iteration,
+                        'episode': ep,
+                        'policy': str(pol),
+                        'type': 'resolve',
+                        'duration': pol.resolve_times[ep]})
+
+    return results, models, timings
 
 
-def run_experiment(config, policies, iterations):
+def run_experiment(config, policies, iterations, epsilon, resolve_interval):
     config_basename = os.path.basename(config.name)
     exp_name = os.path.splitext(config_basename)[0]
     policies_basename = os.path.basename(policies.name)
+    # TODO: Add epsilon and resolve_interval to policies name.
     policies_name = os.path.splitext(policies_basename)[0]
+    if epsilon is not None:
+        policies_name += '-eps_{}'.format(equation_safe_filename(epsilon))
+    if resolve_interval is not None:
+        policies_name += '-s_int{}'.format(resolve_interval)
 
     res_path = os.path.join('res', exp_name)
     models_path = os.path.join('models', exp_name)
@@ -183,8 +208,19 @@ def run_experiment(config, policies, iterations):
     params_gt = json.load(config)
     params_gt = set_config_defaults(params_gt)
 
+    # Make folders (errors when too many folders are made in subprocesses).
+    for i in xrange(iterations):
+        for ep in xrange(params_gt['episodes']):
+            ensure_dir(os.path.join(models_path, str(i), str(ep)))
+            ensure_dir(os.path.join(policies_path, str(i), str(ep)))
+
     # Prepare worker process arguments
     policies = json.load(policies)
+    for p in policies:
+        if epsilon is not None and 'epsilon' not in p:
+            p['epsilon'] = epsilon
+        if resolve_interval is not None and 'resolve_interval' not in p:
+            p['resolve_interval'] = resolve_interval
     args_iter = (json.dumps({'exp_name': exp_name,
                              'params': params_gt,
                              'policy': p,
@@ -202,7 +238,8 @@ def run_experiment(config, policies, iterations):
     models_fieldnames = ['iteration', 'episode', 'policy', 'param', 'v']
     m_writer = csv.DictWriter(models_fp, fieldnames=models_fieldnames)
     m_writer.writeheader()
-    for r in model_gt.get_params_est():
+
+    for r in  params_to_rows(model_gt.get_params_est()):
         m_writer.writerow(r)
 
     results_fp = open(os.path.join(res_path, '{}.txt'.format(policies_name)), 'wb')
@@ -210,6 +247,12 @@ def run_experiment(config, policies, iterations):
         'iteration','episode','t','policy','sys_t','a','s','o','r','b']
     r_writer = csv.DictWriter(results_fp, fieldnames=results_fieldnames)
     r_writer.writeheader()
+
+    timings_fp = open(
+        os.path.join(res_path, '{}_timings.csv'.format(policies_name)), 'wb')
+    timings_fieldnames = ['iteration', 'episode', 'policy', 'type', 'duration']
+    t_writer = csv.DictWriter(timings_fp, fieldnames=timings_fieldnames)
+    t_writer.writeheader()
 
     # Create worker processes.
     def init_worker():
@@ -224,13 +267,16 @@ def run_experiment(config, policies, iterations):
     f = ft.partial(run_functor, run_policy_iteration_from_json)
     try:
         for res in pool.imap_unordered(f, args_iter):
-            results_rows, models_rows = res
+            results_rows, models_rows, timings_rows = res
             for r in results_rows:
                 r_writer.writerow(r)
             for r in models_rows:
                 m_writer.writerow(r)
+            for r in timings_rows:
+                t_writer.writerow(r)
             models_fp.flush()
             results_fp.flush()
+            timings_fp.flush()
         pool.close()
         pool.join()
     except KeyboardInterrupt:
@@ -240,6 +286,7 @@ def run_experiment(config, policies, iterations):
         # Cleanup.
         results_fp.close()
         models_fp.close()
+        timings_fp.close()
 
 
 if __name__ == '__main__':
@@ -247,8 +294,12 @@ if __name__ == '__main__':
     parser.add_argument('--config', '-c', type=argparse.FileType('r'), required=True, help='Config json file')
     parser.add_argument('--policies', '-p', type=argparse.FileType('r'), required=True, help='Policies json file')
     parser.add_argument('--iterations', '-i', type=int, default=400, help='Number of iterations')
+    parser.add_argument('--epsilon', type=str, help='Epsilon to use for all policies')
+    parser.add_argument('--resolve_interval', type=int, help='Resolve interval to use for all policies')
     args = parser.parse_args()
 
     run_experiment(config=args.config,
                    policies=args.policies,
-                   iterations=args.iterations)
+                   iterations=args.iterations,
+                   epsilon=args.epsilon,
+                   resolve_interval=args.resolve_interval)

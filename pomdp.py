@@ -34,31 +34,9 @@ class POMDPModel:
             'p_learn': (1.1, 1.1),
             'p_leave': (1.1, 1.1)}
 
-    def write_params(self, fo, writeheader=True, iteration=None, episode=None, policy=None):
-        """DEPRECATED: Write params to model csv file"""
-        fieldnames = ['iteration', 'episode', 'policy', 'param', 'v']
-        writer = csv.DictWriter(fo, fieldnames=fieldnames)
-        if writeheader:
-            writer.writeheader()
-        rows = self.get_params_est()
-        for r in rows:
-            writer.writerow(r)
-
-    def get_params_est(self, iteration=None, episode=None, policy=None):
-        """Get estimated parameters in row format to write to model csv"""
-        rows = []
-        row_base = {'iteration': iteration,
-                    'episode': episode,
-                    'policy': str(policy)}
-        for i in xrange(self.n_skills):
-            row = {'param': 'p_s{}'.format(i), 'v': self.params['p_s'][i]}
-            row.update(row_base)
-            rows.append(row)
-        for p in self.single_params:
-            row = {'param': p, 'v': self.params[p]}
-            row.update(row_base)
-            rows.append(row)
-        return rows
+    def get_params_est(self):
+        """Return subset of parameters that are estimated"""
+        return dict((k,self.params[k]) for k in self.single_params + ['p_s'])
 
     def write_names(self, fo):
         """Write csv file mapping state/action/observation indices to names"""

@@ -33,6 +33,12 @@ assert dbeta(0.6, 2, 2) != 0
 
 #----------- WorkLearn-specific utils --------
 
+def equation_safe_filename(eq):
+    if isinstance(eq, basestring):
+        return eq.replace('/', 'div')
+    else:
+        return eq
+
 import pandas as pd
 import csv
 
@@ -50,29 +56,45 @@ def worklearn_runtime(results_path):
     diff = max_time - min_time
     return diff[0]
 
-def make_paths(results_path, policyname=None):
-    """Pretty print paths.
+def worklearn_current_iteration(results_path):
+    df = pd.read_csv(results_path)
+    d = dict()
+    for p, df_s in df.groupby('policy'):
+        d[p] = df_s['iteration'].max()
+    return d
+
+
+def worklearn_res_by_ep(results_path, policyname=None):
+    """Return episode runs, one by one.
 
     Args:
         results_path:     Path to experiment file.
     
-    Assumes sorted by iteration, timestep.
     """
-    # TODO: Handle any order of rows.
-    fp = open(results_path, 'r')
-    reader = csv.DictReader(fp)
+    df = pd.read_csv(results_path)
+    if policyname is not None:
+        df = df[df.policy == policyname]
+    
+    df['aor'] = zip(df['a'], df['o'], df['r'], df['b'])
+    df_grouped = df.groupby(['policy','iteration','episode'])['aor'].agg(lambda x: tuple(x))
 
-    runs = []
-    for row in reader:
-        if policyname is not None and row['policy'] != policyname:
-            continue
+    def format_tup(t):
+        try:
+            a = int(t[0])
+            o = int(t[1])
+            r = t[2]
+        except:
+            a = ' '
+            o = ' '
+            r = 0
+        b = t[3]
 
-        if int(row['iteration']) == 0 and int(row['t']) == 0:
-            runs.append([])
-        if row['a'] != '':
-            runs[-1].append('{} ({}, {})'.format(row['a'], row['o'], row['r']))
-    for run in runs:
-        print '----'
-        print ' '.join(run)
+        return '{} ({} {:.2f}): {}'.format(
+            a, o, r, 
+            ' '.join('{:.2f}'.format(float(s)) for s in b.split()))
+    def f():
+        for i,v in df_grouped.iteritems():
+            print v
+            yield tuple(format_tup(t) for t in v)
 
-    fp.close()
+    return f()

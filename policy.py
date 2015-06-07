@@ -5,12 +5,16 @@ pomdpsol-aitoolbox for 'aitoolbox' policies.
 
 """
 
+from __future__ import division
 import collections
 import os
+import time
+import copy
 import random
+import numpy as np
 import subprocess
 from pomdp import POMDPPolicy, POMDPModel
-from util import get_or_default, ensure_dir
+from util import get_or_default, ensure_dir, equation_safe_filename
 import work_learn_problem as wlp
 
 class Policy:
@@ -24,12 +28,11 @@ class Policy:
         self.policy = policy_type
         self.exp_name = exp_name
         self.epsilon = get_or_default(kwargs, 'epsilon', None)
-        self.external_policy_set = collections.defaultdict(bool)
         if self.epsilon is not None:
-            self.estimate_interval = get_or_default(
-                kwargs, 'estimate_interval', 1)
             self.resolve_interval = get_or_default(
-                kwargs, 'resolve_interval', self.estimate_interval)
+                kwargs, 'resolve_interval', 1)
+            self.estimate_interval = get_or_default(
+                kwargs, 'estimate_interval', self.resolve_interval)
         if self.policy in ('appl', 'zmdp'):
             self.discount = get_or_default(kwargs, 'discount', default_discount)
             self.timeout = get_or_default(kwargs, 'timeout', None)
@@ -41,32 +44,98 @@ class Policy:
         else:
             raise NotImplementedError
 
-    def get_best_action(self, params, iteration, history, states, actions, observations, valid_actions, belief=None):
-        """Next action
+        self.params_estimated = dict()
+        self.estimate_times = dict()
+        self.resolve_times = dict()
+        self.external_policy = None
+
+    def get_epsilon_probability(self, episode, t):
+        """Return probability specified by the given exploration function.
+
+        Exploration function is a function of the episode (e, ep, or episode)
+        and the current timestep (t).
+
+        WARNING: Evaluates the expression in self.epsilon without security checks.
+
+        """
+        # Put some useful variable abbreviations in the namespace.
+        e = episode
+        ep = episode
+        if isinstance(self.epsilon, basestring):
+            return eval(self.epsilon)
+        else:
+            return self.epsilon
+
+    def estimate_and_solve(self, model, iteration, history):
+        """Reestimate and resolve as needed."""
+        episode = history.n_episodes() - 1
+
+        resolve_p = (self.policy in ('appl', 'zmdp', 'aitoolbox') and
+                     (self.external_policy is None or
+                      (self.epsilon is not None and
+                       episode % self.resolve_interval == 0)))
+        estimate_p = (self.epsilon is not None and
+                      (resolve_p or episode % self.estimate_interval == 0))
+        if estimate_p:
+            model.estimate(history, random_init=(episode == 0))
+            start = time.clock()
+            self.params_estimated[episode] = copy.deepcopy(
+                model.get_params_est())
+            self.estimate_times[episode] = time.clock() - start
+        if resolve_p:
+            start = time.clock()
+            self.external_policy = self.get_external_policy(
+                model, iteration, episode)
+            self.resolve_times[episode] = time.clock() - start
+
+
+    def get_next_action(self, model, iteration, history, valid_actions,
+                        belief=None):
+        """Get next action, according to policy.
+
+        If this is an RL policy, take random action (other than boot)
+        with probability specified by the given exploration function.
+
+        """
+        episode = history.n_episodes() - 1
+        t = history.n_t(episode)
+        if (self.epsilon is not None and
+                np.random.random() <= self.get_epsilon_probability(episode, t)):
+            valid_actions_no_boot = [i for i in valid_actions if
+                                     model.actions[i].name != 'boot']
+            return np.random.choice(valid_actions_no_boot)
+        else:
+            return self.get_best_action(model, iteration, history,
+                                        valid_actions, belief)
+
+
+    def get_best_action(self, model, iteration, history, valid_actions,
+                        belief=None):
+        """Get best action according to policy.
+
+        If policy requires an external_policy, assumes it already exists.
 
         Args:
-            params (dict):              Current params.
+            model (POMDPModel object):  Current estimated model.
+            iteration (int):            Current iteration.
+            valid_actions (lst):        Indices of valid actions.
             history (History object):   Defined in history.py.
-            states (list):              State objects.
-            actions (list):             Action objects.
-            observations (list):        Observation names.
 
         Returns: Action index.
 
         """
-        # TODO: Move episode computation to history class.
         episode = history.n_episodes() - 1
         current_actions = history.get_actions(episode)
         current_observations = history.get_observations(episode)
-        n_skills = len(params['p_s'])
+        n_skills = model.n_skills
         n_actions = len(current_actions)
         if self.policy == 'fixed':
             # Make sure to teach each skill at least n times.
             # Select skills in random order, but teach each skill as a batch.
             # Alternate quizzing and explaining.
-            a_exp = actions.index(wlp.Action('exp'))
-            a_ask = actions.index(wlp.Action('ask'))
-            quiz_actions = [i for i,a in enumerate(actions) if a.is_quiz()]
+            a_exp = model.actions.index(wlp.Action('exp'))
+            a_ask = model.actions.index(wlp.Action('ask'))
+            quiz_actions = [i for i,a in enumerate(model.actions) if a.is_quiz()]
             quiz_counts = collections.Counter(
                 [a for a in current_actions if a in quiz_actions])
             quiz_actions_remaining = [a for a in quiz_actions if
@@ -80,7 +149,7 @@ class Policy:
                     return a_ask
             else:
                 last_action = current_actions[-1]
-                if actions[last_action].is_quiz():
+                if model.actions[last_action].is_quiz():
                     if quiz_counts[last_action] <= self.n:
                         # Explain n times for each quiz.
                         return a_exp
@@ -100,13 +169,6 @@ class Policy:
                     else:
                         return a_ask
         elif self.policy in ('appl', 'aitoolbox', 'zmdp'):
-            resolve_p = (not self.external_policy_set[episode] or
-                         (self.epsilon is not None and
-                          episode % self.resolve_interval == 0))
-            if resolve_p:
-                self.external_policy = self.get_external_policy(
-                    iteration, episode, params)
-                self.external_policy_set[episode] = True
             rewards = self.external_policy.get_action_rewards(belief)
             valid_actions_with_rewards = set(valid_actions).intersection(
                 set(rewards))
@@ -125,42 +187,44 @@ class Policy:
         else:
             raise NotImplementedError
 
-    def get_external_policy(self, iteration, episode, params):
+    def get_external_policy(self, model, iteration, episode):
         """Compute external policy and store in unique locations.
         
         Store POMDP files as
-        'models/exp_name/iteration-episode-policy_name.pomdp'.
+        'models/exp_name/iteration/episode/policy_name.pomdp'.
 
         Store learned policy files as
-        'policies/exp_name/iteration-episode-policy_name.policy'.
+        'policies/exp_name/iteration/episode/policy_name.policy'.
 
         Returns:
             policy (POMDPPolicy)
 
         """
-        pomdp_dirpath = os.path.join('models', self.exp_name)
-        policy_dirpath = os.path.join('policies', self.exp_name)
+        pomdp_dirpath = os.path.join(
+            'models', self.exp_name, str(iteration), str(episode))
+        policy_dirpath = os.path.join(
+            'policies', self.exp_name, str(iteration), str(episode))
         ensure_dir(pomdp_dirpath)
         ensure_dir(policy_dirpath)
-        pomdp_fpath = os.path.join(
-            pomdp_dirpath,
-            '{}-{}-{}.pomdp'.format(iteration, episode, self))
-        policy_fpath = os.path.join(
-            policy_dirpath,
-            '{}-{}-{}.policy'.format(iteration, episode, self))
+        pomdp_fpath = os.path.join(pomdp_dirpath, '{}.pomdp'.format(self))
+        policy_fpath = os.path.join(policy_dirpath, '{}.policy'.format(self))
 
-        return self.run_solver(model_filename=pomdp_fpath,
-                               policy_filename=policy_fpath,
-                               params=params)
+        return self.run_solver(model=model,
+                               model_filename=pomdp_fpath,
+                               policy_filename=policy_fpath)
 
-    def run_solver(self, model_filename, policy_filename, params):
-        """Run POMDP solver, storing files at the given locations
+    def run_solver(self, model, model_filename, policy_filename):
+        """Run POMDP solver.
+        
+        Args:
+            model (POMDPModel):         Model.
+            model_filename (str):       Path for input to POMDP solver.
+            policy_filename (str):      Path for computed policy.
 
         Returns:
             policy (POMDPPolicy)
 
         """
-        model = POMDPModel(**params)
         if self.policy == 'appl':
             with open(model_filename, 'w') as f:
                 model.write_pomdp(f, discount=self.discount)
@@ -227,7 +291,7 @@ class Policy:
             raise NotImplementedError
 
         if self.epsilon is not None:
-            s += '-e{:.3f}'.format(self.epsilon)
+            s += '-eps_{}'.format(equation_safe_filename(self.epsilon))
             if (self.estimate_interval > 1):
                 s += '-e_int{}'.format(self.estimate_interval)
             if (self.resolve_interval > 1):

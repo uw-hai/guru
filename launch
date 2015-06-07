@@ -3,7 +3,7 @@
 # $1: server
 # $2: config.json
 # $3: policies.json
-# $4: iterations
+# $4-n: additional options
 
 defaulti=400
 
@@ -17,7 +17,7 @@ pbase=${pbase%.json}
 
 sname=e.$cbase.$pbase
 
-i=${4:-$defaulti}
+options=${@:4}
 
 cd ~/rv/dev/worklearn/; git pull;
-ssh $1 "screen -dm -S $sname; screen -S $sname -p 0 -X stuff $'cd ~/dev/worklearn/\nworkon worklearn\npython exp.py --config $c --policies $p --iterations $i \n'";
+ssh $1 "screen -dm -S $sname; screen -S $sname -p 0 -X stuff $'cd ~/dev/worklearn/\nworkon worklearn\npython exp.py --config $c --policies $p $options \n'";
