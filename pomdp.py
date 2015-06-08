@@ -26,8 +26,13 @@ class POMDPModel:
             'p_guess', 'p_slip', 'p_lose', 'p_learn', 'p_leave']
         self.params = params
 
+        # p_s:      Bias < 0.5 to encourage initial teaching exploration.
+        # p_lose:   Bias < 0.5 since workers probably don't "forget" right
+        #           away.
+        # p_slip:   Bias < 0.5 since random guessing on multiple choice
+        #           is no better than 0.5.
         self.beta_priors = {
-            'p_s': [(1.1,1.1) for i in xrange(self.n_skills)],
+            'p_s': [(2,5) for i in xrange(self.n_skills)],
             'p_guess': (1.1, 1.1),
             'p_slip': (2, 5), # Lower probability of making a mistake.
             'p_lose': (2, 5), # Lower probability of forgetting.
