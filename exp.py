@@ -52,7 +52,6 @@ def set_config_defaults(config):
     """Mutates and returns original object"""
     config['utility_type'] = get_or_default(config, 'utility_type', 'acc')
     config['p_lose'] = get_or_default(config, 'p_lose', 0)
-    config['episodes'] = get_or_default(config, 'episodes', 1)
     return config
 
 def params_to_rows(params, iteration=None, episode=None, policy=None):
@@ -81,9 +80,10 @@ def run_policy_iteration_from_json(s):
     exp_name = d['exp_name']
     policy = d['policy']
     iteration = d['iteration']
-    return run_policy_iteration(exp_name, config_params, policy, iteration)
+    episodes = d['episodes']
+    return run_policy_iteration(exp_name, config_params, policy, iteration, episodes)
  
-def run_policy_iteration(exp_name, config_params, policy, iteration):
+def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
     """
     Args:
         exp_name (str):         Experiment name, without file ending.
@@ -103,7 +103,6 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
     # TODO: Blacklist estimated params instead.
     params_gt_fixed = dict((k, params_gt[k]) for k in
                            ['cost', 'cost_exp', 'p_r', 'p_1', 'utility_type'])
-    episodes = params_gt['episodes']
 
     pol = Policy(policy_type=policy['type'], exp_name=exp_name, **policy)
 
@@ -188,9 +187,11 @@ def run_policy_iteration(exp_name, config_params, policy, iteration):
     return results, models, timings
 
 
-def run_experiment(config, policies, iterations, epsilon, resolve_interval):
+def run_experiment(config, policies, iterations, episodes, epsilon, resolve_interval):
     config_basename = os.path.basename(config.name)
     exp_name = os.path.splitext(config_basename)[0]
+    if episodes > 1:
+        exp_name += '-ep{}'.format(episodes)
     policies_basename = os.path.basename(policies.name)
     # TODO: Add epsilon and resolve_interval to policies name.
     policies_name = os.path.splitext(policies_basename)[0]
@@ -210,7 +211,7 @@ def run_experiment(config, policies, iterations, epsilon, resolve_interval):
 
     # Make folders (errors when too many folders are made in subprocesses).
     for i in xrange(iterations):
-        for ep in xrange(params_gt['episodes']):
+        for ep in xrange(episodes):
             ensure_dir(os.path.join(models_path, str(i), str(ep)))
             ensure_dir(os.path.join(policies_path, str(i), str(ep)))
 
@@ -224,7 +225,8 @@ def run_experiment(config, policies, iterations, epsilon, resolve_interval):
     args_iter = (json.dumps({'exp_name': exp_name,
                              'params': params_gt,
                              'policy': p,
-                             'iteration': i}) for i,p in
+                             'iteration': i,
+                             'episodes': episodes}) for i,p in
                  itertools.product(xrange(iterations), policies))
 
     # Write one-time files.
@@ -294,6 +296,7 @@ if __name__ == '__main__':
     parser.add_argument('--config', '-c', type=argparse.FileType('r'), required=True, help='Config json file')
     parser.add_argument('--policies', '-p', type=argparse.FileType('r'), required=True, help='Policies json file')
     parser.add_argument('--iterations', '-i', type=int, default=1000, help='Number of iterations')
+    parser.add_argument('--episodes', '-e', type=int, default=1, help='Number of iterations')
     parser.add_argument('--epsilon', type=str, help='Epsilon to use for all policies')
     parser.add_argument('--resolve_interval', type=int, help='Resolve interval to use for all policies')
     args = parser.parse_args()
@@ -301,5 +304,6 @@ if __name__ == '__main__':
     run_experiment(config=args.config,
                    policies=args.policies,
                    iterations=args.iterations,
+                   episodes=args.episodes,
                    epsilon=args.epsilon,
                    resolve_interval=args.resolve_interval)
