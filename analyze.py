@@ -256,6 +256,15 @@ def plot_params(df_model, outfname):
     # Find dist from true param.
     df_est = df_est.merge(df_gt, how='left', on='param', suffixes=('', '_t'))
     df_est['dist'] = np.abs(df_est['v'] - df_est['v_t'])
+
+    if np.all(df_est.alpha.notnull()):
+        df_est['beta_mean'] = df_est.apply(
+            lambda r: ss.beta.mean(r['alpha'], r['beta']), axis=1)
+        df_est['beta_std'] = df_est.apply(
+            lambda r: ss.beta.std(r['alpha'], r['beta']), axis=1)
+        df_est['beta_mode'] = df_est.apply(
+            lambda r: (r['alpha'] - 1) / (r['alpha'] + r['beta'] - 2), axis=1)
+
     df_est['it-param'] = df_est['iteration'].map(str) + ',' + \
                          df_est['param'].map(str)
 
@@ -290,6 +299,18 @@ def plot_params(df_model, outfname):
         plt.savefig(fname + '.png')
         plt.close()
 
+        if np.all(df_p.alpha.notnull()):
+            for s in ['mean', 'std', 'mode']:
+                ax = sns.tsplot(df_p, time='episode', unit='iteration',
+                                condition='param', value='beta_{}'.format(s),
+                                ci=CI)
+                ax.set_ylim(0, 1)
+                ax.set_xlim(0, None)
+                plt.ylabel('Parameter posterior {}'.format(s))
+                plt.xlabel('Episode')
+                fname = outfname + '_beta_{}_p-{}'.format(s, p)
+                plt.savefig(fname + '.png')
+                plt.close()
 
 def parse_names(f):
     """Return dictionary mapping type and index to a string"""

@@ -28,7 +28,8 @@ class Policy:
         self.policy = policy_type
         self.exp_name = exp_name
         self.epsilon = get_or_default(kwargs, 'epsilon', None)
-        if self.epsilon is not None:
+        self.thompson = bool(get_or_default(kwargs, 'thompson', False))
+        if self.rl_p():
             self.resolve_interval = get_or_default(
                 kwargs, 'resolve_interval', 1)
             self.estimate_interval = get_or_default(
@@ -45,10 +46,15 @@ class Policy:
             raise NotImplementedError
 
         self.params_estimated = dict()
+        self.hparams_estimated = dict()
         self.estimate_times = dict()
         self.resolve_times = dict()
         self.external_policy = None
 
+    def rl_p(self):
+        """Policy does reinforcement learning"""
+        return self.epsilon is not None or self.thompson
+    
     def get_epsilon_probability(self, episode, t):
         """Return probability specified by the given exploration function.
 
@@ -72,16 +78,20 @@ class Policy:
 
         resolve_p = (self.policy in ('appl', 'zmdp', 'aitoolbox') and
                      (self.external_policy is None or
-                      (self.epsilon is not None and
+                      (self.rl_p() and
                        episode % self.resolve_interval == 0)))
-        estimate_p = (self.epsilon is not None and
+        estimate_p = (self.rl_p() and
                       (resolve_p or episode % self.estimate_interval == 0))
         if estimate_p:
-            model.estimate(history, random_init=(episode == 0))
             start = time.clock()
+            model.estimate(history,
+                           random_init=(len(self.params_estimated) == 0))
+            if self.thompson:
+                model.thompson_sample()
+            self.estimate_times[episode] = time.clock() - start
             self.params_estimated[episode] = copy.deepcopy(
                 model.get_params_est())
-            self.estimate_times[episode] = time.clock() - start
+            self.hparams_estimated[episode] = copy.deepcopy(model.hparams)
         if resolve_p:
             start = time.clock()
             self.external_policy = self.get_external_policy(
@@ -290,8 +300,11 @@ class Policy:
         else:
             raise NotImplementedError
 
-        if self.epsilon is not None:
-            s += '-eps_{}'.format(equation_safe_filename(self.epsilon))
+        if self.rl_p():
+            if self.epsilon is not None:
+                s += '-eps_{}'.format(equation_safe_filename(self.epsilon))
+            if self.thompson:
+                s += '-thomp'
             if (self.estimate_interval > 1):
                 s += '-e_int{}'.format(self.estimate_interval)
             if (self.resolve_interval > 1):

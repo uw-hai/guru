@@ -54,7 +54,8 @@ def set_config_defaults(config):
     config['p_lose'] = get_or_default(config, 'p_lose', 0)
     return config
 
-def params_to_rows(params, iteration=None, episode=None, policy=None):
+def params_to_rows(params, hparams=None,
+                   iteration=None, episode=None, policy=None):
     """Convert params to list of dictionaries to write to models file"""
     rows = []
     row_base = {'iteration': iteration,
@@ -63,11 +64,15 @@ def params_to_rows(params, iteration=None, episode=None, policy=None):
     for p in params:
         if p == 'p_s':
             for i in xrange(len(params[p])):
-                row = {'param': 'p_s{}'.format(i), 'v': params['p_s'][i]}
+                row = {'param': '{}{}'.format(p, i), 'v': params[p][i]}
+                if hparams is not None:
+                    row['alpha'], row['beta'] = hparams[p][i]
                 row.update(row_base)
                 rows.append(row)
         else:
             row = {'param': p, 'v': params[p]}
+            if hparams is not None:
+                row['alpha'], row['beta'] = hparams[p]
             row.update(row_base)
             rows.append(row)
     return rows
@@ -113,7 +118,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
 
     # Begin experiment
     history = History()
-    if pol.epsilon is not None:
+    if pol.rl_p():
         model_est = POMDPModel(**params_gt_fixed)
     else:
         model_est = model_gt
@@ -167,7 +172,15 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
     models = []
     for ep in sorted(pol.params_estimated):
         params = pol.params_estimated[ep]
-        models += params_to_rows(params, iteration, ep, str(pol))
+        if ep in pol.hparams_estimated:
+            hparams = pol.hparams_estimated[ep]
+        else:
+            hparams = None
+        models += params_to_rows(params=params,
+                                 hparams=hparams,
+                                 iteration=iteration,
+                                 episode=ep,
+                                 policy=str(pol))
 
     timings = []
     for ep in sorted(pol.estimate_times):
@@ -187,7 +200,8 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
     return results, models, timings
 
 
-def run_experiment(config, policies, iterations, episodes, epsilon, resolve_interval):
+def run_experiment(config, policies, iterations, episodes, epsilon, thompson,
+                   resolve_interval):
     config_basename = os.path.basename(config.name)
     exp_name = os.path.splitext(config_basename)[0]
     if episodes > 1:
@@ -197,6 +211,8 @@ def run_experiment(config, policies, iterations, episodes, epsilon, resolve_inte
     policies_name = os.path.splitext(policies_basename)[0]
     if epsilon is not None:
         policies_name += '-eps_{}'.format(equation_safe_filename(epsilon))
+    if thompson:
+        policies_name += '-thomp'
     if resolve_interval is not None:
         policies_name += '-s_int{}'.format(resolve_interval)
 
@@ -220,6 +236,8 @@ def run_experiment(config, policies, iterations, episodes, epsilon, resolve_inte
     for p in policies:
         if epsilon is not None and 'epsilon' not in p:
             p['epsilon'] = epsilon
+        if thompson:
+            p['thompson'] = True
         if resolve_interval is not None and 'resolve_interval' not in p:
             p['resolve_interval'] = resolve_interval
     args_iter = (json.dumps({'exp_name': exp_name,
@@ -237,11 +255,12 @@ def run_experiment(config, policies, iterations, episodes, epsilon, resolve_inte
     # Open file pointers.
     models_fp = open(
         os.path.join(res_path, '{}_model.csv'.format(policies_name)), 'wb')
-    models_fieldnames = ['iteration', 'episode', 'policy', 'param', 'v']
+    models_fieldnames = ['iteration', 'episode', 'policy', 'param',
+                         'v', 'alpha', 'beta']
     m_writer = csv.DictWriter(models_fp, fieldnames=models_fieldnames)
     m_writer.writeheader()
 
-    for r in  params_to_rows(model_gt.get_params_est()):
+    for r in params_to_rows(model_gt.get_params_est()):
         m_writer.writerow(r)
 
     results_fp = open(os.path.join(res_path, '{}.txt'.format(policies_name)), 'wb')
@@ -298,6 +317,9 @@ if __name__ == '__main__':
     parser.add_argument('--iterations', '-i', type=int, default=1000, help='Number of iterations')
     parser.add_argument('--episodes', '-e', type=int, default=1, help='Number of episodes')
     parser.add_argument('--epsilon', type=str, help='Epsilon to use for all policies')
+    parser.add_argument('--thompson', dest='thompson', action='store_true',
+                        help="Use Thompson sampling")
+    parser.set_defaults(thompson=False)
     parser.add_argument('--resolve_interval', type=int, help='Resolve interval to use for all policies')
     args = parser.parse_args()
 
@@ -306,4 +328,5 @@ if __name__ == '__main__':
                    iterations=args.iterations,
                    episodes=args.episodes,
                    epsilon=args.epsilon,
+                   thompson=args.thompson,
                    resolve_interval=args.resolve_interval)
