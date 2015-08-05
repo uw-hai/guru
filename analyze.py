@@ -442,7 +442,7 @@ def expand_episodes(df):
     return pd.concat(dfs, ignore_index=True)
 
 def make_plots(infiles, outdir, models=[], timings=[], names=None,
-               episode_step=100, policies=None, fast=False,
+               episode_step=10, policies=None, fast=False,
                noexp=True, log=True):
     """Make plots.
 
@@ -527,50 +527,30 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
                               formatter=str_observation, logx=log)
             print 'Done plotting episode {} in detail'.format(e)
 
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Visualize policies.')
-    parser.add_argument('result', type=str, nargs='+',
-                        help='main experiment result .txt files')
-    parser.add_argument('--episode_step', type=int, default=10)
-    parser.add_argument('--no-noexp', dest='noexp', action='store_false',
-                        help="Don't print NOEXP actions.")
-    parser.set_defaults(noexp=True)
-    parser.add_argument('--single', dest='single', action='store_true',
-                        help='Treat multiple inputs as single experiment')
-    parser.set_defaults(single=False)
-    parser.add_argument('--fast', dest='fast', action='store_true',
-                        help="Don't make plots with time as x-axis")
-    parser.set_defaults(fast=False)
-    parser.add_argument('--dest', '-d', type=str, help='Folder to store plots')
-    parser.add_argument('--policies', type=str, nargs='*',
-                        help='Policies to use')
-    args = parser.parse_args()
-
-    if args.single:
-        if args.dest is None:
+def main(filenames, policies=None, fast=False, noexp=True, episode_step=10,
+         single=False, dest=None):
+    if single:
+        if dest is None:
             raise Exception('Must specify a destination folder')
-        if args.dest:
-            plotdir = args.dest
 
-        names = os.path.splitext(args.result[0])[0] + '_names.csv'
-        models = [os.path.splitext(f)[0] + '_model.csv' for f in args.result]
-        timings = [os.path.splitext(f)[0] + '_timings.csv' for f in args.result]
+        names = os.path.splitext(filenames[0])[0] + '_names.csv'
+        models = [os.path.splitext(f)[0] + '_model.csv' for f in filenames]
+        timings = [os.path.splitext(f)[0] + '_timings.csv' for f in filenames]
         if not all(os.path.exists(t) for t in timings):
             timings = []
 
-        make_plots(infiles=args.result,
-                   outdir=plotdir,
+        make_plots(infiles=filenames,
+                   outdir=dest,
                    names=names,
                    models=models,
                    timings=timings,
-                   episode_step=args.episode_step,
-                   policies=args.policies,
-                   fast=args.fast,
-                   noexp=args.noexp)
+                   episode_step=episode_step,
+                   policies=policies,
+                   fast=fast,
+                   noexp=noexp)
     else:
         jobs = []
-        for f in args.result:
+        for f in filenames:
             # If result file is of the form 'f.end', assume directory also
             # contains 'f_model.csv' and 'f_names.csv'.
             # Output plots in a subdirectory with name 'f'.
@@ -599,9 +579,36 @@ if __name__ == '__main__':
                 names=names,
                 models=[model],
                 timings=timings,
-                episode_step=args.episode_step,
-                policies=args.policies,
-                fast=args.fast,
-                noexp=args.noexp))
+                episode_step=episode_step,
+                policies=policies,
+                fast=fast,
+                noexp=noexp))
             jobs.append(p)
             p.start()
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Visualize policies.')
+    parser.add_argument('result', type=str, nargs='+',
+                        help='main experiment result .txt files')
+    parser.add_argument('--episode_step', type=int, default=10)
+    parser.add_argument('--no-noexp', dest='noexp', action='store_false',
+                        help="Don't print NOEXP actions.")
+    parser.set_defaults(noexp=True)
+    parser.add_argument('--single', dest='single', action='store_true',
+                        help='Treat multiple inputs as single experiment')
+    parser.set_defaults(single=False)
+    parser.add_argument('--fast', dest='fast', action='store_true',
+                        help="Don't make plots with time as x-axis")
+    parser.set_defaults(fast=False)
+    parser.add_argument('--dest', '-d', type=str, help='Folder to store plots')
+    parser.add_argument('--policies', type=str, nargs='*',
+                        help='Policies to use')
+    args = parser.parse_args()
+
+    main(filenames=args.result,
+         policies=args.policies,
+         fast=args.fast,
+         noexp=args.noexp,
+         episode_step=args.episode_step,
+         single=args.single,
+         dest=args.dest)

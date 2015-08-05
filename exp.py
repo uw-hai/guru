@@ -16,6 +16,7 @@ from pomdp import POMDPModel
 from policy import Policy
 from history import History
 from util import get_or_default, ensure_dir, equation_safe_filename
+import analyze
 
 logger = mp.log_to_stderr()
 logger.setLevel(logging.INFO)
@@ -299,7 +300,8 @@ def run_experiment(name, config, policies, iterations, episodes, epsilon=None,
     for r in params_to_rows(model_gt.get_params_est()):
         m_writer.writerow(r)
 
-    results_fp = open(os.path.join(res_path, '{}.txt'.format(policies_name)), 'wb')
+    results_filepath = os.path.join(res_path, '{}.txt'.format(policies_name))
+    results_fp = open(results_filepath, 'wb')
     results_fieldnames = [
         'iteration','episode','t','policy','sys_t','a','s','o','r','b']
     r_writer = csv.DictWriter(results_fp, fieldnames=results_fieldnames)
@@ -345,6 +347,9 @@ def run_experiment(name, config, policies, iterations, episodes, epsilon=None,
         results_fp.close()
         models_fp.close()
         timings_fp.close()
+
+        # Plot.
+        analyze.main(filenames=[results_filepath])
 
 def cmd_config_to_pomdp_params(config):
     """Convert command line config parameters to params for POMDPModel.
