@@ -186,7 +186,7 @@ class POMDPModel:
         else:
             exponents_dict = dict()
             exponents_dict['p_worker'] = [
-                0 if i == st.worker_class else 1 for
+                1 if i == st.worker_class else 0 for
                 i in xrange(self.n_worker_classes)]
             for i, v in enumerate(st.skills):
                 k = self.get_param_version(s, ('p_s', i))
