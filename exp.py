@@ -387,7 +387,7 @@ def cmd_config_to_pomdp_params(config):
 
     # Make bernoulli probabilites full probabilities.
     # TODO: Move into POMDPModel?
-    for k in res:
+    for k in res.keys():
         if (k in ['p_learn', 'p_lose', 'p_leave', 'p_slip', 'p_guess'] or
             (len(k) == 2 and k[0] == 'p_s')):
             probs = res.pop(k)
