@@ -9,7 +9,7 @@ import numpy as np
 from numpy import log
 import random
 from scipy.misc import logsumexp
-from scipy.optimize import minimize, check_grad
+import scipy.stats as ss
 import work_learn_problem as wlp
 from work_learn_problem import Action
 
@@ -18,32 +18,85 @@ import zmdp_util
 
 class POMDPModel:
     """POMDP model"""
-    def __init__(self, **params):
+    def __init__(self, n_worker_classes, params, estimate_all=False):
+        """Initialize.
+
+        Args:
+            n_worker_classes:       Number of worker classes.
+            estimate_all (bool):    Ignore parameter values that we can
+                                    estimate.
+            params (dict):          Dictionary of parameters. Must contain
+                                    keys for all parameters to be estimated.
+                                    When a parameter needs a worker class
+                                    specified, use None to indicate
+                                    that the parameter be shared across
+                                    worker classes. Do not use both None
+                                    and worker classes for a given parameter.
+
+        """
         self.n_skills = len(params['p_r'])
+        self.n_worker_classes = n_worker_classes
         self.actions = wlp.actions(self.n_skills)
-        self.states = wlp.states_all(self.n_skills)
+        self.states = wlp.states_all(self.n_skills, self.n_worker_classes)
         self.observations = wlp.observations
-        self.single_params = [
-            'p_guess', 'p_slip', 'p_lose', 'p_learn', 'p_leave']
-        self.params = params
+        # TODO: Change this to a list of estimated params, and
+        # make params (p, ind) format.
+        self.params_fixed = ['cost', 'cost_exp', 'p_r', 'p_1', 'utility_type']
+        if estimate_all:
+            self.params = dict(
+                (k, params[k] if k in self.params_fixed else None) for
+                k in params)
+        else:
+            self.params = params
         self.hparams = None
 
+        # TODO: Rename from beta_priors, since dirichlet hyperparams.
         # p_s:      Bias < 0.5 to encourage initial teaching exploration.
         # p_lose:   Bias < 0.5 since workers probably don't "forget" right
         #           away.
         # p_slip:   Bias < 0.5 since random guessing on multiple choice
         #           is no better than 0.5.
         self.beta_priors = {
-            'p_s': [[2,5] for i in xrange(self.n_skills)],
-            'p_guess': [1.1, 1.1],
-            'p_slip': [2, 5], # Lower probability of making a mistake.
-            'p_lose': [2, 5], # Lower probability of forgetting.
-            'p_learn': [1.1, 1.1],
-            'p_leave': [1.1, 1.1]}
+            'p_worker': [1.1 for i in xrange(self.n_worker_classes)],
+            ('p_guess', None): [1.1, 1.1],
+            ('p_slip', None): [2, 5], # Lower probability of making a mistake.
+            ('p_lose', None): [2, 5], # Lower probability of forgetting.
+            ('p_learn', None): [1.1, 1.1],
+            ('p_leave', None): [1.1, 1.1]}
+        for i in xrange(self.n_skills):
+            self.beta_priors[('p_s', i), None] = [2, 5]
+        # TODO: Add different priors for other classes of workers.
+        # This is a hack to copy over default priors into classes of workers.
+        for k in self.params:
+            if isinstance(k, tuple):
+                param, worker_class = k
+                if worker_class != None:
+                    self.beta_priors[k] = self.beta_priors[param, None]
 
     def get_params_est(self):
         """Return subset of parameters that are estimated"""
-        return dict((k,self.params[k]) for k in self.single_params + ['p_s'])
+        return dict((k, self.params[k]) for k in self.params if
+                    k not in self.params_fixed)
+
+    def get_param_version(self, s, k):
+        """Get param version to use for worker class in this state.
+
+        If state is terminal, and key is defined for multiple worker classes,
+        arbitrarily select the param version for the first worker class.
+
+        Args:
+            s:  State index.
+            k:  Key.
+
+        """
+        st = self.states[s]
+        worker_class = 0 if st.term else st.worker_class
+        if k in self.params:
+            return k
+        elif (k, None) in self.params:
+            return (k, None)
+        else:
+            return (k, worker_class)
 
     def write_names(self, fo):
         """Write csv file mapping state/action/observation indices to names"""
@@ -69,7 +122,6 @@ class POMDPModel:
                 for o,_ in enumerate(self.observations):
                     fo.write('{}\t'.format(self.get_observation(s, a, o)))
             fo.write('\n')
-                                           
 
     def write_pomdp(self, fo, discount):
         """Write a Cassandra-style POMDP spec with the given discount"""
@@ -116,17 +168,14 @@ class POMDPModel:
         return [self.get_start_probability(s, params) for
                 s in xrange(len(self.states))]
 
-    def get_start_probability(self, s, params=None, exponents=False,
-                              derivative=None):
-        """Get start probability, or
-        derivative with respect to a parameter.
+    def get_start_probability(self, s, params=None, exponents=False):
+        """Get start probability, or exponents for parameters.
 
         Args:
             s:          State index
             params:
             exponents:  Return dictionary with parameter exponents instead
-                        of raw probability or derivative.
-            derivative: Skill number
+                        of raw probability
 
         """
         if params is None and not exponents:
@@ -135,28 +184,21 @@ class POMDPModel:
         if st.term or st.is_quiz():
             return dict() if exponents else 0
         else:
+            exponents_dict = dict()
+            exponents_dict['p_worker'] = [
+                0 if i == st.worker_class else 1 for
+                i in xrange(self.n_worker_classes)]
+            for i, v in enumerate(st.skills):
+                k = self.get_param_version(s, ('p_s', i))
+                exponents_dict[k] = [1, 0] if v else [0, 1]
             if exponents:
-                return {'p_s': [[1, 0] if v else [0, 1] for v in st.skills]}
-            prob = 1
-            dprob = 1
-            for i, (v, p) in enumerate(zip(st.skills, params['p_s'])):
-                if v:
-                    prob *= p
-                    if derivative != i:
-                        dprob *= p 
-                else:
-                    prob *= 1 - p
-                    if derivative != i:
-                        dprob *= 1 - p 
-                    else:
-                        dprob *= -1
-            if derivative is None:
-                return counts if exponents else prob
+                return exponents_dict
             else:
-                return dprob
+                return np.prod([np.prod(np.power(params[p],
+                                                 exponents_dict[p])) for
+                                p in exponents_dict])
 
-    def get_transition(self, s, a, s1, params=None, exponents=False,
-                       derivative=None):
+    def get_transition(self, s, a, s1, params=None, exponents=False):
         """Get transition probability, or derivative
 
         Args:
@@ -165,9 +207,7 @@ class POMDPModel:
             s2:         State index (ending)
             params:
             exponents:  Return dictionary with parameter exponents instead
-                        of raw probability or derivative.
-            derivative: Can be None, 'p_slip', 'p_guess', 'p_leave',
-                        'p_lose', 'p_learn'
+                        of raw probability
 
         """
         if params is None and not exponents:
@@ -177,86 +217,55 @@ class POMDPModel:
         act = self.actions[a]
         st1 = self.states[s1]
 
-        def cval(v):
-            """Derivative of constant values is always 0"""
-            if derivative is None:
-                return v
-            else:
-                return 0
+        p_leave = self.get_param_version(s, 'p_leave')
+        p_lose = self.get_param_version(s, 'p_lose')
+        p_learn = self.get_param_version(s, 'p_learn')
+
+        # Can't switch worker classes.
+        if (not st.term and not st1.term and
+            st.worker_class != st1.worker_class):
+            return dict() if exponents else 0
 
         # Actions from terminal state.
         if st.term and st1.term:
-            return dict() if exponents else cval(1)
+            return dict() if exponents else 1
         elif st.term:
-            return dict() if exponents else cval(0)
+            return dict() if exponents else 0
         
         # Actions from non-quiz states.
         if not st.is_quiz() and act.name == 'boot':
             # Booting takes to terminal state.
             if st1.term:
-                return dict() if exponents else cval(1)
+                return dict() if exponents else 1
             else:
-                return dict() if exponents else cval(0)
+                return dict() if exponents else 0
         elif not st.is_quiz() and act.name == 'ask':
             if st1.term:
-                if derivative is None:
-                    return {'p_leave': [1, 0]} if exponents else \
-                           params['p_leave']
-                elif derivative == 'p_leave':
-                    return 1
-                else:
-                    return 0
+                return {p_leave: [1, 0]} if exponents else params[p_leave][0]
             elif st1.is_quiz() or not st.is_reachable(st1, False):
-                return dict() if exponents else cval(0)
+                return dict() if exponents else 0
             else:
                 n_known = st.n_skills_known()
                 n_lost = st.n_skills_lost(st1)
                 n_lost_not = n_known - n_lost
                 if exponents:
-                    return {'p_lose': [n_lost, n_lost_not],
-                            'p_leave': [0, 1]}
-                prob = params['p_lose'] ** n_lost * \
-                       (1 - params['p_lose']) ** n_lost_not
-                if derivative is None:
-                    return prob * (1 - params['p_leave'])
-                elif derivative == 'p_leave':
-                    return -1 * prob
-                elif derivative == 'p_lose':
-                    # f g'
-                    term1 = params['p_lose'] ** n_lost * \
-                            n_lost_not * \
-                            (1 - params['p_lose']) ** (n_lost_not - 1) * -1
-                    # f' g
-                    term2 = n_lost * params['p_lose'] ** (n_lost - 1) * \
-                            (1 - params['p_lose']) ** n_lost_not
-                    return (term1 + term2) * (1 - params['p_leave'])
-                else:
-                    return 0
+                    return {p_lose: [n_lost, n_lost_not], p_leave: [0, 1]}
+                prob = params[p_lose][0] ** n_lost * \
+                       params[p_lose][1] ** n_lost_not
+                return prob * params[p_leave][1]
         elif not st.is_quiz() and act.is_quiz():
             if st1.term:
-                if derivative is None:
-                    return {'p_leave': [1, 0]} if exponents else \
-                           params['p_leave']
-                elif derivative == 'p_leave':
-                    return 1
-                else:
-                    return 0
+                return {p_leave: [1, 0]} if exponents else params[p_leave][0]
             elif (st1.is_quiz() and st.has_same_skills(st1) and
                   act.quiz_val == st1.quiz_val):
-                if derivative is None:
-                    return {'p_leave': [0, 1]} if exponents else \
-                           (1 - params['p_leave'])
-                elif derivative == 'p_leave':
-                    return -1
-                else:
-                    return 0
+                return {p_leave: [0, 1]} if exponents else params[p_leave][1]
             else:
-                return dict() if exponents else cval(0)
+                return dict() if exponents else 0
         elif not st.is_quiz():
             if s == s1:
-                return dict() if exponents else cval(1)
+                return dict() if exponents else 1
             else:
-                return dict() if exponents else cval(0)
+                return dict() if exponents else 0
 
         # Actions from quiz states.
         if st.is_quiz() and act.name == 'noexp':
@@ -266,24 +275,12 @@ class POMDPModel:
                 n_lost = st.n_skills_lost(st1)
                 n_lost_not = n_known - n_lost
                 if exponents:
-                    return {'p_lose': [n_lost, n_lost_not]}
-                prob = params['p_lose'] ** n_lost * \
-                       (1 - params['p_lose']) ** n_lost_not
-                if derivative is None:
-                    return prob
-                elif derivative == 'p_lose':
-                    # f g'
-                    term1 = params['p_lose'] ** n_lost * \
-                            n_lost_not * \
-                            (1 - params['p_lose']) ** (n_lost_not - 1) * -1
-                    # f' g
-                    term2 = n_lost * params['p_lose'] ** (n_lost - 1) * \
-                            (1 - params['p_lose']) ** n_lost_not
-                    return term1 + term2
-                else:
-                    return 0
+                    return {p_lose: [n_lost, n_lost_not]}
+                prob = params[p_lose][0] ** n_lost * \
+                       params[p_lose][1] ** n_lost_not
+                return prob
             else:
-                return dict() if exponents else cval(0)
+                return dict() if exponents else 0
         elif st.is_quiz() and act.name == 'exp':
             if (not st1.term and not st1.is_quiz() and
                     st.is_reachable(st1, True)):
@@ -296,62 +293,30 @@ class POMDPModel:
                     n_lost_not -= 1
                 if exponents:
                     if st.n_skills_learned(st1) == 1:
-                        return {'p_lose': [n_lost, n_lost_not],
-                                'p_learn': [1, 0]}
+                        return {p_lose: [n_lost, n_lost_not], p_learn: [1, 0]}
                     elif not quiz_skill_known:
                         # Missed opportunity.
-                        return {'p_lose': [n_lost, n_lost_not],
-                                'p_learn': [0, 1]}
+                        return {p_lose: [n_lost, n_lost_not], p_learn: [0, 1]}
                     else:
                         # The skill was already known so it can't be learned.
-                        return {'p_lose': [n_lost, n_lost_not]}
-                prob = params['p_lose'] ** n_lost * \
-                       (1 - params['p_lose']) ** n_lost_not
-                # f g'
-                if params['p_lose'] == 0 or params['p_lose'] == 1:
-                    # TODO: Fix hack
-                    dprob = 0
-                else:
-                    dprob = params['p_lose'] ** n_lost * \
-                            n_lost_not * \
-                            (1 - params['p_lose']) ** (n_lost_not - 1) * -1
-                    # f' g
-                    dprob += n_lost * params['p_lose'] ** (n_lost - 1) * \
-                             (1 - params['p_lose']) ** n_lost_not
+                        return {p_lose: [n_lost, n_lost_not]}
+                prob = params[p_lose][0] ** n_lost * \
+                       params[p_lose][1] ** n_lost_not
                 if st.n_skills_learned(st1) == 1:
-                    if derivative is None:
-                        return prob * params['p_learn']
-                    elif derivative == 'p_learn':
-                        return prob
-                    elif derivative == 'p_lose':
-                        return dprob * params['p_learn']
-                    else:
-                        return 0
+                    return prob * params[p_learn][0]
                 elif not quiz_skill_known:
                     # Missed opportunity.
-                    if derivative is None:
-                        return prob * (1 - params['p_learn'])
-                    elif derivative == 'p_learn':
-                        return prob * -1
-                    elif derivative == 'p_lose':
-                        return dprob * (1 - params['p_learn'])
-                    else:
-                        return 0
+                    return prob * params[p_learn][1]
                 else:
                     # The skill was already known so it can't be learned.
-                    if derivative is None:
-                        return prob
-                    elif derivative == 'p_lose':
-                        return dprob
-                    else:
-                        return 0
+                    return prob
             else:
-                return dict() if exponents else cval(0)
+                return dict() if exponents else 0
         else:
             if s == s1:
-                return dict() if exponents else cval(1)
+                return dict() if exponents else 1
             else:
-                return dict() if exponents else cval(0)
+                return dict() if exponents else 0
 
     def get_reward(self, s, a, s1, params=None):
         """Get reward
@@ -366,8 +331,8 @@ class POMDPModel:
         if params is None:
             params = self.params
         p_r = params['p_r']
-        p_slip = params['p_slip']
-        p_guess = params['p_guess']
+        p_slip = params[self.get_param_version(s1, 'p_slip')][0]
+        p_guess = params[self.get_param_version(s1, 'p_guess')][0]
         p_1 = params['p_1']
         cost = params['cost']
         cost_exp = params['cost_exp']
@@ -391,8 +356,7 @@ class POMDPModel:
         else:
             return 0
 
-    def get_observation(self, s, a, o, params=None, exponents=False,
-                        derivative=None):
+    def get_observation(self, s, a, o, params=None, exponents=False):
         """Get observation probability, or derivative
 
         Args:
@@ -409,19 +373,15 @@ class POMDPModel:
         st = self.states[s]
         obs = self.observations[o]
 
-        def cval(v):
-            """Derivative of constant values is always 0"""
-            if derivative is None:
-                return v
-            else:
-                return 0
+        p_guess = self.get_param_version(s, 'p_guess')
+        p_slip = self.get_param_version(s, 'p_slip')
 
         if st.term:
             # Always know when we enter terminal state.
             if obs == 'term':
-                return dict() if exponents else cval(1)
+                return dict() if exponents else 1
             else:
-                return dict() if exponents else cval(0)
+                return dict() if exponents else 0
         elif st.is_quiz() and act.is_quiz() and st.quiz_val == act.quiz_val:
             # Assume teaching actions ask questions that require only the
             # skill being taught.
@@ -430,49 +390,27 @@ class POMDPModel:
             has_skills = st.p_has_skills(p_r_gold) == 1
             if has_skills:
                 if obs == 'right':
-                    if derivative is None:
-                        return {'p_slip': [0, 1]} if exponents else \
-                               (1 - params['p_slip'])
-                    elif derivative == 'p_slip':
-                        return -1
-                    else:
-                        return 0
+                    return {p_slip: [0, 1]} if exponents else params[p_slip][1]
                 elif obs == 'wrong':
-                    if derivative is None:
-                        return {'p_slip': [1, 0]} if exponents else \
-                               params['p_slip']
-                    elif derivative == 'p_slip':
-                        return 1
-                    else:
-                        return 0
+                    return {p_slip: [1, 0]} if exponents else params[p_slip][0]
                 else:
-                    return dict() if exponents else cval(0)
+                    return dict() if exponents else 0
             else:
                 if obs == 'right':
-                    if derivative is None:
-                        return {'p_guess': [1, 0]} if exponents else \
-                               params['p_guess']
-                    elif derivative == 'p_guess':
-                        return 1
-                    else:
-                        return 0
+                    return {p_guess: [1, 0]} if exponents else \
+                           params[p_guess][0]
                 elif obs == 'wrong':
-                    if derivative is None:
-                        return {'p_guess': [0, 1]} if exponents else \
-                               (1 - params['p_guess'])
-                    elif derivative == 'p_guess':
-                        return -1
-                    else:
-                        return 0
+                    return {p_guess: [0, 1]} if exponents else \
+                           params[p_guess][1]
                 else:
-                    return dict() if exponents else cval(0)
+                    return dict() if exponents else 0
         else:
             if obs == 'right':
-                return dict() if exponents else cval(0.5)
+                return dict() if exponents else 0.5
             elif obs == 'wrong':
-                return dict() if exponents else cval(0.5)
+                return dict() if exponents else 0.5
             else:
-                return dict() if exponents else cval(0)
+                return dict() if exponents else 0
  
 
     def make_tables(self, params):
@@ -676,125 +614,39 @@ class POMDPModel:
             log_marginals, log_pairwise_marginals, history)
 
         # Add param likelihood.
-        arr = self.params_to_array(params)
-        for i, beta_p in enumerate(self.params_to_array(self.beta_priors)):
-            ll += log(util.beta(arr[i], *beta_p))
+        for p in params:
+            ll += log(ss.dirichlet.pdf(params[p], self.beta_priors[p]))
  
         return ess_t, ess_o, ess_i, ll
 
-    def get_param_index(self, param):
-        return self.n_skills + self.single_params.index(param)
-
-    def params_to_array(self, params):
-        return list(params['p_s']) + [params[p] for p in self.single_params]
-
-    def array_to_params(self, array):
-        params = dict()
-        params['p_s'] = array[:self.n_skills]
-        for p in self.single_params:
-            params[p] = array[self.get_param_index(p)]
-        return params
-
-    def estimate_M(self, ess_t, ess_o, ess_i, exact=True, last_params=None):
+    def estimate_M(self, ess_t, ess_o, ess_i):
+        """Perform M step for EM."""
         S = len(self.states)
         A = len(self.actions)
         O = len(self.observations)
 
-        def f(array):
-            params = self.array_to_params(array)
-            ell = 0
-            grad = np.zeros((self.n_skills + len(self.single_params)))
-            for s in xrange(S):
-                # TODO: Make this a dot product for speedup?
-                if ess_i[s] != 0:
-                    ell += ess_i[s] * log(self.get_start_probability(s, params))
-                    for i in xrange(self.n_skills):
-                        grad[i] += \
-                            ess_i[s] / self.get_start_probability(s, params) * \
-                            self.get_start_probability(s, params, derivative=i)
-                for a in xrange(A):
-                    for s1 in xrange(S):
-                        if ess_t[s][a][s1] != 0:
-                            ell += ess_t[s][a][s1] * \
-                                   log(self.get_transition(s, a, s1, params))
-                            for p in self.single_params:
-                                grad[self.get_param_index(p)] += ess_t[s][a][s1] / self.get_transition(s, a, s1, params) * self.get_transition(s, a, s1, params, derivative=p)
-                    for o in xrange(O):
-                        if ess_o[s][a][o] != 0:
-                            ell += ess_o[s][a][o] * \
-                                   log(self.get_observation(s, a, o, params))
-                            for p in self.single_params:
-                                grad[self.get_param_index(p)] += \
-                                    ess_o[s][a][o] / \
-                                    self.get_observation(s, a, o, params) * \
-                                    self.get_observation(s, a, o, params,
-                                                         derivative=p)
+        params = copy.deepcopy(self.beta_priors)
+        for s in xrange(S):
+            exponents = self.get_start_probability(s, exponents=True)
+            for p in exponents:
+                for i, v in enumerate(exponents[p]):
+                    params[p][i] += ess_i[s] * v
+            for a in xrange(A):
+                for s1 in xrange(S):
+                    exponents = self.get_transition(s, a, s1, exponents=True)
+                    for p in exponents:
+                        for i, v in enumerate(exponents[p]):
+                            params[p][i] += ess_t[s][a][s1] * v
+                for o in xrange(O):
+                    exponents = self.get_observation(s, a, o, exponents=True)
+                    for p in exponents:
+                        for i, v in enumerate(exponents[p]):
+                            params[p][i] += ess_o[s][a][o] * v
+        map_estimate = dict((p, util.dirichlet_mode(params[p])) for
+                            p in params)
+        return map_estimate, params
 
-            for i,beta_p in enumerate(self.params_to_array(self.beta_priors)):
-                ell += log(util.beta(array[i], *beta_p))
-                grad[i] += 1 / util.beta(array[i], *beta_p) * \
-                           util.dbeta(array[i], *beta_p)
-        
-            return (-1 * ell, -1 * grad)
-
-
-        if not exact:
-            if last_params is None:
-                x0 = np.random.random((self.n_skills + len(self.single_params)))
-            else:
-                x0 = self.params_to_array(last_params)
-            res = minimize(f, x0, method='L-BFGS-B', jac=True,
-                           bounds=[(0.0001,0.9999) for x in x0], options={'disp': False})
-            return (self.array_to_params(res['x']), None)
-        else:
-            params = copy.deepcopy(self.beta_priors)
-            for s in xrange(S):
-                exponents = self.get_start_probability(s, exponents=True)
-                for p in exponents:
-                    if p == 'p_s':
-                        for i, (a, b) in enumerate(exponents[p]):
-                            params[p][i][0] += ess_i[s] * a
-                            params[p][i][1] += ess_i[s] * b
-                    else:
-                        params[p][0] += ess_i[s] * exponents[p][0]
-                        params[p][1] += ess_i[s] * exponents[p][1]
-                for a in xrange(A):
-                    for s1 in xrange(S):
-                        exponents = self.get_transition(s, a, s1,
-                                                        exponents=True)
-                        for p in exponents:
-                            if p == 'p_s':
-                                for i, (a, b) in enumerate(exponents[p]):
-                                    params[p][i][0] += ess_t[s][a][s1] * a
-                                    params[p][i][1] += ess_t[s][a][s1] * b
-                            else:
-                                params[p][0] += ess_t[s][a][s1] * \
-                                                exponents[p][0]
-                                params[p][1] += ess_t[s][a][s1] * \
-                                                exponents[p][1]
-                    for o in xrange(O):
-                        exponents = self.get_observation(s, a, o,
-                                                         exponents=True)
-                        for p in exponents:
-                            if p == 'p_s':
-                                for i, (a, b) in enumerate(exponents[p]):
-                                    params[p][i][0] += ess_o[s][a][o] * a
-                                    params[p][i][1] += ess_o[s][a][o] * b
-                            else:
-                                params[p][0] += ess_o[s][a][o] * \
-                                                exponents[p][0]
-                                params[p][1] += ess_o[s][a][o] * \
-                                                exponents[p][1]
-            map_estimate = dict()
-            f_beta_mode = lambda x: (x[0] - 1) / (sum(x) - len(x))
-            for p in self.single_params:
-                map_estimate[p] = f_beta_mode(params[p])
-            map_estimate['p_s'] = [f_beta_mode(x) for x in params['p_s']]
-            return (map_estimate, params)
-
-
-    def estimate(self, history, random_init=False, ll_max_improv=0.001,
-                 exact=True):
+    def estimate(self, history, random_init=False, ll_max_improv=0.001):
         """Estimate parameters from history
         
         Args:
@@ -802,15 +654,18 @@ class POMDPModel:
             
         """
         if random_init:
-            params = {'p_s': np.random.random((self.n_skills)),
-                      'p_guess': random.random(),
-                      'p_slip': random.random(),
-                      'p_lose': random.random(),
-                      'p_learn': random.random(),
-                      'p_leave': random.random()}
+            params = dict()
+            # TODO: This could be made more concisce if we could rely on
+            # self.params having arrays of the correct size.
+            for p in self.params:
+                if p == 'p_worker':
+                    self.params[p] = np.random.dirichlet(
+                        [1 for i in xrange(self.n_worker_classes)])
+                elif p in self.params_fixed:
+                    self.params[p] = np.random.dirichlet([1, 1])
         else:
-            params = dict((k, self.params[k]) for k in 
-                          ['p_s'] + self.single_params)
+            params = dict((k, copy.copy(self.params[k])) for
+                          k in self.params if k not in self.params_fixed)
 
         ess_t, ess_o, ess_i, ll = self.estimate_E(history, params)
         ll_improv = float('inf')
@@ -819,8 +674,7 @@ class POMDPModel:
         #print params
         while (ll_improv > ll_max_improv):
             t += 1
-            params, hparams = self.estimate_M(ess_t, ess_o, ess_i, exact=exact,
-                                              last_params=params) 
+            params, hparams = self.estimate_M(ess_t, ess_o, ess_i)
             ess_t, ess_o, ess_i, ll_new = self.estimate_E(history, params)
             ll_improv = abs((ll_new - ll) / ll)
             ll = ll_new
@@ -834,11 +688,7 @@ class POMDPModel:
         """Reset self.params by sampling from self.hparams"""
         d = self.hparams
         for p in d:
-            if p == 'p_s':
-                for i in xrange(len(d[p])):
-                    self.params[p][i] = np.random.beta(*d[p][i])
-            else:
-                self.params[p] = np.random.beta(*d[p])
+            self.params[p] = np.random.dirichlet(d[p])
 
 class POMDPPolicy:
     '''

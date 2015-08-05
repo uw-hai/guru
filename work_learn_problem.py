@@ -35,26 +35,21 @@ def actions(n_skills):
 #observations = ['yes', 'no', 'wrong', 'right', 'term']
 observations = ['wrong', 'right', 'term']
 
-def states(n_skills, quiz_val=None):
-    """Return all states with the given quiz_val"""
-    all_skills = list(itertools.product((True, False), repeat=n_skills))
-    return [State(term=False, skills=s, quiz_val=quiz_val) for s in all_skills]
-
-def states_all_quiz(n_skills):
-    lst = []
-    for i in xrange(n_skills):
-        lst += states(n_skills, quiz_val=i)
-    return lst
-
-def states_all(n_skills):
-    return [State(term=True)] + \
-           states(n_skills, quiz_val=None) + states_all_quiz(n_skills)
+def states_all(n_skills, n_worker_classes):
+    skill_values = list(itertools.product((True, False), repeat=n_skills))
+    quiz_values = [None] + range(n_skills)
+    worker_class_values = range(n_worker_classes)
+    states_except_term = [
+        State(skills=s, quiz_val=q, worker_class=w) for s, q, w in
+        itertools.product(skill_values, quiz_values, worker_class_values)]
+    return [State(term=True)] + states_except_term
 
 class State:
-    def __init__(self, term=None, skills=[], quiz_val=None):
+    def __init__(self, term=None, skills=[], quiz_val=None, worker_class=None):
         self.term = term
         self.skills = skills
         self.quiz_val = quiz_val
+        self.worker_class = worker_class
 
     def has_skill(self, skill):
         if self.term:
@@ -184,13 +179,16 @@ class State:
             return 'TERM'
         s = 's'
         s += ''.join(str(int(x)) for x in self.skills)
+        s += 'w{}'.format(self.worker_class)
         if self.quiz_val is not None:
             s += 'q{}'.format(self.quiz_val)
         return s
 
     def __eq__(self, s):
-        return (self.term and s.term) or (self.skills == s.skills and
-                                          self.quiz_val == s.quiz_val)
+        return ((self.term and s.term) or
+                (self.skills == s.skills and
+                 self.quiz_val == s.quiz_val and
+                 self.worker_class == s.worker_class))
 
 
 def reward_new_posterior(prior, posterior, utility_type='acc'):

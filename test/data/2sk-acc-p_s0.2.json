@@ -1,0 +1,13 @@
+{
+    "cost": -0.1,
+    "cost_exp": -0.1,
+    "p_learn": 0.4,
+    "p_lose": 0,
+    "p_leave": 0.01,
+    "p_slip": 0.1,
+    "p_guess": 0.5,
+    "p_r": [0.5, 0.5],
+    "p_1": 0.5,
+    "p_s": [0.2, 0.2],
+    "utility_type": "acc"
+}

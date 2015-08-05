@@ -11,6 +11,7 @@ import logging
 import numpy as np
 import functools as ft
 import traceback
+import copy
 from pomdp import POMDPModel
 from policy import Policy
 from history import History
@@ -48,12 +49,6 @@ def get_start_belief(fp):
 def belief_to_str(lst):
     return ' '.join(str(x) for x in lst)
 
-def set_config_defaults(config):
-    """Mutates and returns original object"""
-    config['utility_type'] = get_or_default(config, 'utility_type', 'acc')
-    config['p_lose'] = get_or_default(config, 'p_lose', 0)
-    return config
-
 def params_to_rows(params, hparams=None,
                    iteration=None, episode=None, policy=None):
     """Convert params to list of dictionaries to write to models file"""
@@ -62,31 +57,17 @@ def params_to_rows(params, hparams=None,
                 'episode': episode,
                 'policy': policy}
     for p in params:
-        if p == 'p_s':
-            for i in xrange(len(params[p])):
-                row = {'param': '{}{}'.format(p, i), 'v': params[p][i]}
-                if hparams is not None:
-                    row['alpha'], row['beta'] = hparams[p][i]
-                row.update(row_base)
-                rows.append(row)
-        else:
-            row = {'param': p, 'v': params[p]}
-            if hparams is not None:
-                row['alpha'], row['beta'] = hparams[p]
-            row.update(row_base)
-            rows.append(row)
+        row = {'param': p, 'v': params[p]}
+        if hparams is not None:
+            row['hyper'] = hparams[p]
+        row.update(row_base)
+        rows.append(row)
     return rows
 
-def run_policy_iteration_from_json(s):
+def run_function_from_dictionary(f, d):
     """Helper for Pool.map(), which can only use functions that take a single
     argument"""
-    d = json.loads(s)
-    config_params = d['params']
-    exp_name = d['exp_name']
-    policy = d['policy']
-    iteration = d['iteration']
-    episodes = d['episodes']
-    return run_policy_iteration(exp_name, config_params, policy, iteration, episodes)
+    return f(**d)
  
 def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
     """
@@ -105,21 +86,20 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
 
     # Parse config
     params_gt = config_params
-    # TODO: Blacklist estimated params instead.
-    params_gt_fixed = dict((k, params_gt[k]) for k in
-                           ['cost', 'cost_exp', 'p_r', 'p_1', 'utility_type'])
+    n_worker_classes = len(config_params['p_worker'])
 
     pol = Policy(policy_type=policy['type'], exp_name=exp_name, **policy)
 
     # GT model
-    model_gt = POMDPModel(**params_gt)
+    model_gt = POMDPModel(n_worker_classes, params=params_gt)
 
     results = []
 
     # Begin experiment
     history = History()
     if pol.rl_p():
-        model_est = POMDPModel(**params_gt_fixed)
+        model_est = POMDPModel(n_worker_classes, params=params_gt,
+                               estimate_all=True)
     else:
         model_est = model_gt
 
@@ -127,6 +107,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
         logger.info('{} ({}, {})'.format(pol, it, ep))
         history.new_episode()
         start_belief = model_gt.get_start_belief()
+        #logger.info('start belief: {}'.format(list(start_belief)))
         start_state = np.random.choice(range(len(start_belief)),
                                        p=start_belief)
         s = start_state
@@ -149,7 +130,8 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
         while str(model_gt.states[s]) != 'TERM':
             valid_actions = [i for i,a in enumerate(model_gt.actions) if
                              model_gt.states[s].is_valid_action(a)]
-            a = pol.get_next_action(model_est, it, history, valid_actions, belief)
+            a = pol.get_next_action(model_est, it, history, valid_actions,
+                                    belief)
 
             # Simulate a step
             s, o, r = model_gt.sample_SOR(s, a)
@@ -199,31 +181,93 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
 
     return results, models, timings
 
+def run_experiment(name, config, policies, iterations, episodes, epsilon=None,
+                   thompson=False, resolve_interval=None):
+    """Run experiment using multiprocessing.
 
-def run_experiment(config, policies, iterations, episodes, epsilon, thompson,
-                   resolve_interval):
-    config_basename = os.path.basename(config.name)
-    exp_name = os.path.splitext(config_basename)[0]
+    Args:
+        name:                   Name of experiment (config name).
+        config (dict):          Config dictionary, in format expected by
+                                POMDPModel. If experiment folder
+                                already exists and contains config.json,
+                                ignore this parameter and use that instead.
+        policies (list):        List of policy dictionaries. Acceptable
+                                to use compressed format where multiple
+                                policies can be represented in a single
+                                dictionary by substituting a single
+                                parameter value with a list.
+        iterations (int):       Number of iterations.
+        episodes (int):         Number of episodes.
+        epsilon (str):          Exploration function string, with arguments
+                                e (episode) and t (timestep).
+        thompson (bool):        Perform Thompson sampling.
+        resolve_interval (int): Number of episodes before resolving.
+
+    """
+    exp_name = name
     if episodes > 1:
         exp_name += '-ep{}'.format(episodes)
-    policies_basename = os.path.basename(policies.name)
-    # TODO: Add epsilon and resolve_interval to policies name.
-    policies_name = os.path.splitext(policies_basename)[0]
-    if epsilon is not None:
-        policies_name += '-eps_{}'.format(equation_safe_filename(epsilon))
-    if thompson:
-        policies_name += '-thomp'
-    if resolve_interval is not None:
-        policies_name += '-s_int{}'.format(resolve_interval)
-
     res_path = os.path.join('res', exp_name)
     models_path = os.path.join('models', exp_name)
     policies_path = os.path.join('policies', exp_name)
     for d in [res_path, models_path, policies_path]:
         ensure_dir(d)
 
-    params_gt = json.load(config)
-    params_gt = set_config_defaults(params_gt)
+    # If config file already present, use that instead of passed configs.
+    config_path = os.path.join(res_path, 'config.json')
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+    else:
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=4)
+    params_gt = cmd_config_to_pomdp_params(config)
+    n_worker_classes = len(params_gt['p_worker'])
+
+    # Augment policies with exploration options.
+    for p in policies:
+        if epsilon is not None:
+            p['epsilon'] = epsilon
+        if thompson:
+            p['thompson'] = True
+        if resolve_interval is not None:
+            p['resolve_interval'] = resolve_interval
+    # Create aggregate name for policies.
+    policies_name = ''
+    for i, p in enumerate(policies):
+        if i:
+            policies_name += '-'
+        policies_name += p['type']
+        for k in (k for k in p if k not in ['type',
+                                            'epsilon',
+                                            'thompson',
+                                            'resolve_interval']):
+            if isinstance(p[k], list):
+                value_string  = '_'.join(str(x) for x in p[k])
+            else:
+                value_string = p[k]
+            policies_name += '-{}_{}'.format(k, value_string)
+    if epsilon is not None:
+        policies_name += '-eps_{}'.format(equation_safe_filename(epsilon))
+    if thompson:
+        policies_name += '-thomp'
+    if resolve_interval is not None:
+        policies_name += '-s_int_{}'.format(resolve_interval)
+
+    # Explode policies.
+    policies_exploded = []
+    for p in policies:
+        list_parameters = [k for k in p if isinstance(p[k], list)]
+        if len(list_parameters) == 0:
+            policies_exploded.append(p)
+        elif len(list_parameters) == 1:
+            k = list_parameters[0]
+            for v in p[k]:
+                p_prime = copy.deepcopy(p)
+                p_prime[k] = v
+                policies_exploded.append(p_prime)
+        else:
+            raise Exception('Policies must contain only a single list parameter')
 
     # Make folders (errors when too many folders are made in subprocesses).
     for i in xrange(iterations):
@@ -232,23 +276,15 @@ def run_experiment(config, policies, iterations, episodes, epsilon, thompson,
             ensure_dir(os.path.join(policies_path, str(i), str(ep)))
 
     # Prepare worker process arguments
-    policies = json.load(policies)
-    for p in policies:
-        if epsilon is not None and 'epsilon' not in p:
-            p['epsilon'] = epsilon
-        if thompson:
-            p['thompson'] = True
-        if resolve_interval is not None and 'resolve_interval' not in p:
-            p['resolve_interval'] = resolve_interval
-    args_iter = (json.dumps({'exp_name': exp_name,
-                             'params': params_gt,
-                             'policy': p,
-                             'iteration': i,
-                             'episodes': episodes}) for i,p in
-                 itertools.product(xrange(iterations), policies))
+    args_iter = ({'exp_name': exp_name,
+                  'config_params': params_gt,
+                  'policy': p,
+                  'iteration': i,
+                  'episodes': episodes} for i, p in
+                 itertools.product(xrange(iterations), policies_exploded))
 
     # Write one-time files.
-    model_gt = POMDPModel(**params_gt)
+    model_gt = POMDPModel(n_worker_classes, params=params_gt)
     with open(os.path.join(res_path, '{}_names.csv'.format(policies_name)), 'wb') as f:
         model_gt.write_names(f)
 
@@ -256,7 +292,7 @@ def run_experiment(config, policies, iterations, episodes, epsilon, thompson,
     models_fp = open(
         os.path.join(res_path, '{}_model.csv'.format(policies_name)), 'wb')
     models_fieldnames = ['iteration', 'episode', 'policy', 'param',
-                         'v', 'alpha', 'beta']
+                         'v', 'hyper']
     m_writer = csv.DictWriter(models_fp, fieldnames=models_fieldnames)
     m_writer.writeheader()
 
@@ -285,7 +321,8 @@ def run_experiment(config, policies, iterations, episodes, epsilon, thompson,
         import signal
         signal.signal(signal.SIGINT, signal.SIG_IGN)
     pool = mp.Pool(initializer=init_worker)
-    f = ft.partial(run_functor, run_policy_iteration_from_json)
+    f = ft.partial(run_functor, ft.partial(run_function_from_dictionary,
+                                           run_policy_iteration))
     try:
         for res in pool.imap_unordered(f, args_iter):
             results_rows, models_rows, timings_rows = res
@@ -309,22 +346,132 @@ def run_experiment(config, policies, iterations, episodes, epsilon, thompson,
         models_fp.close()
         timings_fp.close()
 
+def cmd_config_to_pomdp_params(config):
+    """Convert command line config parameters to params for POMDPModel.
+
+    Notes:
+    - 'p_worker' must give full categorical probability vector.
+    - Other probabilities are bernoulli distributions and must be given only
+      using positive probability.
+    - Bernoulli distributions can either be conditioned on p_worker, or not.
+    
+    Infers whether Bernoulli distributions are conditioned or use parameter
+    tying from the number of parameters specified.
+
+    Args:
+        config: Dictionary of command line config parameters.
+
+    Returns:
+        New dictionary of parameters.
+
+    """
+    n_worker_classes = len(config['p_worker'])
+    n_rules = len(config['p_r'])
+
+    # Copy dictionary and split p_s by rule.
+    res = dict()
+    for k in config:
+        if k == 'p_s':
+            if (len(config[k]) != n_rules and
+                len(config[k]) != n_rules * n_worker_classes):
+                raise Exception('Config input of unexpected size')
+            for i, v in enumerate(config[k]):
+                if i < n_rules:
+                    res[k, i] = []
+                res[k, i % n_rules].append(v)
+        else:
+            if (isinstance(config[k], list) and len(config[k]) > 1 and
+                len(config[k]) != n_worker_classes):
+                raise Exception('Config input of unexpected size')
+            res[k] = config[k]
+
+    # Make bernoulli probabilites full probabilities.
+    # TODO: Move into POMDPModel?
+    for k in res:
+        if (k in ['p_learn', 'p_lose', 'p_leave', 'p_slip', 'p_guess'] or
+            (len(k) == 2 and k[0] == 'p_s')):
+            probs = res.pop(k)
+            if len(probs) == 1:
+                res[k, None] = [probs[0], 1 - probs[0]]
+            else:
+                for i, v in enumerate(probs):
+                    res[k, i] = [v, 1 - v]
+    return res
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run an experiment')
-    parser.add_argument('--config', '-c', type=argparse.FileType('r'), required=True, help='Config json file')
-    parser.add_argument('--policies', '-p', type=argparse.FileType('r'), required=True, help='Policies json file')
-    parser.add_argument('--iterations', '-i', type=int, default=1000, help='Number of iterations')
-    parser.add_argument('--episodes', '-e', type=int, default=1, help='Number of episodes')
-    parser.add_argument('--epsilon', type=str, help='Epsilon to use for all policies')
+    parser.add_argument('name', type=str, help='Experiment name')
+
+    config_group = parser.add_argument_group('config')
+    config_group.add_argument(
+        '--p_worker', type=float, nargs='+', default=[1.0],
+        help='Prior probabilities of worker classes')
+    config_group.add_argument('--cost', type=float, default=-0.1)
+    config_group.add_argument('--cost_exp', type=float, default=-0.1)
+    config_group.add_argument('--p_learn', type=float, nargs='+',
+                              default=[0.4])
+    config_group.add_argument('--p_lose', type=float, nargs='+',
+                              default=[0])
+    config_group.add_argument('--p_leave', type=float, nargs='+',
+                              default=[0.01])
+    config_group.add_argument('--p_slip', type=float, nargs='+',
+                              default=[0.1])
+    config_group.add_argument('--p_guess', type=float, nargs='+',
+                              default=[0.5])
+    config_group.add_argument('--p_r', type=float, nargs='+', default=[0.5])
+    config_group.add_argument('--p_1', type=float, default=0.5)
+    config_group.add_argument('--p_s', type=float, nargs='+', default=[0.2])
+    config_group.add_argument('--utility_type', type=str,
+                              choices=['acc', 'posterior'], default='acc')
+
+    parser.add_argument('--policies', '-p', type=str, nargs='+', required=True,
+                        choices=['fixed', 'zmdp', 'appl', 'aitoolbox'])
+    parser.add_argument('--fixed_n', type=int, nargs='+')
+    parser.add_argument('--zmdp_discount', type=float, default=0.99)
+    parser.add_argument('--zmdp_timeout', type=int, nargs='+', default=[60])
+    parser.add_argument('--appl_discount', type=float, default=0.99)
+    parser.add_argument('--appl_timeout', type=int, nargs='+', default=[60])
+    parser.add_argument('--aitoolbox-discount', type=float, default=0.99)
+    parser.add_argument('--aitoolbox-horizon', type=int, nargs='+')
+
+    parser.add_argument('--iterations', '-i', type=int, default=100,
+                        help='Number of iterations')
+    parser.add_argument('--episodes', '-e', type=int, default=1,
+                        help='Number of episodes')
+    parser.add_argument('--epsilon', type=str,
+                        help='Epsilon to use for all policies')
     parser.add_argument('--thompson', dest='thompson', action='store_true',
                         help="Use Thompson sampling")
     parser.set_defaults(thompson=False)
     parser.add_argument('--resolve_interval', type=int, help='Resolve interval to use for all policies')
     args = parser.parse_args()
+    args_vars = vars(args)
 
-    run_experiment(config=args.config,
-                   policies=args.policies,
+    config_params = [
+        'p_worker', 'cost', 'cost_exp', 'p_learn', 'p_lose', 'p_leave',
+        'p_slip', 'p_guess', 'p_r', 'p_1', 'p_s', 'utility_type']
+    config = dict((k, args_vars[k]) for k in config_params if
+                  args_vars[k] is not None)
+
+    policies = []
+    for p_type in args.policies:
+        p = {'type': p_type}
+        if p_type == 'fixed':
+            p['n'] = args.fixed_n
+        elif p_type == 'zmdp':
+            p['discount'] = args.zmdp_discount
+            p['timeout'] = args.zmdp_timeout
+        elif p_type == 'appl':
+            p['discount'] = args.appl_discount
+            p['timeout'] = args.appl_timeout
+        elif p_type == 'aitoolbox':
+            p['discount'] = args.aitoolbox-discount
+            p['horizon'] = args.aitoolbox-horizon
+        policies.append(p)
+
+    run_experiment(name=args.name,
+                   config=config,
+                   policies=policies,
                    iterations=args.iterations,
                    episodes=args.episodes,
                    epsilon=args.epsilon,

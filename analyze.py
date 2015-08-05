@@ -2,12 +2,16 @@
 
 Analyze work_learn output.
 
+TODO: Handle new model params format.
+TODO: Parse model 'hyper' column, in place of alpha and beta.
+
 """
 
 import multiprocessing as mp
 import time
 import os
 import csv
+import ast
 import argparse
 import collections
 import itertools
@@ -18,7 +22,7 @@ import matplotlib as mpl
 mpl.use('agg')
 from matplotlib import pyplot as plt
 import seaborn as sns
-from util import ensure_dir
+import util
 
 INTERPOLATE_MIN = 11
 CI = 95  # Confidence interval
@@ -43,7 +47,6 @@ def str_state(d=None):
     if d == None:
         return lambda s: s
     return lambda s: '{} ({})'.format(s, d['state', s])
-
 
 def str_observation(o):
     o_names = ['WRONG', 'RIGHT', 'TERM']
@@ -92,8 +95,9 @@ def plot_actions(df, outfname, t_frac=1.0, formatter=None, logx=True):
     if formatter:
         actions.rename(columns=dict((x, formatter(x)) for x in actions.columns[2:]), inplace=True)
     for p, df_a in actions.groupby('policy', as_index=False):
-        step_by_t(df_a).plot(x='t', y=actions.columns[2:], kind='area',
-                             title='Action counts', logx=logx)
+        step_by_t(df_a).plot(x='t', y=actions.columns[2:], kind='area', logx=logx)
+        plt.ylabel('Number of actions')
+        plt.xlabel('Time')
 
         fname = outfname + '_p-{}'.format(p)
         plt.savefig(fname + '.png')
@@ -121,6 +125,20 @@ def plot_actions_subcount(df, outfname, actions_filter, ylabel):
         df_means = pd.DataFrame({'count (mean)': s1,
                                  'count (sem)': s2}).reset_index()
         df_means.to_csv(outfname + '.csv', index=False)
+
+        # Record significance
+        policies = df['policy'].unique()
+        sigs = []
+        for p1,p2 in itertools.combinations(policies, 2):
+            v1 = df[df.policy == p1]['a']
+            v2 = df[df.policy == p2]['a']
+            t, pval = ss.ttest_ind(v1, v2)
+            sigs.append({'policy1': p1,
+                         'policy2': p2,
+                         'tstat': t,
+                         'pval': pval})
+        df_sig = pd.DataFrame(sigs)
+        df_sig.to_csv(outfname + '_sig.csv', index=False)
 
     # Finish plotting.
     ax.set_ylim(0, None)
@@ -178,28 +196,46 @@ def plot_reward(df, outfname, estimator=np.mean):
 
 
 
-def plot_reward_by_episode(df, outfname):
+def plot_reward_by_episode(df, plot=True):
+    """Return axis objects in new figures for reward and cumulative reward
+    
+    Args:
+        plot (bool):    True returns axis objects. False returns raw dataframes
+                        with mean value and standard devation.
+    """
     df = df[['iteration','policy','episode','r']]
     df = df.groupby(['iteration','policy','episode']).sum().fillna(0).reset_index()[['iteration','policy','episode','r']]
-
-    ax = sns.tsplot(df, time='episode', condition='policy', unit='iteration', value='r',
-               ci=CI, interpolate=df['episode'].max() >= INTERPOLATE_MIN)
-    plt.ylabel('Reward')
-    plt.xlabel('Episode')
-    ax.set_xlim(0, None)
-    plt.savefig(outfname + '.png')
-    plt.close()
-
     df['csr'] = df.sort(['episode']).groupby(
         ['iteration','policy'])['r'].cumsum()
-    ax = sns.tsplot(
-        df, time='episode', condition='policy', unit='iteration', value='csr',
-        ci=CI, interpolate=df['episode'].max() >= INTERPOLATE_MIN)
-    ax.set_xlim(0, None)
-    plt.ylabel('Cumulative reward')
-    plt.xlabel('Episode')
-    plt.savefig(outfname + '_cum.png')
-    plt.close()
+
+    if plot:
+        plt.figure()
+        ax = sns.tsplot(df, time='episode', condition='policy',
+                        unit='iteration', value='r', ci=CI,
+                        interpolate=df['episode'].max() >= INTERPOLATE_MIN)
+        ax.set_ylabel('Reward')
+        ax.set_xlabel('Episode')
+        ax.set_xlim(0, None)
+
+        plt.figure()
+        ax_cum = sns.tsplot(df, time='episode', condition='policy',
+                            unit='iteration', value='csr', ci=CI,
+                            interpolate=df['episode'].max() >= INTERPOLATE_MIN)
+        ax_cum.set_xlim(0, None)
+        ax_cum.set_ylabel('Cumulative reward')
+        ax_cum.set_xlabel('Episode')
+
+        return ax, ax_cum
+    else:
+        s1 = df.groupby(['policy', 'episode'])['r'].mean()
+        s2 = df.groupby(['policy', 'episode'])['r'].sem()
+        df1 = pd.DataFrame({'mean': s1, 'sem': s2}).reset_index()
+
+        s1 = df.groupby(['policy', 'episode'])['csr'].mean()
+        s2 = df.groupby(['policy', 'episode'])['csr'].sem()
+        df2 = pd.DataFrame({'mean': s1, 'sem': s2}).reset_index()
+
+        return df1, df2
 
 def plot_reward_by_t(df, outfname):
     df = df[['policy','iteration','episode','t','r']]
@@ -210,6 +246,9 @@ def plot_reward_by_t(df, outfname):
     df['csr'] = df.sort(['t']).groupby(['policy','iteration','episode'])['r'].cumsum()
     df['it-ep'] = df['iteration'].map(str) + ',' + df['episode'].map(str)
     ax = sns.tsplot(df, time='t', condition='policy', unit='it-ep', value='csr', ci=CI, interpolate=df['t'].max() >= INTERPOLATE_MIN)
+    plt.ylabel('Cumulative reward')
+    plt.xlabel('t')
+    ax.set_xlim(0, None)
     plt.savefig(outfname + '.png')
     plt.close()
     #df.sort(['policy','iteration','episode']).to_csv(fname + '.csv',
@@ -225,7 +264,9 @@ def plot_solve_t_by_episode(df, outfname):
     df = df.join(df.groupby(['iteration','policy'])['sys_t'].first(), on=['iteration','policy'], rsuffix='_start')
     df['elapsed time'] = df['sys_t'] - df['sys_t_start']
 
-    sns.tsplot(df, time='episode', condition='policy', unit='iteration', value='elapsed time', ci=CI, interpolate=df['episode'].max() >= INTERPOLATE_MIN)
+    sns.tsplot(df, time='episode', condition='policy', unit='iteration',
+               value='elapsed time',
+               ci=CI, interpolate=df['episode'].max() >= INTERPOLATE_MIN)
     plt.savefig(outfname + '.png')
     plt.close()
 
@@ -234,7 +275,8 @@ def plot_timings(df_timings, outfname):
         for t in ('resolve', 'estimate'):
             df_filter = df_timings[df_timings['type'] == t]
             if len(df_filter.index) > 0:
-                ax = sns.tsplot(df_filter, time='episode', unit='iteration', condition='policy', value='duration', ci=CI)
+                ax = sns.tsplot(df_filter, time='episode', unit='iteration',
+                                condition='policy', value='duration', ci=CI)
                 ax.set_ylim(0, None)
                 ax.set_xlim(0, None)
                 fname = outfname + '-{}'.format(t)
@@ -248,29 +290,71 @@ def plot_timings(df_timings, outfname):
             plt.savefig(fname + '.png')
             plt.close()
 
+# TODO: Move this to pomdp.py
+def param_to_string(p):
+    """Convert a param in tuple form, as in pomdp.py to a string.
+
+    >>> param_to_string(('p_learn', None))
+    'p_learn'
+    >>> param_to_string(('p_guess', 2))
+    'p_guess_w2'
+    >>> param_to_string((('p_s', 2), None))
+    'p_s2'
+    >>> param_to_string((('p_s', 2), 1))
+    'p_s2_w1'
+
+    """
+    if not isinstance(p, tuple):
+        return p
+
+    if isinstance(p[0], tuple):
+        name = '{}{}'.format(*p[0])
+    else:
+        name = p[0]
+    return name if p[1] is None else '{}_w{}'.format(name, p[1])
+
 def plot_params(df_model, outfname):
+    # Parse
+    df_model['param'] = df_model['param'].apply(
+        lambda x: param_to_string(ast.literal_eval(x)) if
+                  x.startswith('(') else x)
+
     # Separate ground truth params
     df_gt = df_model[df_model.iteration.isnull()]
     df_est = df_model[df_model.iteration.notnull()]
 
+    df_gt['v'] = df_gt['v'].apply(ast.literal_eval)
+    df_est['v'] = df_est['v'].apply(ast.literal_eval)
+    df_est['hyper'] = df_est['hyper'].apply(ast.literal_eval)
+
     # Find dist from true param.
     df_est = df_est.merge(df_gt, how='left', on='param', suffixes=('', '_t'))
-    df_est['dist'] = np.abs(df_est['v'] - df_est['v_t'])
 
-    if np.all(df_est.alpha.notnull()):
-        df_est['beta_mean'] = df_est.apply(
-            lambda r: ss.beta.mean(r['alpha'], r['beta']), axis=1)
-        df_est['beta_std'] = df_est.apply(
-            lambda r: ss.beta.std(r['alpha'], r['beta']), axis=1)
-        df_est['beta_mode'] = df_est.apply(
-            lambda r: (r['alpha'] - 1) / (r['alpha'] + r['beta'] - 2), axis=1)
+    df_est['dist'] = np.subtract(
+        df_est['v'].apply(lambda x: np.array(x)[:-1]),
+        df_est['v_t'].apply(lambda x: np.array(x)[:-1]))
+    df_est['dist_l1'] = df_est['dist'].apply(lambda x: np.linalg.norm(x, 1))
+    df_est['dist_l2'] = df_est['dist'].apply(lambda x: np.linalg.norm(x, 2))
 
-    df_est['it-param'] = df_est['iteration'].map(str) + ',' + \
-                         df_est['param'].map(str)
+    for s in ['l1', 'l2']:
+        df_means = df_est.groupby(['policy', 'iteration', 'episode'],
+                                  as_index=False).mean()
+        ax = sns.tsplot(df_means, time='episode', unit='iteration',
+                        condition='policy', value='dist_{}'.format(s), ci=CI)
+        ax.set_ylim(0, 1)
+        ax.set_xlim(0, None)
+        plt.ylabel('Mean distance ({}) from true parameter values'.format(s))
+        plt.xlabel('Episode')
+        fname = outfname + '_dist_{}_mean'.format(s)
+        plt.savefig(fname + '.png')
+        plt.close()
 
     for p, df_p in df_est.groupby('policy', as_index=False):
+        # BUG: Uses only first coordinate for each parameter.
+        # TODO: Make this work for dirichlet by splitting the rows.
+        df_p['v_1'] = df_p['v'].apply(lambda x: np.array(x)[0])
         ax = sns.tsplot(df_p, time='episode', unit='iteration',
-                        condition='param', value='v', ci=CI)
+                        condition='param', value='v_1', ci=CI)
         ax.set_ylim(0, 1)
         ax.set_xlim(0, None)
         plt.ylabel('Estimated parameter value')
@@ -279,36 +363,37 @@ def plot_params(df_model, outfname):
         plt.savefig(fname + '.png')
         plt.close()
 
-        ax = sns.tsplot(df_p, time='episode', unit='iteration',
-                        condition='param', value='dist', ci=CI)
-        ax.set_ylim(0, 1)
-        ax.set_xlim(0, None)
-        plt.ylabel('Distance from true parameter value')
-        plt.xlabel('Episode')
-        fname = outfname + '_dist_p-{}'.format(p)
-        plt.savefig(fname + '.png')
-        plt.close()
+        for s in ['l1', 'l2']:
+            ax = sns.tsplot(df_p, time='episode', unit='iteration',
+                            condition='param', value='dist_{}'.format(s),
+                            ci=CI)
+            ax.set_ylim(0, 1)
+            ax.set_xlim(0, None)
+            plt.ylabel('Distance ({}) from true parameter value'.format(s))
+            plt.xlabel('Episode')
+            fname = outfname + '_dist_{}_p-{}'.format(s, p)
+            plt.savefig(fname + '.png')
+            plt.close()
 
-        ax = sns.tsplot(df_p, time='episode', unit='it-param',
-                        value='dist', ci=CI)
-        ax.set_ylim(0, 1)
-        ax.set_xlim(0, None)
-        plt.ylabel('Mean distance from true parameter values')
-        plt.xlabel('Episode')
-        fname = outfname + '_dist_mean_p-{}'.format(p)
-        plt.savefig(fname + '.png')
-        plt.close()
+        if np.all(df_p.hyper.notnull()):
+            # BUG: Uses only first coordinate for each parameter.
+            # TODO: Make this work for dirichlet by splitting the rows.
+            df_p['dirichlet_mean'] = df_p['hyper'].apply(
+                lambda x: ss.dirichlet.mean(x)[0])
+            df_p['dirichlet_var_l1'] = df_p['hyper'].apply(
+                lambda x: np.linalg.norm(ss.dirichlet.var(x), 1))
+            df_p['dirichlet_mode'] = df_p['hyper'].apply(
+                lambda x: util.dirichlet_mode(x)[0])
 
-        if np.all(df_p.alpha.notnull()):
-            for s in ['mean', 'std', 'mode']:
-                ax = sns.tsplot(df_p, time='episode', unit='iteration',
-                                condition='param', value='beta_{}'.format(s),
-                                ci=CI)
+            for s in ['mean', 'var_l1', 'mode']:
+                ax = sns.tsplot(
+                    df_p, time='episode', unit='iteration',
+                    condition='param', value='dirichlet_{}'.format(s), ci=CI)
                 ax.set_ylim(0, 1)
                 ax.set_xlim(0, None)
                 plt.ylabel('Parameter posterior {}'.format(s))
                 plt.xlabel('Episode')
-                fname = outfname + '_beta_{}_p-{}'.format(s, p)
+                fname = outfname + '_dirichlet_{}_p-{}'.format(s, p)
                 plt.savefig(fname + '.png')
                 plt.close()
 
@@ -349,7 +434,7 @@ def expand_episodes(df):
             dfs.append(df_p)
         else:
             dfs_expanded = []
-            for i in xrange(max_episode + 1):
+            for i in xrange(int(max_episode) + 1):
                 df_new = df_p.copy(deep=True)
                 df_new['episode'] = i
                 dfs_expanded.append(df_new)
@@ -373,7 +458,7 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
         with open(names, 'r') as f:
             names = parse_names(f)
 
-    ensure_dir(outdir)
+    util.ensure_dir(outdir)
 
     df = pd.concat([finished(pd.read_csv(f)) for f in infiles],
                    ignore_index=True)
@@ -389,9 +474,10 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
                                ignore_index=True)
         if policies is not None:
             df_timings = df_timings[df_timings.policy.isin(policies)]
-        df_timings = expand_episodes(df_timings)
-        plot_timings(df_timings, os.path.join(outdir, 't'))
-    print 'Done plotting timings'
+        if len(df_timings.index) > 0:
+            df_timings = expand_episodes(df_timings)
+            plot_timings(df_timings, os.path.join(outdir, 't'))
+            print 'Done plotting timings'
 
     plot_actions_subcount(
         df, outfname=os.path.join(outdir, 'gold_questions_used'),
@@ -400,14 +486,21 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
 
     if max_episode > 0:
         # Make time series plots with episode as x-axis.
-        plot_reward_by_episode(df, os.path.join(outdir, 'r'))
+        ax, ax_cum = plot_reward_by_episode(df)
+        plt.sca(ax)
+        plt.savefig(os.path.join(outdir, 'r.png'))
+        plt.close()
+        plt.sca(ax_cum)
+        plt.savefig(os.path.join(outdir, 'r_cum.png'))
+        plt.close()
         plot_solve_t_by_episode(df, os.path.join(outdir, 't'))
         print 'Done plotting reward and solve_t by episode'
-        for m in models:
-            df_model = finished(pd.read_csv(m))
-            if df_model['episode'].max() > 0:
-                plot_params(df_model, os.path.join(outdir, 'params'))
-        print 'Done plotting params'
+        if not fast:
+            for m in models:
+                df_model = finished(pd.read_csv(m))
+                if df_model['episode'].max() > 0:
+                    plot_params(df_model, os.path.join(outdir, 'params'))
+            print 'Done plotting params'
     else:
         plot_reward(df, os.path.join(outdir, 'r'))
         plot_reward(df, os.path.join(outdir, 'r'), estimator=np.std)
@@ -486,7 +579,7 @@ if __name__ == '__main__':
 
             dirname = os.path.dirname(f)
             plotdir = os.path.join(dirname, basename_no_ending)
-            ensure_dir(plotdir)
+            util.ensure_dir(plotdir)
 
             names = os.path.join(
                 dirname, '{}_names.csv'.format(basename_no_ending))
