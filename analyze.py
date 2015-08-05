@@ -69,8 +69,9 @@ def step_by_t(df, interval=0.1):
     df_out.reset_index()
     return df_out
 
-def plot_beliefs(df, outfname, t_frac=1.0, formatter=None, logx=True):
-    df = df[df.t <= df.t.max() * t_frac]
+def plot_beliefs(df, outfname, t_frac=1.0, formatter=None, line=False,
+                 logx=True):
+    df = df[df.t <= df.t.max() * t_frac].reset_index()
 
     df_b = pd.DataFrame(df.b.str.split().tolist()).astype(float)
     states = df_b.columns
@@ -81,21 +82,30 @@ def plot_beliefs(df, outfname, t_frac=1.0, formatter=None, logx=True):
         b_sums.rename(columns=dict((x, formatter(x)) for x in states), inplace=True)
         states = [formatter(x) for x in df_b.columns]
     for p, df_b in b_sums.groupby('policy', as_index=False):
-        step_by_t(df_b).plot(x='t', y=states, kind='area',
-                             title='Belief counts', logx=logx)
+        if not line:
+            step_by_t(df_b).plot(x='t', y=states, kind='area',
+                                 title='Belief counts', logx=logx)
+        else:
+            df_b.plot(x='t', y=states, kind='line',
+                      title='Belief counts', logx=logx)
         fname = outfname + '_p-{}'.format(p)
         plt.savefig(fname + '.png')
         plt.close()
         df_b.to_csv(fname + '.csv', index=False)
 
-def plot_actions(df, outfname, t_frac=1.0, formatter=None, logx=True):
+def plot_actions(df, outfname, t_frac=1.0, formatter=None, line=False,
+                 logx=True):
     df = df[df.t <= df.t.max() * t_frac]
 
     actions = df.groupby(['policy', 't'])['a'].value_counts().unstack().fillna(0.).reset_index()
     if formatter:
         actions.rename(columns=dict((x, formatter(x)) for x in actions.columns[2:]), inplace=True)
     for p, df_a in actions.groupby('policy', as_index=False):
-        step_by_t(df_a).plot(x='t', y=actions.columns[2:], kind='area', logx=logx)
+        if not line:
+            step_by_t(df_a).plot(x='t', y=actions.columns[2:], kind='area',
+                                 logx=logx)
+        else:
+            df_a.plot(x='t', y=actions.columns[2:], kind='line', logx=logx)
         plt.ylabel('Number of actions')
         plt.xlabel('Time')
 
@@ -146,15 +156,20 @@ def plot_actions_subcount(df, outfname, actions_filter, ylabel):
     plt.savefig(outfname + '.png')
     plt.close()
 
-def plot_observations(df, outfname, t_frac=1.0, formatter=None, logx=True):
+def plot_observations(df, outfname, t_frac=1.0, formatter=None, line=False,
+                      logx=True):
     df = df[df.t <= df.t.max() * t_frac]
 
     obs = df.groupby(['policy', 't'])['o'].value_counts().unstack().fillna(0.).reset_index()
     if formatter:
         obs.rename(columns=dict((x, formatter(x)) for x in obs.columns[2:]), inplace=True)
     for p, df_o in obs.groupby('policy', as_index=False):
-        step_by_t(df_o).plot(x='t', y=obs.columns[2:], kind='area',
-                             title='Observation counts', logx=logx)
+        if not line:
+            step_by_t(df_o).plot(x='t', y=obs.columns[2:], kind='area',
+                                 title='Observation counts', logx=logx)
+        else:
+            df_o.plot(x='t', y=obs.columns[2:], kind='line',
+                      title='Observation counts', logx=logx)
         fname = outfname + '_p-{}'.format(p)
         plt.savefig(fname + '.png')
         plt.close()
@@ -443,7 +458,7 @@ def expand_episodes(df):
 
 def make_plots(infiles, outdir, models=[], timings=[], names=None,
                episode_step=10, policies=None, fast=False,
-               noexp=True, log=True):
+               noexp=True, line=False, log=True):
     """Make plots.
 
     Args:
@@ -520,15 +535,15 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
             e_str = 'e{}'.format(e)
             plot_reward_by_t(df_filter, os.path.join(outdir, 'r_t_' + e_str))
             plot_beliefs(df_filter, os.path.join(outdir, 'b_' + e_str),
-                         formatter=str_state(names), logx=log)
+                         formatter=str_state(names), line=line, logx=log)
             plot_actions(df_filter, os.path.join(outdir, 'a_' + e_str),
-                         formatter=str_action, logx=log)
+                         formatter=str_action, line=line, logx=log)
             plot_observations(df_filter, os.path.join(outdir, 'o_' + e_str),
-                              formatter=str_observation, logx=log)
+                              formatter=str_observation, line=line, logx=log)
             print 'Done plotting episode {} in detail'.format(e)
 
-def main(filenames, policies=None, fast=False, noexp=True, episode_step=10,
-         single=False, dest=None):
+def main(filenames, policies=None, fast=False, noexp=True, line=False,
+         log=True, episode_step=10, single=False, dest=None):
     if single:
         if dest is None:
             raise Exception('Must specify a destination folder')
@@ -547,7 +562,9 @@ def main(filenames, policies=None, fast=False, noexp=True, episode_step=10,
                    episode_step=episode_step,
                    policies=policies,
                    fast=fast,
-                   noexp=noexp)
+                   noexp=noexp,
+                   line=line,
+                   log=log)
     else:
         jobs = []
         for f in filenames:
@@ -582,7 +599,9 @@ def main(filenames, policies=None, fast=False, noexp=True, episode_step=10,
                 episode_step=episode_step,
                 policies=policies,
                 fast=fast,
-                noexp=noexp))
+                noexp=noexp,
+                line=line,
+                log=log))
             jobs.append(p)
             p.start()
 
@@ -594,6 +613,12 @@ if __name__ == '__main__':
     parser.add_argument('--no-noexp', dest='noexp', action='store_false',
                         help="Don't print NOEXP actions.")
     parser.set_defaults(noexp=True)
+    parser.add_argument('--line', dest='line', action='store_true',
+                        help="Use line plots instead of area")
+    parser.set_defaults(line=False)
+    parser.add_argument('--no-log', dest='log', action='store_false',
+                        help="Don't use log for x-axis")
+    parser.set_defaults(log=True)
     parser.add_argument('--single', dest='single', action='store_true',
                         help='Treat multiple inputs as single experiment')
     parser.set_defaults(single=False)
@@ -609,6 +634,8 @@ if __name__ == '__main__':
          policies=args.policies,
          fast=args.fast,
          noexp=args.noexp,
+         line=args.line,
+         log=args.log,
          episode_step=args.episode_step,
          single=args.single,
          dest=args.dest)
