@@ -56,22 +56,26 @@ class POMDPModel:
         #           away.
         # p_slip:   Bias < 0.5 since random guessing on multiple choice
         #           is no better than 0.5.
-        self.beta_priors = {
-            'p_worker': [1.1 for i in xrange(self.n_worker_classes)],
-            ('p_guess', None): [1.1, 1.1],
-            ('p_slip', None): [2, 5], # Lower probability of making a mistake.
-            ('p_lose', None): [2, 5], # Lower probability of forgetting.
-            ('p_learn', None): [1.1, 1.1],
-            ('p_leave', None): [1.1, 1.1]}
-        for i in xrange(self.n_skills):
-            self.beta_priors[('p_s', i), None] = [2, 5]
-        # TODO: Add different priors for other classes of workers.
-        # This is a hack to copy over default priors into classes of workers.
+        self.beta_priors = dict()
         for k in self.params:
-            if isinstance(k, tuple):
-                param, worker_class = k
-                if worker_class != None:
-                    self.beta_priors[k] = self.beta_priors[param, None]
+            if k in self.params_fixed:
+                continue
+            elif k == 'p_worker':
+                self.beta_priors[k] = [
+                    1.1 for i in xrange(self.n_worker_classes)]
+            elif isinstance(k, tuple) and k[0] == 'p_guess':
+                self.beta_priors[k] = [10, 10] # Pretty sure this is 0.5.
+            elif isinstance(k, tuple) and k[0] == 'p_slip':
+                self.beta_priors[k] = [2, 5] # Lower prob of making a mistake.
+            elif isinstance(k, tuple) and k[0] == 'p_lose':
+                self.beta_priors[k] = [1.1, 1.1]
+            elif isinstance(k, tuple) and k[0] == 'p_learn':
+                self.beta_priors[k] = [1.1, 1.1]
+            elif isinstance(k, tuple) and k[0] == 'p_leave':
+                self.beta_priors[k] = [1.1, 1.1]
+            elif (isinstance(k, tuple) and isinstance(k[0], tuple) and
+                  k[0][0] == 'p_s'):
+                self.beta_priors[k] = [1.1, 1.1]
 
     def get_params_est(self):
         """Return subset of parameters that are estimated"""
@@ -655,14 +659,14 @@ class POMDPModel:
         """
         if random_init:
             params = dict()
-            # TODO: This could be made more concisce if we could rely on
+            # TODO: This could be made more concise if we could rely on
             # self.params having arrays of the correct size.
             for p in self.params:
                 if p == 'p_worker':
-                    self.params[p] = np.random.dirichlet(
+                    params[p] = np.random.dirichlet(
                         [1 for i in xrange(self.n_worker_classes)])
-                elif p in self.params_fixed:
-                    self.params[p] = np.random.dirichlet([1, 1])
+                elif p not in self.params_fixed:
+                    params[p] = np.random.dirichlet([1, 1])
         else:
             params = dict((k, copy.copy(self.params[k])) for
                           k in self.params if k not in self.params_fixed)
