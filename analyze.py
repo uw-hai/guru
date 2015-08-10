@@ -95,6 +95,8 @@ def plot_actions_subcount(df, outfname, actions_filter, ylabel):
     df = df[['iteration','policy','episode','a']].copy()
     df = df[df['a'].map(lambda a: not np.isnan(a) and actions_filter(a))]
     df = df.groupby(['iteration','policy','episode'])['a'].count().fillna(0.).reset_index()
+    if len(df) == 0:
+        return
 
     if df['episode'].max() > 0:
         ax = sns.tsplot(
