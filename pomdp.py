@@ -23,8 +23,6 @@ class POMDPModel:
 
         Args:
             n_worker_classes:       Number of worker classes.
-            estimate_all (bool):    Ignore parameter values that we can
-                                    estimate.
             params (dict):          Dictionary of parameters. Must contain
                                     keys for all parameters to be estimated.
                                     When a parameter needs a worker class
@@ -32,16 +30,23 @@ class POMDPModel:
                                     that the parameter be shared across
                                     worker classes. Do not use both None
                                     and worker classes for a given parameter.
+            estimate_all (bool):    Ignore parameter values that we can
+                                    estimate.
+            exp (bool):             Include exp(lain) action.
+            tell (bool):            Include tell actions.
 
         """
         self.n_skills = len(params['p_r'])
         self.n_worker_classes = n_worker_classes
-        self.actions = wlp.actions(self.n_skills)
+        self.actions = wlp.actions_all(self.n_skills,
+                                       tell=params['tell'], exp=params['exp'])
         self.states = wlp.states_all(self.n_skills, self.n_worker_classes)
         self.observations = wlp.observations
         # TODO: Change this to a list of estimated params, and
         # make params (p, ind) format.
-        self.params_fixed = ['cost', 'cost_exp', 'p_r', 'p_1', 'utility_type']
+        self.params_fixed = [
+            'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
+            'p_r', 'p_1', 'utility_type']
         if estimate_all:
             self.params = dict(
                 (k, params[k] if k in self.params_fixed else None) for
@@ -67,11 +72,10 @@ class POMDPModel:
                 self.beta_priors[k] = [10, 10] # Pretty sure this is 0.5.
             elif isinstance(k, tuple) and k[0] == 'p_slip':
                 self.beta_priors[k] = [2, 5] # Lower prob of making a mistake.
-            elif isinstance(k, tuple) and k[0] == 'p_lose':
-                self.beta_priors[k] = [1.1, 1.1]
-            elif isinstance(k, tuple) and k[0] == 'p_learn':
-                self.beta_priors[k] = [1.1, 1.1]
-            elif isinstance(k, tuple) and k[0] == 'p_leave':
+            elif isinstance(k, tuple) and k[0] in ['p_lose',
+                                                   'p_learn_exp',
+                                                   'p_learn_tell',
+                                                   'p_leave']:
                 self.beta_priors[k] = [1.1, 1.1]
             elif (isinstance(k, tuple) and isinstance(k[0], tuple) and
                   k[0][0] == 'p_s'):
@@ -105,13 +109,13 @@ class POMDPModel:
     def write_names(self, fo):
         """Write csv file mapping state/action/observation indices to names"""
         writer = csv.writer(fo)
-        writer.writerow(['i','type','s'])
-        for i,a in enumerate(self.actions):
-            writer.writerow([i, 'action', a])
-        for i,s in enumerate(self.states):
-            writer.writerow([i, 'state', s])
-        for i,o in enumerate(self.observations):
-            writer.writerow([i, 'observation', o])
+        writer.writerow(['i', 'type', 's', 'uses_gold'])
+        for i, a in enumerate(self.actions):
+            writer.writerow([i, 'action', a, a.uses_gold()])
+        for i, s in enumerate(self.states):
+            writer.writerow([i, 'state', s, None])
+        for i, o in enumerate(self.observations):
+            writer.writerow([i, 'observation', o, None])
 
     def write_txt(self, fo):
         """Write model to file as needed for AI-Toolbox."""
@@ -223,30 +227,28 @@ class POMDPModel:
 
         p_leave = self.get_param_version(s, 'p_leave')
         p_lose = self.get_param_version(s, 'p_lose')
-        p_learn = self.get_param_version(s, 'p_learn')
 
         # Can't switch worker classes.
         if (not st.term and not st1.term and
             st.worker_class != st1.worker_class):
             return dict() if exponents else 0
 
-        # Actions from terminal state.
+        # Once in terminal state, stay in terminal state.
         if st.term and st1.term:
             return dict() if exponents else 1
         elif st.term:
             return dict() if exponents else 0
         
-        # Actions from non-quiz states.
-        if not st.is_quiz() and act.name == 'boot':
+        if act.name == 'boot':
             # Booting takes to terminal state.
             if st1.term:
                 return dict() if exponents else 1
             else:
                 return dict() if exponents else 0
-        elif not st.is_quiz() and act.name == 'ask':
+        elif act.name == 'ask':
             if st1.term:
                 return {p_leave: [1, 0]} if exponents else params[p_leave][0]
-            elif st1.is_quiz() or not st.is_reachable(st1, False):
+            elif not st1.quiz_val == act.quiz_val or st.n_skills_learned(st1):
                 return dict() if exponents else 0
             else:
                 n_known = st.n_skills_known()
@@ -257,65 +259,63 @@ class POMDPModel:
                 prob = params[p_lose][0] ** n_lost * \
                        params[p_lose][1] ** n_lost_not
                 return prob * params[p_leave][1]
-        elif not st.is_quiz() and act.is_quiz():
+        elif act.name == 'exp' and st.is_quiz():
+            p_learn_exp = self.get_param_version(s, 'p_learn_exp')
+            # Could learn skill. No chance of leaving or losing skills.
+            # This is to make the ask-exp teaching sequence comparable to the
+            # tell teaching action.
+            if (st1.term or st1.is_quiz() or
+                    st.n_skills_lost(st1) > 0 or st.n_skills_learned(st1) > 1):
+                return dict() if exponents else 0
+            else:
+                if st.has_skill(st.quiz_val):
+                    return dict() if exponents else 1
+                elif not st1.has_skill(st.quiz_val):
+                    return {p_learn_exp: [0, 1]} if exponents else \
+                           params[p_learn_exp][1]
+                else:
+                    return {p_learn_exp: [1, 0]} if exponents else \
+                           params[p_learn_exp][0]
+        elif act.name == 'tell':
+            p_learn_tell = self.get_param_version(s, 'p_learn_tell')
+            # Could learn skill (no chance of losing taught skill).
+            # Might lose each other skill independently.
             if st1.term:
                 return {p_leave: [1, 0]} if exponents else params[p_leave][0]
-            elif (st1.is_quiz() and st.has_same_skills(st1) and
-                  act.quiz_val == st1.quiz_val):
-                return {p_leave: [0, 1]} if exponents else params[p_leave][1]
-            else:
+            elif (st1.is_quiz() or (st.has_skill(act.quiz_val) and
+                                    not st1.has_skill(act.quiz_val)) or
+                  st.skills_learned(st1) not in [[act.quiz_val], []]):
                 return dict() if exponents else 0
-        elif not st.is_quiz():
-            if s == s1:
-                return dict() if exponents else 1
             else:
-                return dict() if exponents else 0
-
-        # Actions from quiz states.
-        if st.is_quiz() and act.name == 'noexp':
-            if (not st1.term and not st1.is_quiz() and
-                    st.is_reachable(st1, False)):
                 n_known = st.n_skills_known()
                 n_lost = st.n_skills_lost(st1)
                 n_lost_not = n_known - n_lost
-                if exponents:
-                    return {p_lose: [n_lost, n_lost_not]}
-                prob = params[p_lose][0] ** n_lost * \
-                       params[p_lose][1] ** n_lost_not
-                return prob
-            else:
-                return dict() if exponents else 0
-        elif st.is_quiz() and act.name == 'exp':
-            if (not st1.term and not st1.is_quiz() and
-                    st.is_reachable(st1, True)):
-                quiz_skill_known = st.has_skill(st.quiz_val)
-                n_known = st.n_skills_known()
-                n_lost = st.n_skills_lost(st1)
-                n_lost_not = n_known - n_lost
-                if (quiz_skill_known):
+                if st.has_skill(act.quiz_val):
                     # Can't lose the quiz skill.
                     n_lost_not -= 1
-                if exponents:
-                    if st.n_skills_learned(st1) == 1:
-                        return {p_lose: [n_lost, n_lost_not], p_learn: [1, 0]}
-                    elif not quiz_skill_known:
-                        # Missed opportunity.
-                        return {p_lose: [n_lost, n_lost_not], p_learn: [0, 1]}
-                    else:
-                        # The skill was already known so it can't be learned.
-                        return {p_lose: [n_lost, n_lost_not]}
-                prob = params[p_lose][0] ** n_lost * \
-                       params[p_lose][1] ** n_lost_not
-                if st.n_skills_learned(st1) == 1:
-                    return prob * params[p_learn][0]
-                elif not quiz_skill_known:
+                if st.has_skill(act.quiz_val):
+                    return {p_lose: [n_lost, n_lost_not],
+                            p_leave: [0, 1]} if exponents else \
+                           params[p_lose][0] ** n_lost * \
+                           params[p_lose][1] ** n_lost_not * \
+                           params[p_leave][1]
+                elif not st1.has_skill(act.quiz_val):
                     # Missed opportunity.
-                    return prob * params[p_learn][1]
+                    return {p_lose: [n_lost, n_lost_not],
+                            p_learn_tell: [0, 1],
+                            p_leave: [0, 1]} if exponents else \
+                           params[p_lose][0] ** n_lost * \
+                           params[p_lose][1] ** n_lost_not * \
+                           params[p_learn_tell][1] * \
+                           params[p_leave][1]
                 else:
-                    # The skill was already known so it can't be learned.
-                    return prob
-            else:
-                return dict() if exponents else 0
+                    return {p_lose: [n_lost, n_lost_not],
+                            p_learn_tell: [1, 0],
+                            p_leave: [0, 1]} if exponents else \
+                           params[p_lose][0] ** n_lost * \
+                           params[p_lose][1] ** n_lost_not * \
+                           params[p_learn_tell][0] * \
+                           params[p_leave][1]
         else:
             if s == s1:
                 return dict() if exponents else 1
@@ -340,6 +340,7 @@ class POMDPModel:
         p_1 = params['p_1']
         cost = params['cost']
         cost_exp = params['cost_exp']
+        cost_tell = params['cost_tell']
         utility_type = params['utility_type']
 
         st = self.states[s]
@@ -350,15 +351,19 @@ class POMDPModel:
             return wlp.NINF
         elif st.term or st1.term:
             return 0
-        elif st.is_quiz() and act.name == 'exp':
+        elif act.name == 'exp':
             return cost_exp
-        elif not st.is_quiz() and act.name == 'ask':
-            return cost + st.rewards_ask(p_r, p_slip, p_guess, p_1,
-                                         utility_type)
-        elif not st.is_quiz() and act.is_quiz():
+        elif act.name == 'tell':
+            return cost_exp
+        elif act.is_quiz():
             return cost
-        else:
+        elif act.name == 'ask':
+            return cost + st1.rewards_ask(p_r, p_slip, p_guess, p_1,
+                                         utility_type)
+        elif act.name == 'boot':
             return 0
+        else:
+            raise Exception('Unexpected action when defining rewards')
 
     def get_observation(self, s, a, o, params=None, exponents=False):
         """Get observation probability, or derivative
@@ -463,8 +468,6 @@ class POMDPModel:
             observation_num in xrange(len(self.observations))]
         o_prime = np.random.choice(range(len(self.observations)), p=p_o_prime)
         r = self.get_reward(state_num, action_num, s_prime)
-        if self.states[state_num].is_quiz() and self.states[s_prime].is_quiz():
-            raise Exception('Failed to leave quiz state')
         return s_prime, o_prime, r
 
     def update_belief(self, prev_belief, action_num, observation_num):

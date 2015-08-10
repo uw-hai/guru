@@ -15,6 +15,7 @@ import ast
 import argparse
 import collections
 import itertools
+import functools as ft
 import pandas as pd
 import numpy as np
 import scipy.stats as ss
@@ -23,35 +24,10 @@ mpl.use('agg')
 from matplotlib import pyplot as plt
 import seaborn as sns
 import util
+import work_learn_problem as wlp
 
 INTERPOLATE_MIN = 11
 CI = 95  # Confidence interval
-
-#reserved_actions = ['ASK', 'EXP', 'NOEXP', 'BOOT']
-reserved_actions = ['Work', 'Teach', "Don't teach", 'Boot']
-def action_uses_gold_question(a):
-    return a >= len(reserved_actions)
-
-def str_action(a):
-    N_RES_A = len(reserved_actions)
-    a = int(a)
-    if a < N_RES_A:
-        s = reserved_actions[a]
-    else:
-        #s = "Q{}".format(a - N_RES_A)
-        s = "Test {}".format(a - N_RES_A + 1)
-    #return '{} ({})'.format(a, s)
-    return s
-
-def str_state(d=None):
-    if d == None:
-        return lambda s: s
-    return lambda s: '{} ({})'.format(s, d['state', s])
-
-def str_observation(o):
-    o_names = ['WRONG', 'RIGHT', 'TERM']
-    o = int(o)
-    return '{} ({})'.format(o, o_names[o])
 
 def step_by_t(df, interval=0.1):
     """Copy data from t=i to the range t=[i, i+1) at the given interval.
@@ -117,7 +93,7 @@ def plot_actions(df, outfname, t_frac=1.0, formatter=None, line=False,
 def plot_actions_subcount(df, outfname, actions_filter, ylabel):
     """Plot mean number of times the given actions are taken"""
     df = df[['iteration','policy','episode','a']].copy()
-    df['a'] = df['a'].map(lambda a: a if actions_filter(a) else float('NaN'))
+    df = df[df['a'].map(lambda a: not np.isnan(a) and actions_filter(a))]
     df = df.groupby(['iteration','policy','episode'])['a'].count().fillna(0.).reset_index()
 
     if df['episode'].max() > 0:
@@ -209,8 +185,6 @@ def plot_reward(df, outfname, estimator=np.mean):
         df_sig = pd.DataFrame(sigs)
         df_sig.to_csv(fname + '_sig.csv', index=False)
 
-
-
 def plot_reward_by_episode(df, plot=True):
     """Return axis objects in new figures for reward and cumulative reward
     
@@ -268,7 +242,6 @@ def plot_reward_by_t(df, outfname):
     plt.close()
     #df.sort(['policy','iteration','episode']).to_csv(fname + '.csv',
     #                                                 index=False)
-
 
 def plot_solve_t_by_episode(df, outfname):
     df = df[['iteration','policy','episode','sys_t']]
@@ -412,14 +385,6 @@ def plot_params(df_model, outfname):
                 plt.savefig(fname + '.png')
                 plt.close()
 
-def parse_names(f):
-    """Return dictionary mapping type and index to a string"""
-    d = dict()
-    dr = csv.DictReader(f)
-    for r in dr:
-        d[r['type'],int(r['i'])] = r['s']
-    return d
-
 def finished(df):
     """Filter for policy iterations that have completed all episodes."""
     #df.drop(df.tail(1).index, inplace=True)  # in case last row is incomplete
@@ -458,20 +423,34 @@ def expand_episodes(df):
 
 def make_plots(infiles, outdir, models=[], timings=[], names=None,
                episode_step=10, policies=None, fast=False,
-               noexp=True, line=False, log=True):
+               line=False, log=True):
     """Make plots.
 
     Args:
+        names:          Filepath to csv file mapping indices to strings
         episode_step:   Episode step size for plotting t on x-axis
-        noexp:          Plot NOEXP actions
         log:            Use log scale for breakdown plots
         policies:       List of policies to include
         fast:           Don't make plots with time as x-axis.
 
     """
+    action_uses_gold_question = None
     if names:
-        with open(names, 'r') as f:
-            names = parse_names(f)
+        df_names = pd.read_csv(names,
+                               true_values=['True', 'true'],
+                               false_values=['False', 'false'])
+        df_query = lambda s, c, i: df_names[
+            (df_names.type == s) & (df_names.i == int(i))].reset_index()[c][0]
+        str_action = ft.partial(df_query, 'action', 's')
+        str_state = ft.partial(df_query, 'state', 's')
+        str_observation = ft.partial(df_query, 'observation', 's')
+        if 'uses_gold' in df_names.columns:
+            action_uses_gold_question = ft.partial(df_query,
+                                                   'action', 'uses_gold')
+    else:
+        str_action = lambda i: str(i)
+        str_observation = lambda i: str(i)
+        str_state = lambda i: str(i)
 
     util.ensure_dir(outdir)
 
@@ -481,8 +460,6 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
         df = df[df.policy.isin(policies)]
     max_episode = df.episode.max()
     df = expand_episodes(df)
-    if not noexp:
-        df = df[df.a != reserved_actions.index("Don't teach")]
 
     if len(timings) > 0:
         df_timings = pd.concat([finished(pd.read_csv(f)) for f in timings],
@@ -494,10 +471,11 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
             plot_timings(df_timings, os.path.join(outdir, 't'))
             print 'Done plotting timings'
 
-    plot_actions_subcount(
-        df, outfname=os.path.join(outdir, 'gold_questions_used'),
-        actions_filter=action_uses_gold_question,
-        ylabel='Mean number of gold questions used')
+    if action_uses_gold_question is not None:
+        plot_actions_subcount(
+            df, outfname=os.path.join(outdir, 'gold_questions_used'),
+            actions_filter=action_uses_gold_question,
+            ylabel='Mean number of gold questions used')
 
     if max_episode > 0:
         # Make time series plots with episode as x-axis.
@@ -535,15 +513,15 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
             e_str = 'e{}'.format(e)
             plot_reward_by_t(df_filter, os.path.join(outdir, 'r_t_' + e_str))
             plot_beliefs(df_filter, os.path.join(outdir, 'b_' + e_str),
-                         formatter=str_state(names), line=line, logx=log)
+                         formatter=str_state, line=line, logx=log)
             plot_actions(df_filter, os.path.join(outdir, 'a_' + e_str),
                          formatter=str_action, line=line, logx=log)
             plot_observations(df_filter, os.path.join(outdir, 'o_' + e_str),
                               formatter=str_observation, line=line, logx=log)
             print 'Done plotting episode {} in detail'.format(e)
 
-def main(filenames, policies=None, fast=False, noexp=True, line=False,
-         log=True, episode_step=10, single=False, dest=None):
+def main(filenames, policies=None, fast=False, line=False, log=True,
+         episode_step=10, single=False, dest=None):
     if single:
         if dest is None:
             raise Exception('Must specify a destination folder')
@@ -562,7 +540,6 @@ def main(filenames, policies=None, fast=False, noexp=True, line=False,
                    episode_step=episode_step,
                    policies=policies,
                    fast=fast,
-                   noexp=noexp,
                    line=line,
                    log=log)
     else:
@@ -599,7 +576,6 @@ def main(filenames, policies=None, fast=False, noexp=True, line=False,
                 episode_step=episode_step,
                 policies=policies,
                 fast=fast,
-                noexp=noexp,
                 line=line,
                 log=log))
             jobs.append(p)
@@ -610,13 +586,10 @@ if __name__ == '__main__':
     parser.add_argument('result', type=str, nargs='+',
                         help='main experiment result .txt files')
     parser.add_argument('--episode_step', type=int, default=10)
-    parser.add_argument('--no-noexp', dest='noexp', action='store_false',
-                        help="Don't print NOEXP actions.")
-    parser.set_defaults(noexp=True)
     parser.add_argument('--line', dest='line', action='store_true',
                         help="Use line plots instead of area")
     parser.set_defaults(line=False)
-    parser.add_argument('--no-log', dest='log', action='store_false',
+    parser.add_argument('--no_log', dest='log', action='store_false',
                         help="Don't use log for x-axis")
     parser.set_defaults(log=True)
     parser.add_argument('--single', dest='single', action='store_true',
@@ -633,7 +606,6 @@ if __name__ == '__main__':
     main(filenames=args.result,
          policies=args.policies,
          fast=args.fast,
-         noexp=args.noexp,
          line=args.line,
          log=args.log,
          episode_step=args.episode_step,

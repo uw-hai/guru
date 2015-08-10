@@ -393,7 +393,8 @@ def cmd_config_to_pomdp_params(config):
     # Make bernoulli probabilites full probabilities.
     # TODO: Move into POMDPModel?
     for k in res.keys():
-        if (k in ['p_learn', 'p_lose', 'p_leave', 'p_slip', 'p_guess'] or
+        if (k in ['p_learn_exp', 'p_learn_tell', 'p_lose',
+                  'p_leave', 'p_slip', 'p_guess'] or
             (len(k) == 2 and k[0] == 'p_s')):
             probs = res.pop(k)
             if len(probs) == 1:
@@ -411,9 +412,19 @@ if __name__ == '__main__':
     config_group.add_argument(
         '--p_worker', type=float, nargs='+', default=[1.0],
         help='Prior probabilities of worker classes')
-    config_group.add_argument('--cost', type=float, default=-0.1)
-    config_group.add_argument('--cost_exp', type=float, default=-0.1)
-    config_group.add_argument('--p_learn', type=float, nargs='+',
+    config_group.add_argument('--no_tell', dest='tell', action='store_false',
+                              help="Don't include 'tell' actions")
+    config_group.add_argument('--no_exp',  dest='exp', action='store_false',
+                              help="Don't include 'exp(lain)' actions")
+    config_group.add_argument('--cost', type=float, default=-0.1,
+                              help="Cost of 'ask' actions.")
+    config_group.add_argument('--cost_exp', type=float, default=-0.1,
+                              help="Cost of 'exp(lain)' actions.")
+    config_group.add_argument('--cost_tell', type=float, default=-0.1,
+                              help="Cost of 'tell' actions.")
+    config_group.add_argument('--p_learn_exp', type=float, nargs='+',
+                              default=[0.4])
+    config_group.add_argument('--p_learn_tell', type=float, nargs='+',
                               default=[0.4])
     config_group.add_argument('--p_lose', type=float, nargs='+',
                               default=[0])
@@ -431,7 +442,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--policies', '-p', type=str, nargs='+', required=True,
                         choices=['fixed', 'zmdp', 'appl', 'aitoolbox'])
-    parser.add_argument('--fixed_n', type=int, nargs='+')
+    parser.add_argument('--fixed_n', type=int, nargs='+', default=[0])
     parser.add_argument('--zmdp_discount', type=float, default=0.99)
     parser.add_argument('--zmdp_timeout', type=int, nargs='+', default=[60])
     parser.add_argument('--appl_discount', type=float, default=0.99)
@@ -447,16 +458,15 @@ if __name__ == '__main__':
                         help='Epsilon to use for all policies')
     parser.add_argument('--thompson', dest='thompson', action='store_true',
                         help="Use Thompson sampling")
-    parser.set_defaults(thompson=False)
     parser.add_argument('--resolve_interval', type=int, help='Resolve interval to use for all policies')
     args = parser.parse_args()
     args_vars = vars(args)
 
     config_params = [
-        'p_worker', 'cost', 'cost_exp', 'p_learn', 'p_lose', 'p_leave',
+        'p_worker', 'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
+        'p_learn_exp', 'p_learn_tell', 'p_lose', 'p_leave',
         'p_slip', 'p_guess', 'p_r', 'p_1', 'p_s', 'utility_type']
-    config = dict((k, args_vars[k]) for k in config_params if
-                  args_vars[k] is not None)
+    config = dict((k, args_vars[k]) for k in config_params)
 
     policies = []
     for p_type in args.policies:

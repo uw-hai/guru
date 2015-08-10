@@ -8,28 +8,46 @@ from __future__ import division
 import itertools
 
 NINF = -999
+# TODO: Change quiz_val to rule / skill.
 class Action:
     def __init__(self, name, quiz_val=None):
         self.name = name
         self.quiz_val = quiz_val
     def is_quiz(self):
-        return self.quiz_val is not None
+        return self.name == 'ask' and self.quiz_val is not None
+    def uses_gold(self):
+        """Return whether an action uses a gold question.
+        
+        Does not count explain actions as using gold, since they use the
+        same gold question as the preceding ask.
+
+        """
+        return self.name == 'tell' or (self.name == 'ask' and
+                                       self.quiz_val is not None)
     def __str__(self):
-        if self.is_quiz():
-            return 'quiz{}'.format(self.quiz_val)
-        else:
-            return self.name
+        s = self.name
+        if self.quiz_val is not None:
+            s += '-rule_{}'.format(self.quiz_val)
+        return s
     def __eq__(self, a):
         return self.name == a.name and self.quiz_val == a.quiz_val
 
-def actions_quiz(n_skills):
-    return [Action('quiz', i) for i in xrange(n_skills)]
+def actions_all(n_skills, tell=False, exp=False):
+    """Return all actions
 
-actions_base = ['ask', 'exp', 'noexp', 'boot']
-def actions(n_skills):
-    lst = [Action(s) for s in actions_base]
-    lst += actions_quiz(n_skills)
-    return lst
+    Args:
+        n_skills (int):   Number of skills.
+        tell (bool):      Include tell actions.
+        exp (bool):       Include explain action.
+
+    """
+    actions = [Action('boot'), Action('ask', None)] + \
+              [Action('ask', i) for i in xrange(n_skills)]
+    if exp:
+        actions.append(Action('exp'))
+    if tell:
+        actions += [Action('tell', i) for i in xrange(n_skills)]
+    return actions
 
 # New observations ['yes', 'no'] for ask.
 #observations = ['yes', 'no', 'wrong', 'right', 'term']
@@ -65,14 +83,12 @@ class State:
         raise NotImplementedError
 
     def is_valid_action(self, action):
-        valid_from_quiz = action.name in ('exp', 'noexp')
         if self.term:
             return True
-        elif self.is_quiz():
-            return valid_from_quiz
+        elif action.name == 'exp' and not self.is_quiz():
+            return False
         else:
-            # Mutually exclusive.
-            return not valid_from_quiz
+            return True
 
     def n_skills(self):
         return len(self.skills)

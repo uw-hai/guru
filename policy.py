@@ -143,9 +143,9 @@ class Policy:
             # Make sure to teach each skill at least n times.
             # Select skills in random order, but teach each skill as a batch.
             # Alternate quizzing and explaining.
-            a_exp = model.actions.index(wlp.Action('exp'))
             a_ask = model.actions.index(wlp.Action('ask'))
-            quiz_actions = [i for i,a in enumerate(model.actions) if a.is_quiz()]
+            quiz_actions = [i for i, a in enumerate(model.actions) if
+                            a.is_quiz()]
             quiz_counts = collections.Counter(
                 [a for a in current_actions if a in quiz_actions])
             quiz_actions_remaining = [a for a in quiz_actions if
@@ -162,7 +162,7 @@ class Policy:
                 if model.actions[last_action].is_quiz():
                     if quiz_counts[last_action] <= self.n:
                         # Explain n times for each quiz.
-                        return a_exp
+                        return model.actions.index(wlp.Action('exp'))
                     else:
                         # We happened to get to a quiz state, so take a
                         # random action.
