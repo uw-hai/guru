@@ -1,0 +1,37 @@
+{% block body %}
+  <script type="text/javascript" src="https://www.google.com/jsapi"></script>
+  <p>{{ exp }} {{ basename }} {{ policy }} {{ tree }}</p>
+  <div id="chart_div"  style="width: 9000px; height: 300px;"><div>
+  
+<script type='text/javascript'>//<![CDATA[ 
+ 
+google.load('jquery', '1.7.0');
+google.load('visualization', '1', {packages: ['wordtree']});
+google.setOnLoadCallback(drawBasic);
+ 
+function drawBasic() {
+  var arr = $.parseJSON('{{ edges | tojson }}');
+  console.log(arr);
+  var data = new google.visualization.DataTable();
+  data.addColumn('number', 'id');
+  data.addColumn('string', 'childLabel');
+  data.addColumn('number', 'parent');
+  data.addColumn('number', 'size');
+  data.addColumn('string', 'color');
+  data.addRows(arr);
+
+  var options = {
+          wordtree: {
+            format: 'explicit',
+          }
+        };
+
+  var wordtree = new google.visualization.WordTree(document.getElementById('chart_div'));
+  wordtree.draw(data, options);
+}
+//]]>
+ 
+</script>
+ 
+ 
+{% endblock %}
