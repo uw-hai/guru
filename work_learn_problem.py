@@ -51,7 +51,7 @@ def actions_all(n_skills, tell=False, exp=False):
 
 # New observations ['yes', 'no'] for ask.
 #observations = ['yes', 'no', 'wrong', 'right', 'term']
-observations = ['wrong', 'right', 'term']
+observations = ['wrong', 'right', 'null', 'term']
 
 def states_all(n_skills, n_worker_classes):
     skill_values = list(itertools.product((True, False), repeat=n_skills))

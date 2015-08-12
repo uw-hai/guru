@@ -391,7 +391,7 @@ class POMDPModel:
                 return dict() if exponents else 1
             else:
                 return dict() if exponents else 0
-        elif st.is_quiz() and act.is_quiz() and st.quiz_val == act.quiz_val:
+        elif act.is_quiz() or act.name == 'tell':
             # Assume teaching actions ask questions that require only the
             # skill being taught.
             p_r_gold = [int(i == st.quiz_val) for i in xrange(self.n_skills)]
@@ -414,10 +414,8 @@ class POMDPModel:
                 else:
                     return dict() if exponents else 0
         else:
-            if obs == 'right':
-                return dict() if exponents else 0.5
-            elif obs == 'wrong':
-                return dict() if exponents else 0.5
+            if obs == 'null':
+                return dict() if exponents else 1
             else:
                 return dict() if exponents else 0
  
