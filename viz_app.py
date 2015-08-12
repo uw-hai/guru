@@ -4,13 +4,14 @@ import os
 import pickle
 import networkx as nx
 import json
+from analyze import finished
 
 tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 app = Flask(__name__, template_folder=tmpl_dir)
 
 def load_tree(f_exp, f_names, policy, episode=0):
     """Read an experiment output file and load a tree of execution traces"""
-    df = pd.read_csv(f_exp)
+    df = finished(pd.read_csv(f_exp))
     df = df.dropna(subset=['a', 'o'])
     df[['a', 'o']] = df[['a', 'o']].astype(int)
     df = df[(df.policy == policy) & (df.episode == episode)]
