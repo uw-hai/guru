@@ -235,7 +235,7 @@ def run_experiment(name, config, policies, iterations, episodes, epsilon=None,
             p['resolve_interval'] = resolve_interval
     # Create aggregate name for policies.
     policies_name = ''
-    for i, p in enumerate(policies):
+    for i, p in enumerate(sorted(policies)):
         if i:
             policies_name += '-'
         policies_name += p['type']
