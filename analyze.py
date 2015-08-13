@@ -423,6 +423,9 @@ def expand_episodes(df):
             dfs += dfs_expanded
     return pd.concat(dfs, ignore_index=True)
 
+def query_names_df(df, s, c, i):
+    return df[(df.type == s) & (df.i == int(i))].reset_index()[c][0]
+
 def make_plots(infiles, outdir, models=[], timings=[], names=None,
                episode_step=10, policies=None, fast=False,
                line=False, log=True):
@@ -441,13 +444,12 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
         df_names = pd.read_csv(names,
                                true_values=['True', 'true'],
                                false_values=['False', 'false'])
-        df_query = lambda s, c, i: df_names[
-            (df_names.type == s) & (df_names.i == int(i))].reset_index()[c][0]
-        str_action = ft.partial(df_query, 'action', 's')
-        str_state = ft.partial(df_query, 'state', 's')
-        str_observation = ft.partial(df_query, 'observation', 's')
+        str_action = ft.partial(query_names_df, df_names, 'action', 's')
+        str_state = ft.partial(query_names_df, df_names, 'state', 's')
+        str_observation = ft.partial(
+            query_names_df, df_names, 'observation', 's')
         if 'uses_gold' in df_names.columns:
-            action_uses_gold_question = ft.partial(df_query,
+            action_uses_gold_question = ft.partial(query_names_df, df_names,
                                                    'action', 'uses_gold')
     else:
         str_action = lambda i: str(i)
