@@ -3,17 +3,21 @@
   <div><b>Experiment: </b>{{ exp }}</div>
   <div><b>Basename: </b>{{ basename }}</div>
   <div><b>Policy: </b>{{ policy }}</div>
-  <div id="chart_div"  style="width: 9000px; height: 300px;"><div>
+  <div id="wordtree_div"  style="width: 50000px; height: 300px;"></div>
+  <div id="treemap_div"  style="width: 1000; height: 300px;"></div>
   
 <script type='text/javascript'>//<![CDATA[ 
  
 google.load('jquery', '1.7.0');
-google.load('visualization', '1', {packages: ['wordtree']});
+google.load('visualization', '1', {packages: ['wordtree', 'treemap']});
 google.setOnLoadCallback(drawBasic);
  
 function drawBasic() {
+  drawWordtree();
+  drawTreemap();
+}
+function drawWordtree() {
   var arr = $.parseJSON('{{ edges | tojson }}');
-  console.log(arr);
   var data = new google.visualization.DataTable();
   data.addColumn('number', 'id');
   data.addColumn('string', 'childLabel');
@@ -28,9 +32,56 @@ function drawBasic() {
           }
         };
 
-  var wordtree = new google.visualization.WordTree(document.getElementById('chart_div'));
+  var wordtree = new google.visualization.WordTree(document.getElementById('wordtree_div'));
   wordtree.draw(data, options);
 }
+
+function drawTreemap() {
+  var arr = $.parseJSON('{{ edges_treemap | tojson }}');
+  var data = new google.visualization.DataTable();
+  data.addColumn('string', 'id');
+  data.addColumn('string', 'parent');
+  data.addColumn('number', 'size');
+  data.addColumn('number', 'color');
+  data.addRows(arr);
+
+  var arr_other = $.parseJSON('{{ edges_treemap_other | tojson }}');
+  var data_other = new google.visualization.DataTable();
+  data_other.addColumn('string', 'belief');
+  data_other.addColumn('number', 'time');
+  data_other.addColumn('number', 'cumReward');
+  data_other.addRows(arr_other);
+
+  var options = {
+        minColor: '#f00',
+        midColor: '#ddd',
+        maxColor: '#0d0',
+        fontColor: 'black',
+        maxDepth: 1,
+        headerHeight: 15,
+        showScale: true,
+        height: 300,
+        useWeightedAverageForAggregation: true,
+        generateTooltip: showFullTooltip
+      };
+
+  var tree = new google.visualization.TreeMap(document.getElementById('treemap_div'));
+  tree.draw(data, options);
+
+  function showFullTooltip(row, size, value) {
+    return '<div style="background:#fd9; padding:10px; border-style:solid">' +
+           '<span style="font-family:Courier">' +
+           '<b>Time: </b>' + data_other.getValue(row, 1) + '<br>' +
+           '<b>Count: </b>' + data.getValue(row, 2) + '<br>' +
+           '<b>Reward: </b>' + data_other.getValue(row, 2) + ' (reward), ' +
+           data.getValue(row, 3) + ' (cumulative), ' + value + ' (color) <br>' +
+           '<b>Belief: </b>' + data_other.getValue(row, 0) + '</div>';
+  }
+
+
+}
+
+
 //]]>
  
 </script>
