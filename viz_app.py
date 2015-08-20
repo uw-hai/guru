@@ -11,7 +11,18 @@ tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 app = Flask(__name__, template_folder=tmpl_dir)
 
 def belief_to_str(states, belief):
-    return str(dict((s, b) for s, b in zip(states, belief)))
+    """Return belief string.
+
+    >>> belief_to_str(['a', 'b'], ['0.3', '0.7'])
+    'b (0.700), a (0.300)'
+    >>> belief_to_str(['a', 'b'], ['0.7', '0.3'])
+    'a (0.700), b (0.300)'
+
+    """
+    state_to_belief = dict(zip(states, (float(s) for s in belief)))
+    return ', '.join('{} ({:0.3f})'.format(k, state_to_belief[k]) for k in
+           sorted(state_to_belief, key=lambda x: state_to_belief[x],
+                  reverse=True))
 
 def load_tree(f_exp, f_names, policy, episode=0):
     """Read an experiment output file and load a tree of execution traces"""
