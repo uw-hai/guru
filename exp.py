@@ -9,6 +9,7 @@ import time
 import json
 import logging
 import numpy as np
+import random
 import functools as ft
 import traceback
 import copy
@@ -72,10 +73,13 @@ def run_function_from_dictionary(f, d):
  
 def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
     """
+
+    Seeds random number generators based on iteration only.
+
     Args:
         exp_name (str):         Experiment name, without file ending.
-        config_params (json):   Params portion of config
-        policy (json):
+        config_params (dict):   Params portion of config
+        policy (dict):
         iteration (int):
 
     Returns:
@@ -83,6 +87,10 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
             - Experiment rows to be written
             - Model rows to be written
     """
+    # Seed iteration based on iteration only.
+    np.random.seed(iteration)
+    random.seed(iteration)
+
     it = iteration
 
     # Parse config
