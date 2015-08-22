@@ -93,11 +93,14 @@ class Policy:
                 model.get_params_est())
             self.hparams_estimated[episode] = copy.deepcopy(model.hparams)
         if resolve_p:
-            start = time.clock()
+            utime1, stime1, cutime1, cstime1, _ = os.times()
             self.external_policy = self.get_external_policy(
                 model, iteration, episode)
-            self.resolve_times[episode] = time.clock() - start
-
+            utime2, stime2, cutime2, cstime2, _ = os.times()
+            # All solvers are run as subprocesses, so count elapsed
+            # child process time.
+            self.resolve_times[episode] = cutime2 - cutime1 + \
+                                          cstime2 - cstime1
 
     def get_next_action(self, model, iteration, history, valid_actions,
                         belief=None):
