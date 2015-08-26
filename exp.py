@@ -456,7 +456,7 @@ if __name__ == '__main__':
                                  'zmdp', 'appl', 'aitoolbox'])
     parser.add_argument('--teach_first_n', type=int, nargs='+')
     parser.add_argument('--teach_first_type', type=str, nargs='+',
-                        choices=['tell', 'exp'])
+                        choices=['tell', 'exp'], default='tell')
     parser.add_argument('--test_and_boot_n_test', type=int, nargs='+')
     parser.add_argument('--test_and_boot_n_work', type=int, nargs='+')
     parser.add_argument('--test_and_boot_accuracy', type=float, nargs='+')
