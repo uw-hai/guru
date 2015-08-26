@@ -1,5 +1,5 @@
 decorator==4.0.2
-elementtree==1.2.6.post20050316
+elementtree==1.2.6-20050316
 Flask==0.10.1
 funcsigs==0.4
 itsdangerous==0.24

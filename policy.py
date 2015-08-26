@@ -14,6 +14,7 @@ import random
 import numpy as np
 import subprocess
 from pomdp import POMDPPolicy, POMDPModel
+import util
 from util import get_or_default, ensure_dir, equation_safe_filename
 import work_learn_problem as wlp
 
@@ -40,8 +41,13 @@ class Policy:
         elif self.policy == 'aitoolbox':
             self.discount = get_or_default(kwargs, 'discount', default_discount)
             self.horizon = kwargs['horizon']
-        elif self.policy == 'fixed':
+        elif self.policy == 'teach_first':
             self.n = kwargs['n']
+            self.teach_type = kwargs['teach_type']
+        elif self.policy == 'test_and_boot':
+            self.n_test = kwargs['n_test']
+            self.n_work = kwargs['n_work']
+            self.accuracy = kwargs['accuracy']
         else:
             raise NotImplementedError
 
@@ -142,45 +148,73 @@ class Policy:
         current_observations = history.get_observations(episode)
         n_skills = model.n_skills
         n_actions = len(current_actions)
-        if self.policy == 'fixed':
+        a_ask = model.actions.index(wlp.Action('ask'))
+        a_boot = model.actions.index(wlp.Action('boot'))
+        if self.policy == 'teach_first':
             # Make sure to teach each skill at least n times.
             # Select skills in random order, but teach each skill as a batch.
-            # Alternate quizzing and explaining.
-            a_ask = model.actions.index(wlp.Action('ask'))
-            quiz_actions = [i for i, a in enumerate(model.actions) if
-                            a.is_quiz()]
-            quiz_counts = collections.Counter(
-                [a for a in current_actions if a in quiz_actions])
-            quiz_actions_remaining = [a for a in quiz_actions if
-                                      quiz_counts[a] < self.n]
-            quiz_actions_in_progress = [a for a in quiz_actions_remaining if
-                                        quiz_counts[a] > 0]
+            if self.teach_type == 'exp':
+                teach_actions = [i for i, a in enumerate(model.actions) if
+                                 a.is_quiz()]
+                teach_counts = collections.defaultdict(int)
+                for i in xrange(len(current_actions) - 1):
+                    a1 = model.actions[current_actions[i]]
+                    a2 = model.actions[current_actions[i + 1]]
+                    if a1.is_quiz() and a2.name == 'exp':
+                        teach_counts[current_actions[i]] += 1
+            elif self.teach_type == 'tell':
+                teach_actions = [i for i, a in enumerate(model.actions) if
+                                 a.name == 'tell']
+                teach_counts = collections.Counter(
+                    [a for a in current_actions if a in teach_actions])
+            teach_actions_remaining = [a for a in teach_actions if
+                                       teach_counts[a] < self.n]
+            teach_actions_in_progress = [a for a in teach_actions_remaining if
+                                         teach_counts[a] > 0]
             if n_actions == 0:
-                if quiz_actions_remaining:
-                    return random.choice(quiz_actions_remaining)
+                if teach_actions_remaining:
+                    return random.choice(teach_actions_remaining)
                 else:
                     return a_ask
             else:
                 last_action = current_actions[-1]
-                if model.actions[last_action].is_quiz():
-                    if quiz_counts[last_action] <= self.n:
-                        # Explain n times for each quiz.
-                        return model.actions.index(wlp.Action('exp'))
-                    else:
-                        # We happened to get to a quiz state, so take a
-                        # random action.
-                        #
-                        # What we really want to do here is take EXP or NOEXP
-                        # and this is equivalent since booting isn't allowed
-                        # from quiz states.
-                        return random.choice(valid_actions)
+                if (self.teach_type == 'exp' and
+                        last_action in teach_actions_remaining):
+                    return model.actions.index(wlp.Action('exp'))
                 else:
-                    if len(quiz_actions_in_progress) > 0:
-                        return random.choice(quiz_actions_in_progress)
-                    elif len(quiz_actions_remaining) > 0:
-                        return random.choice(quiz_actions_remaining)
+                    if len(teach_actions_in_progress) > 0:
+                        return random.choice(teach_actions_in_progress)
+                    elif len(teach_actions_remaining) > 0:
+                        return random.choice(teach_actions_remaining)
                     else:
                         return a_ask
+        elif self.policy == 'test_and_boot':
+            n_work_actions = len([a for a in current_actions if
+                                  a == a_ask])
+            last_action_block = util.last_true(
+                current_actions, lambda a: model.actions[a].is_quiz())
+            test_counts = collections.Counter(last_action_block)
+            if n_work_actions % self.n_work == 0:
+                test_actions = [i for i, a in enumerate(model.actions) if
+                                a.is_quiz()]
+                test_actions_remaining = [a for a in test_actions if
+                                          test_counts[a] < self.n_test]
+                if len(test_actions_remaining) == 0:
+                    # Testing done. Check accuracy.
+                    test_answers = current_observations[
+                        -1 * len(last_action_block):]
+                    assert all(model.observations[i] in ['wrong', 'right'] for
+                               i in test_answers)
+                    accuracy = sum([model.observations[i] == 'right' for
+                                    i in test_answers]) / len(test_answers)
+                    if accuracy >= self.accuracy:
+                        return a_ask
+                    else:
+                        return a_boot
+                else:
+                    return random.choice(test_actions_remaining)
+            else:
+                return a_ask
         elif self.policy in ('appl', 'aitoolbox', 'zmdp'):
             rewards = self.external_policy.get_action_rewards(belief)
             valid_actions_with_rewards = set(valid_actions).intersection(
@@ -298,8 +332,11 @@ class Policy:
         elif self.policy == 'aitoolbox':
             s = 'ait' + '-d{:.3f}'.format(self.discount)
             s += '-h{}'.format(self.horizon)
-        elif self.policy == 'fixed':
-            s = self.policy + '-n{}'.format(self.n)
+        elif self.policy == 'teach_first':
+            s = self.policy + '-n_{}_{}'.format(self.teach_type, self.n)
+        elif self.policy == 'test_and_boot':
+            s = self.policy + '-n_test_{}-n_work_{}-acc_{}'.format(
+                    self.n_test, self.n_work, self.accuracy)
         else:
             raise NotImplementedError
 

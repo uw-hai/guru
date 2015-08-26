@@ -266,6 +266,9 @@ def run_experiment(name, config, policies, iterations, episodes, epsilon=None,
     # Explode policies.
     policies_exploded = []
     for p in policies:
+        for k in p:
+            if isinstance(p[k], list) and len(p[k]) == 1:
+                p[k] = p[k][0]
         list_parameters = [k for k in p if isinstance(p[k], list)]
         if len(list_parameters) == 0:
             policies_exploded.append(p)
@@ -449,14 +452,24 @@ if __name__ == '__main__':
                               choices=['acc', 'posterior'], default='acc')
 
     parser.add_argument('--policies', '-p', type=str, nargs='+', required=True,
-                        choices=['fixed', 'zmdp', 'appl', 'aitoolbox'])
-    parser.add_argument('--fixed_n', type=int, nargs='+', default=[0])
-    parser.add_argument('--zmdp_discount', type=float, default=0.99)
+                        choices=['teach_first', 'test_and_boot',
+                                 'zmdp', 'appl', 'aitoolbox'])
+    parser.add_argument('--teach_first_n', type=int, nargs='+')
+    parser.add_argument('--teach_first_type', type=str, nargs='+',
+                        choices=['tell', 'exp'])
+    parser.add_argument('--test_and_boot_n_test', type=int, nargs='+')
+    parser.add_argument('--test_and_boot_n_work', type=int, nargs='+')
+    parser.add_argument('--test_and_boot_accuracy', type=float, nargs='+')
+    parser.add_argument('--zmdp_discount', type=float, nargs='+',
+                        default=[0.99])
     parser.add_argument('--zmdp_timeout', type=int, nargs='+', default=[60])
-    parser.add_argument('--appl_discount', type=float, default=0.99)
-    parser.add_argument('--appl_timeout', type=int, nargs='+', default=[60])
-    parser.add_argument('--aitoolbox-discount', type=float, default=0.99)
-    parser.add_argument('--aitoolbox-horizon', type=int, nargs='+')
+    parser.add_argument('--appl_discount', type=float, nargs='+',
+                        default=[0.99])
+    parser.add_argument('--appl_timeout', type=int, nargs='+',
+                        default=[60])
+    parser.add_argument('--aitoolbox_discount', type=float, nargs='+',
+                        default=[0.99])
+    parser.add_argument('--aitoolbox_horizon', type=int, nargs='+')
 
     parser.add_argument('--iterations', '-i', type=int, default=100,
                         help='Number of iterations')
@@ -479,8 +492,13 @@ if __name__ == '__main__':
     policies = []
     for p_type in args.policies:
         p = {'type': p_type}
-        if p_type == 'fixed':
-            p['n'] = args.fixed_n
+        if p_type == 'teach_first':
+            p['n'] = args.teach_first_n
+            p['teach_type'] = args.teach_first_type
+        elif p_type == 'test_and_boot':
+            p['n_test'] = args.test_and_boot_n_test
+            p['n_work'] = args.test_and_boot_n_work
+            p['accuracy'] = args.test_and_boot_accuracy
         elif p_type == 'zmdp':
             p['discount'] = args.zmdp_discount
             p['timeout'] = args.zmdp_timeout
@@ -488,8 +506,8 @@ if __name__ == '__main__':
             p['discount'] = args.appl_discount
             p['timeout'] = args.appl_timeout
         elif p_type == 'aitoolbox':
-            p['discount'] = args.aitoolbox-discount
-            p['horizon'] = args.aitoolbox-horizon
+            p['discount'] = args.aitoolbox_discount
+            p['horizon'] = args.aitoolbox_horizon
         policies.append(p)
 
     run_experiment(name=args.name,

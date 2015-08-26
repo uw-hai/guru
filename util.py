@@ -16,6 +16,45 @@ def ensure_dir(directory):
     if not os.path.exists(directory):
         os.makedirs(directory) 
 
+def last_equal(lst):
+    """Return longest sequence of equal elements at the end of a list.
+
+    >>> last_equal([])
+    []
+    >>> last_equal([1, 2, 3, 3, 3])
+    [3, 3, 3]
+    >>> last_equal([1, 2, 3])
+    [3]
+
+    """
+    els = []
+    for v in reversed(lst):
+        if len(els) == 0 or v == els[0]:
+            els.append(v)
+        else:
+            break
+    return els
+
+def last_true(lst, f):
+    """Return longest sequence of elements at end of list that pass f.
+
+    >>> last_true([], lambda x: x % 2 == 1)
+    []
+    >>> last_true([1, 2, 3, 3, 3], lambda x: x % 2 == 1)
+    [3, 3, 3]
+    >>> last_true([1, 2, 3], lambda x: x % 2 == 1)
+    [3]
+    >>> last_true([1, 2, 3], lambda x: x % 2 == 0)
+    []
+
+    """
+    els = last_equal(map(f, lst))
+    if len(els) == 0 or els[0]:
+        return lst[-1 * len(els):]
+    else:
+        return []
+
+
 #--------- Statistics ------
 
 from scipy.special import gamma
