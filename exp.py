@@ -136,6 +136,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
                         'r': '',
                         'b': belief_to_str(belief)})
 
+        worker_n = 0
         while str(model_gt.states[s]) != 'TERM':
             valid_actions = [i for i,a in enumerate(model_gt.actions) if
                              model_gt.states[s].is_valid_action(a)]
@@ -151,6 +152,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
             results.append({'iteration': it,
                             'episode': ep,
                             't': t,
+                            'worker': worker_n,
                             'policy': str(pol),
                             'sys_t': time.clock(),
                             'a': a,
@@ -158,6 +160,9 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
                             'o': o,
                             'r': r,
                             'b': belief_to_str(belief)})
+
+            if model_gt.actions[a].name == 'boot':
+                worker_n += 1
 
     # Record models, estimate times, and resolve times.
     models = []
@@ -314,7 +319,7 @@ def run_experiment(name, config, policies, iterations, episodes, epsilon=None,
     results_filepath = os.path.join(res_path, '{}.txt'.format(policies_name))
     results_fp = open(results_filepath, 'wb')
     results_fieldnames = [
-        'iteration','episode','t','policy','sys_t','a','s','o','r','b']
+        'iteration','episode','t','worker','policy','sys_t','a','s','o','r','b']
     r_writer = csv.DictWriter(results_fp, fieldnames=results_fieldnames)
     r_writer.writeheader()
 

@@ -228,11 +228,6 @@ class POMDPModel:
         p_leave = self.get_param_version(s, 'p_leave')
         p_lose = self.get_param_version(s, 'p_lose')
 
-        # Can't switch worker classes.
-        if (not st.term and not st1.term and
-            st.worker_class != st1.worker_class):
-            return dict() if exponents else 0
-
         # Once in terminal state, stay in terminal state.
         if st.term and st1.term:
             return dict() if exponents else 1
@@ -240,11 +235,14 @@ class POMDPModel:
             return dict() if exponents else 0
         
         if act.name == 'boot':
-            # Booting takes to terminal state.
-            if st1.term:
-                return dict() if exponents else 1
-            else:
-                return dict() if exponents else 0
+            # Booting takes to a new start state. (Changed 8/26/2015)
+            # NOTE: No longer takes to terminal state.
+            return self.get_start_probability(s1, params=params,
+                                              exponents=exponents)
+        elif (not st.term and not st1.term and
+              st.worker_class != st1.worker_class):
+            # Otherwise, can't switch worker classes.
+            return dict() if exponents else 0
         elif act.name == 'ask':
             if st1.term:
                 return {p_leave: [1, 0]} if exponents else params[p_leave][0]
@@ -522,7 +520,7 @@ class POMDPModel:
             T = history.n_t(ep)
             for t in xrange(T):
                 for s in xrange(S):
-                    a, o = history.get_AO(ep, t)
+                    a, o = history.get_AO(ep)[t]
                     ess_o[s][a][o] += m_norm[t+1][s]
             ess_i += m_norm[0,:]
 
@@ -530,7 +528,7 @@ class POMDPModel:
             pm_norm = np.exp(pm - logsumexp(pm, axis=(1,2), keepdims=True))
             T = history.n_t(ep)
             for t in xrange(T):
-                a, o = history.get_AO(ep, t)
+                a, o = history.get_AO(ep)[t]
                 for s in xrange(S):
                     for s1 in xrange(S):
                         ess_t[s][a][s1] += pm_norm[t][s][s1]
@@ -572,7 +570,7 @@ class POMDPModel:
 
             # Forward.
             for t in xrange(T):
-                a, o = history.get_AO(ep, t)
+                a, o = history.get_AO(ep)[t]
                 for s1 in xrange(S):
                     v = []
                     for s0 in xrange(S):
@@ -583,7 +581,7 @@ class POMDPModel:
 
             # Backward.
             for t in reversed(xrange(T)):
-                a, o = history.get_AO(ep, t)
+                a, o = history.get_AO(ep)[t]
                 for s0 in xrange(S):
                     v = []
                     for s1 in xrange(S):
@@ -597,7 +595,7 @@ class POMDPModel:
             # Make pairwise marginals
             pm = np.zeros((T, S, S))
             for t in xrange(T):
-                a, o = history.get_AO(ep, t)
+                a, o = history.get_AO(ep)[t]
                 for s in xrange(S):
                     for s1 in xrange(S):
                         p_t = self.get_transition(s, a, s1, params)

@@ -143,13 +143,18 @@ class Policy:
         Returns: Action index.
 
         """
-        episode = history.n_episodes() - 1
-        current_actions = history.get_actions(episode)
-        current_observations = history.get_observations(episode)
-        n_skills = model.n_skills
-        n_actions = len(current_actions)
         a_ask = model.actions.index(wlp.Action('ask'))
         a_boot = model.actions.index(wlp.Action('boot'))
+        episode = history.n_episodes() - 1
+        current_AO = history.get_AO(episode,
+                                    worker_separator=(a_boot, None))[-1]
+        if len(current_AO) == 0:
+            current_actions = []
+            current_observations = []
+        else:
+            current_actions, current_observations = zip(*current_AO)
+        n_skills = model.n_skills
+        n_actions = len(current_actions)
         if self.policy == 'teach_first':
             # Make sure to teach each skill at least n times.
             # Select skills in random order, but teach each skill as a batch.

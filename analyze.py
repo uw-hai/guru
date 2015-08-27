@@ -428,7 +428,7 @@ def query_names_df(df, s, c, i):
 
 def make_plots(infiles, outdir, models=[], timings=[], names=None,
                episode_step=10, policies=None, fast=False,
-               line=False, log=True):
+               line=False, log=True, first_worker=False):
     """Make plots.
 
     Args:
@@ -462,6 +462,9 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
                    ignore_index=True)
     if policies is not None:
         df = df[df.policy.isin(policies)]
+    if first_worker:
+        df = df[df.worker == 0]
+
     max_episode = df.episode.max()
     df = expand_episodes(df)
 
@@ -525,7 +528,7 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
             print 'Done plotting episode {} in detail'.format(e)
 
 def main(filenames, policies=None, fast=False, line=False, log=True,
-         episode_step=10, single=False, dest=None):
+         episode_step=10, single=False, dest=None, first_worker=False):
     if single:
         if dest is None:
             raise Exception('Must specify a destination folder')
@@ -545,7 +548,8 @@ def main(filenames, policies=None, fast=False, line=False, log=True,
                    policies=policies,
                    fast=fast,
                    line=line,
-                   log=log)
+                   log=log,
+                   first_worker=first_worker)
     else:
         jobs = []
         for f in filenames:
@@ -581,7 +585,8 @@ def main(filenames, policies=None, fast=False, line=False, log=True,
                 policies=policies,
                 fast=fast,
                 line=line,
-                log=log))
+                log=log,
+                first_worker=first_worker))
             jobs.append(p)
             p.start()
 
@@ -605,6 +610,9 @@ if __name__ == '__main__':
     parser.add_argument('--dest', '-d', type=str, help='Folder to store plots')
     parser.add_argument('--policies', type=str, nargs='*',
                         help='Policies to use')
+    parser.add_argument('--first_worker', dest='first_worker',
+                        action='store_true', help='Plot only first worker')
+    parser.set_defaults(first_worker=False)
     args = parser.parse_args()
 
     main(filenames=args.result,
@@ -614,4 +622,5 @@ if __name__ == '__main__':
          log=args.log,
          episode_step=args.episode_step,
          single=args.single,
-         dest=args.dest)
+         dest=args.dest,
+         first_worker=args.first_worker)

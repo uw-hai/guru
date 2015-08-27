@@ -1,33 +1,45 @@
 class History:
     def __init__(self):
-        self.history = {'actions': [], 'observations': []}
+        self.history = []
 
     def new_episode(self):
         """Initialize new episode"""
-        self.history['actions'].append([])
-        self.history['observations'].append([])
+        self.history.append([])
 
     def record(self, action, observation):
         """Record action and subsequent observation"""
-        self.history['actions'][-1].append(action)
-        self.history['observations'][-1].append(observation)
+        self.history[-1].append((action, observation))
 
     def n_episodes(self):
-        return len(self.history['actions'])
+        return len(self.history)
 
     def n_t(self, episode):
         """Return number of actions taken in episode"""
-        return len(self.history['actions'][episode])
+        return len(self.history[episode])
 
-    def get_AO(self, episode, t):
-        """Get action and subsequent observation"""
-        return (self.history['actions'][episode][t],
-                self.history['observations'][episode][t])
+    def get_AO(self, episode, worker_separator=None):
+        """Get action and observation pairs for the given episode.
 
-    def get_actions(self, episode):
-        """Get list of actions for episode"""
-        return self.history['actions'][episode]
+        Args:
+            episode (int):              Episode number. 
+            worker_separator (tuple):   (action, observation) that separates
+                                        workers. Either action or observation
+                                        may be null.
 
-    def get_observations(self, episode):
-        """Get list of observations for episode"""
-        return self.history['observations'][episode]
+        Returns:
+            List of (action, observation) pairs, if worker_separator is None.
+            Else, list of such lists for each worker.
+
+        """
+        if worker_separator is None:
+            return self.history[episode]
+        else:
+            def separator_match(tup):
+                return all(v is None or v == v_t for v, v_t in
+                           zip(worker_separator, tup))
+            workers = [[]]
+            for x in self.history[episode]:
+                workers[-1].append(x)
+                if separator_match(x):
+                    workers.append([])
+            return workers
