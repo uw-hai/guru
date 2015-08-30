@@ -116,7 +116,8 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
     worker_n = 0
     t = 0
     while budget_spent < budget:
-        logger.info('{} (i:{}, w:{})'.format(pol, it, worker_n))
+        logger.info('{} (i:{}, w:{}, b:{:.2f}/{:.2f})'.format(
+            pol, it, worker_n, budget_spent, budget))
         history.new_worker()
         start_belief = model_gt.get_start_belief()
         #logger.info('start belief: {}'.format(list(start_belief)))

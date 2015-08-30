@@ -46,7 +46,7 @@ class POMDPModel:
         # make params (p, ind) format.
         self.params_fixed = [
             'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
-            'p_r', 'p_1', 'utility_type', 'budget']
+            'p_r', 'p_1', 'utility_type']
         if estimate_all:
             self.params = dict(
                 (k, params[k] if k in self.params_fixed else None) for
