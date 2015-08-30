@@ -61,18 +61,17 @@ class Policy:
         """Policy does reinforcement learning"""
         return self.epsilon is not None or self.thompson
     
-    def get_epsilon_probability(self, episode, t):
+    def get_epsilon_probability(self, worker, t):
         """Return probability specified by the given exploration function.
 
-        Exploration function is a function of the episode (e, ep, or episode)
+        Exploration function is a function of the worker (w or worker)
         and the current timestep (t).
 
         WARNING: Evaluates the expression in self.epsilon without security checks.
 
         """
         # Put some useful variable abbreviations in the namespace.
-        e = episode
-        ep = episode
+        w = worker
         if isinstance(self.epsilon, basestring):
             return eval(self.epsilon)
         else:
@@ -80,33 +79,33 @@ class Policy:
 
     def estimate_and_solve(self, model, iteration, history):
         """Reestimate and resolve as needed."""
-        episode = history.n_episodes() - 1
+        worker = history.n_workers() - 1
 
         resolve_p = (self.policy in ('appl', 'zmdp', 'aitoolbox') and
                      (self.external_policy is None or
                       (self.rl_p() and
-                       episode % self.resolve_interval == 0)))
+                       worker % self.resolve_interval == 0)))
         estimate_p = (self.rl_p() and
-                      (resolve_p or episode % self.estimate_interval == 0))
+                      (resolve_p or worker % self.estimate_interval == 0))
         if estimate_p:
             start = time.clock()
             model.estimate(history,
                            random_init=(len(self.params_estimated) == 0))
             if self.thompson:
                 model.thompson_sample()
-            self.estimate_times[episode] = time.clock() - start
-            self.params_estimated[episode] = copy.deepcopy(
+            self.estimate_times[worker] = time.clock() - start
+            self.params_estimated[worker] = copy.deepcopy(
                 model.get_params_est())
-            self.hparams_estimated[episode] = copy.deepcopy(model.hparams)
+            self.hparams_estimated[worker] = copy.deepcopy(model.hparams)
         if resolve_p:
             utime1, stime1, cutime1, cstime1, _ = os.times()
             self.external_policy = self.get_external_policy(
-                model, iteration, episode)
+                model, iteration, worker)
             utime2, stime2, cutime2, cstime2, _ = os.times()
             # All solvers are run as subprocesses, so count elapsed
             # child process time.
-            self.resolve_times[episode] = cutime2 - cutime1 + \
-                                          cstime2 - cstime1
+            self.resolve_times[worker] = cutime2 - cutime1 + \
+                                         cstime2 - cstime1
 
     def get_next_action(self, model, iteration, history, valid_actions,
                         belief=None):
@@ -116,10 +115,10 @@ class Policy:
         with probability specified by the given exploration function.
 
         """
-        episode = history.n_episodes() - 1
-        t = history.n_t(episode)
+        worker = history.n_workers() - 1
+        t = history.n_t(worker)
         if (self.epsilon is not None and
-                np.random.random() <= self.get_epsilon_probability(episode, t)):
+                np.random.random() <= self.get_epsilon_probability(worker, t)):
             valid_actions_no_boot = [i for i in valid_actions if
                                      model.actions[i].name != 'boot']
             return np.random.choice(valid_actions_no_boot)
@@ -145,9 +144,8 @@ class Policy:
         """
         a_ask = model.actions.index(wlp.Action('ask'))
         a_boot = model.actions.index(wlp.Action('boot'))
-        episode = history.n_episodes() - 1
-        current_AO = history.get_AO(episode,
-                                    worker_separator=(a_boot, None))[-1]
+        worker = history.n_workers() - 1
+        current_AO = history.history[-1]
         if len(current_AO) == 0:
             current_actions = []
             current_observations = []
@@ -239,27 +237,29 @@ class Policy:
         else:
             raise NotImplementedError
 
-    def get_external_policy(self, model, iteration, episode):
+    def get_external_policy(self, model, iteration, worker):
         """Compute external policy and store in unique locations.
         
         Store POMDP files as
-        'models/exp_name/iteration/episode/policy_name.pomdp'.
+        'models/exp_name/iteration/policy_name-worker.pomdp'.
 
         Store learned policy files as
-        'policies/exp_name/iteration/episode/policy_name.policy'.
+        'policies/exp_name/iteration/policy_name-worker.policy'.
 
         Returns:
             policy (POMDPPolicy)
 
         """
         pomdp_dirpath = os.path.join(
-            'models', self.exp_name, str(iteration), str(episode))
+            'models', self.exp_name, str(iteration))
         policy_dirpath = os.path.join(
-            'policies', self.exp_name, str(iteration), str(episode))
+            'policies', self.exp_name, str(iteration))
         ensure_dir(pomdp_dirpath)
         ensure_dir(policy_dirpath)
-        pomdp_fpath = os.path.join(pomdp_dirpath, '{}.pomdp'.format(self))
-        policy_fpath = os.path.join(policy_dirpath, '{}.policy'.format(self))
+        pomdp_fpath = os.path.join(
+            pomdp_dirpath, '{}-{:06d}.pomdp'.format(self, worker))
+        policy_fpath = os.path.join(
+            policy_dirpath, '{}-{:06d}.policy'.format(self, worker))
 
         return self.run_solver(model=model,
                                model_filename=pomdp_fpath,

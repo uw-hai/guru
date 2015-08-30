@@ -46,7 +46,7 @@ class POMDPModel:
         # make params (p, ind) format.
         self.params_fixed = [
             'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
-            'p_r', 'p_1', 'utility_type']
+            'p_r', 'p_1', 'utility_type', 'budget']
         if estimate_all:
             self.params = dict(
                 (k, params[k] if k in self.params_fixed else None) for
@@ -123,7 +123,7 @@ class POMDPModel:
             for a,_ in enumerate(self.actions):
                 for s1,_ in enumerate(self.states):
                     fo.write('{}\t{}\t'.format(self.get_transition(s, a, s1),
-                                               self.get_reward(s, a, s1)))
+                                               sum(self.get_reward(s, a, s1))))
             fo.write('\n')
         for s,_ in enumerate(self.states):
             for a,_ in enumerate(self.actions):
@@ -167,7 +167,7 @@ class POMDPModel:
             for a,act in enumerate(self.actions):
                 for s1,st1 in enumerate(self.states):
                     fo.write('R: {} : {} : {} : * {}\n'.format(
-                        act, st, st1, self.get_reward(s, a, s1)))
+                        act, st, st1, sum(self.get_reward(s, a, s1))))
                 fo.write('\n')
 
     def get_start_belief(self, params=None):
@@ -321,13 +321,16 @@ class POMDPModel:
                 return dict() if exponents else 0
 
     def get_reward(self, s, a, s1, params=None):
-        """Get reward
+        """Get cost and reward
 
         Args:
             s:          State index (starting)
             a:          Action index
             s2:         State index (ending)
             params:
+
+        Returns:
+            (cost, reward) pair.
 
         """
         if params is None:
@@ -346,20 +349,20 @@ class POMDPModel:
         st1 = self.states[s1]
 
         if not st.is_valid_action(act):
-            return wlp.NINF
+            return (wlp.NINF, 0)
         elif st.term or st1.term:
-            return 0
+            return (0, 0)
         elif act.name == 'exp':
-            return cost_exp
+            return (cost_exp, 0)
         elif act.name == 'tell':
-            return cost_exp
+            return (cost_tell, 0)
         elif act.is_quiz():
-            return cost
+            return (cost, 0)
         elif act.name == 'ask':
-            return cost + st1.rewards_ask(p_r, p_slip, p_guess, p_1,
-                                         utility_type)
+            return (cost, st1.rewards_ask(p_r, p_slip, p_guess, p_1,
+                                          utility_type))
         elif act.name == 'boot':
-            return 0
+            return (0, 0)
         else:
             raise Exception('Unexpected action when defining rewards')
 
@@ -383,8 +386,8 @@ class POMDPModel:
         p_guess = self.get_param_version(s, 'p_guess')
         p_slip = self.get_param_version(s, 'p_slip')
 
-        if st.term:
-            # Always know when we enter terminal state.
+        if st.term or act.name == 'boot':
+            # Always know when we enter terminal state or boot.
             if obs == 'term':
                 return dict() if exponents else 1
             else:
@@ -438,7 +441,7 @@ class POMDPModel:
             for a in xrange(A):
                 for s1 in xrange(S):
                     p_t[s][a][s1] = self.get_transition(s, a, s1, params)
-                    rewards[s][a][s1] = self.get_reward(s, a, s1, params)
+                    rewards[s][a][s1] = sum(self.get_reward(s, a, s1, params))
 
                 for o in xrange(O):
                     p_o[s][a][o] = self.get_observation(s, a, o, params)
@@ -454,7 +457,7 @@ class POMDPModel:
 
         state_num       int
         action_num      int
-        return          tuple(s, o, r)
+        return          tuple(s, o, r), where r is (cost, reward)
         '''
         p_s_prime = [self.get_transition(state_num, action_num, s_num) for
                      s_num in xrange(len(self.states))]
@@ -515,20 +518,20 @@ class POMDPModel:
         ess_t = np.zeros((S, A, S))
         ess_o = np.zeros((S, A, O))
         ess_i = np.zeros((S))
-        for ep,m in enumerate(log_marginals):
+        for worker, m in enumerate(log_marginals):
             m_norm = np.exp(m - logsumexp(m, axis=1, keepdims=True))
-            T = history.n_t(ep)
+            T = history.n_t(worker)
             for t in xrange(T):
                 for s in xrange(S):
-                    a, o = history.get_AO(ep)[t]
+                    a, o = history.history[worker][t]
                     ess_o[s][a][o] += m_norm[t+1][s]
             ess_i += m_norm[0,:]
 
-        for ep,pm in enumerate(log_pairwise_marginals):
+        for worker, pm in enumerate(log_pairwise_marginals):
             pm_norm = np.exp(pm - logsumexp(pm, axis=(1,2), keepdims=True))
-            T = history.n_t(ep)
+            T = history.n_t(worker)
             for t in xrange(T):
-                a, o = history.get_AO(ep)[t]
+                a, o = history.history[worker][t]
                 for s in xrange(S):
                     for s1 in xrange(S):
                         ess_t[s][a][s1] += pm_norm[t][s][s1]
@@ -555,8 +558,8 @@ class POMDPModel:
         ll = 0
         log_marginals = []
         log_pairwise_marginals = []
-        for ep in xrange(history.n_episodes()):
-            T = history.n_t(ep)
+        for worker_AO in history.history:
+            T = len(worker_AO)
             if T == 0:
                 continue
 
@@ -570,7 +573,7 @@ class POMDPModel:
 
             # Forward.
             for t in xrange(T):
-                a, o = history.get_AO(ep)[t]
+                a, o = worker_AO[t]
                 for s1 in xrange(S):
                     v = []
                     for s0 in xrange(S):
@@ -581,7 +584,7 @@ class POMDPModel:
 
             # Backward.
             for t in reversed(xrange(T)):
-                a, o = history.get_AO(ep)[t]
+                a, o = worker_AO[t]
                 for s0 in xrange(S):
                     v = []
                     for s1 in xrange(S):
@@ -595,7 +598,7 @@ class POMDPModel:
             # Make pairwise marginals
             pm = np.zeros((T, S, S))
             for t in xrange(T):
-                a, o = history.get_AO(ep)[t]
+                a, o = worker_AO[t]
                 for s in xrange(S):
                     for s1 in xrange(S):
                         p_t = self.get_transition(s, a, s1, params)

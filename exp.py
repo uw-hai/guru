@@ -52,11 +52,11 @@ def belief_to_str(lst):
     return ' '.join(str(x) for x in lst)
 
 def params_to_rows(params, hparams=None,
-                   iteration=None, episode=None, policy=None):
+                   iteration=None, worker=None, policy=None):
     """Convert params to list of dictionaries to write to models file"""
     rows = []
     row_base = {'iteration': iteration,
-                'episode': episode,
+                'worker': worker,
                 'policy': policy}
     for p in params:
         row = {'param': p, 'v': params[p]}
@@ -71,7 +71,7 @@ def run_function_from_dictionary(f, d):
     argument"""
     return f(**d)
  
-def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
+def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
     """
 
     Seeds random number generators based on iteration only.
@@ -112,90 +112,98 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, episodes):
     else:
         model_est = model_gt
 
-    for ep in xrange(episodes):
-        logger.info('{} ({}, {})'.format(pol, it, ep))
-        history.new_episode()
+    budget_spent = 0
+    worker_n = 0
+    t = 0
+    while budget_spent < budget:
+        logger.info('{} (i:{}, w:{})'.format(pol, it, worker_n))
+        history.new_worker()
         start_belief = model_gt.get_start_belief()
         #logger.info('start belief: {}'.format(list(start_belief)))
         start_state = np.random.choice(range(len(start_belief)),
                                        p=start_belief)
         s = start_state
+        o = None
 
         # Belief using estimated model.
         pol.estimate_and_solve(model_est, iteration, history)
         belief = model_est.get_start_belief()
-        t = 0
         results.append({'iteration': it,
-                        'episode': ep,
+                        'worker': worker_n,
                         't': t,
                         'policy': str(pol),
                         'sys_t': time.clock(),
                         'a': '',
                         's': s,
                         'o': '',
+                        'cost': '',
                         'r': '',
                         'b': belief_to_str(belief)})
+        t += 1
 
-        worker_n = 0
-        while str(model_gt.states[s]) != 'TERM':
+        while (budget_spent < budget and
+               (o is None or model_gt.observations[o] != 'term')):
             valid_actions = [i for i,a in enumerate(model_gt.actions) if
                              model_gt.states[s].is_valid_action(a)]
             a = pol.get_next_action(model_est, it, history, valid_actions,
                                     belief)
 
             # Simulate a step
-            s, o, r = model_gt.sample_SOR(s, a)
+            s, o, (cost, r) = model_gt.sample_SOR(s, a)
+            # Terminal states are inconsistent so don't record any.
+            budget_spent -= cost
+            if model_gt.observations[o] == 'term':
+                s = None
             history.record(a, o)
             belief = model_est.update_belief(belief, a, o)
 
-            t += 1
             results.append({'iteration': it,
-                            'episode': ep,
-                            't': t,
                             'worker': worker_n,
+                            't': t,
                             'policy': str(pol),
                             'sys_t': time.clock(),
                             'a': a,
                             's': s,
                             'o': o,
+                            'cost': cost,
                             'r': r,
                             'b': belief_to_str(belief)})
+            t += 1
 
-            if model_gt.actions[a].name == 'boot':
-                worker_n += 1
+        worker_n += 1
 
     # Record models, estimate times, and resolve times.
     models = []
-    for ep in sorted(pol.params_estimated):
-        params = pol.params_estimated[ep]
-        if ep in pol.hparams_estimated:
-            hparams = pol.hparams_estimated[ep]
+    for worker in sorted(pol.params_estimated):
+        params = pol.params_estimated[worker]
+        if worker in pol.hparams_estimated:
+            hparams = pol.hparams_estimated[worker]
         else:
             hparams = None
         models += params_to_rows(params=params,
                                  hparams=hparams,
                                  iteration=iteration,
-                                 episode=ep,
+                                 worker=worker,
                                  policy=str(pol))
 
     timings = []
-    for ep in sorted(pol.estimate_times):
+    for worker in sorted(pol.estimate_times):
         timings.append({'iteration': iteration,
-                        'episode': ep,
+                        'worker': worker,
                         'policy': str(pol),
                         'type': 'estimate',
-                        'duration': pol.estimate_times[ep]})
+                        'duration': pol.estimate_times[worker]})
 
-    for ep in sorted(pol.resolve_times):
+    for worker in sorted(pol.resolve_times):
         timings.append({'iteration': iteration,
-                        'episode': ep,
+                        'worker': worker,
                         'policy': str(pol),
                         'type': 'resolve',
-                        'duration': pol.resolve_times[ep]})
+                        'duration': pol.resolve_times[worker]})
 
     return results, models, timings
 
-def run_experiment(name, config, policies, iterations, episodes, epsilon=None,
+def run_experiment(name, config, policies, iterations, budget, epsilon=None,
                    thompson=False, resolve_interval=None):
     """Run experiment using multiprocessing.
 
@@ -211,16 +219,14 @@ def run_experiment(name, config, policies, iterations, episodes, epsilon=None,
                                 dictionary by substituting a single
                                 parameter value with a list.
         iterations (int):       Number of iterations.
-        episodes (int):         Number of episodes.
+        budget (float):         Maximum budget to spend before halting.
         epsilon (str):          Exploration function string, with arguments
-                                e (episode) and t (timestep).
+                                w (worker) and t (timestep).
         thompson (bool):        Perform Thompson sampling.
-        resolve_interval (int): Number of episodes before resolving.
+        resolve_interval (int): Number of workers to see before resolving.
 
     """
     exp_name = name
-    if episodes > 1:
-        exp_name += '-ep{}'.format(episodes)
     res_path = os.path.join('res', exp_name)
     models_path = os.path.join('models', exp_name)
     policies_path = os.path.join('policies', exp_name)
@@ -288,16 +294,15 @@ def run_experiment(name, config, policies, iterations, episodes, epsilon=None,
 
     # Make folders (errors when too many folders are made in subprocesses).
     for i in xrange(iterations):
-        for ep in xrange(episodes):
-            ensure_dir(os.path.join(models_path, str(i), str(ep)))
-            ensure_dir(os.path.join(policies_path, str(i), str(ep)))
+        ensure_dir(os.path.join(models_path, str(i)))
+        ensure_dir(os.path.join(policies_path, str(i)))
 
     # Prepare worker process arguments
     args_iter = ({'exp_name': exp_name,
                   'config_params': params_gt,
                   'policy': p,
                   'iteration': i,
-                  'episodes': episodes} for i, p in
+                  'budget': budget} for i, p in
                  itertools.product(xrange(iterations), policies_exploded))
 
     # Write one-time files.
@@ -308,7 +313,7 @@ def run_experiment(name, config, policies, iterations, episodes, epsilon=None,
     # Open file pointers.
     models_fp = open(
         os.path.join(res_path, '{}_model.csv'.format(policies_name)), 'wb')
-    models_fieldnames = ['iteration', 'episode', 'policy', 'param',
+    models_fieldnames = ['iteration', 'worker', 'policy', 'param',
                          'v', 'hyper']
     m_writer = csv.DictWriter(models_fp, fieldnames=models_fieldnames)
     m_writer.writeheader()
@@ -319,13 +324,13 @@ def run_experiment(name, config, policies, iterations, episodes, epsilon=None,
     results_filepath = os.path.join(res_path, '{}.txt'.format(policies_name))
     results_fp = open(results_filepath, 'wb')
     results_fieldnames = [
-        'iteration','episode','t','worker','policy','sys_t','a','s','o','r','b']
+        'iteration','t','worker','policy','sys_t','a','s','o','cost','r','b']
     r_writer = csv.DictWriter(results_fp, fieldnames=results_fieldnames)
     r_writer.writeheader()
 
     timings_fp = open(
         os.path.join(res_path, '{}_timings.csv'.format(policies_name)), 'wb')
-    timings_fieldnames = ['iteration', 'episode', 'policy', 'type', 'duration']
+    timings_fieldnames = ['iteration', 'worker', 'policy', 'type', 'duration']
     t_writer = csv.DictWriter(timings_fp, fieldnames=timings_fieldnames)
     t_writer.writeheader()
 
@@ -478,8 +483,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--iterations', '-i', type=int, default=100,
                         help='Number of iterations')
-    parser.add_argument('--episodes', '-e', type=int, default=1,
-                        help='Number of episodes')
+    parser.add_argument('--budget', '-b', type=float, default=10,
+                        help='Total budget')
     parser.add_argument('--epsilon', type=str,
                         help='Epsilon to use for all policies')
     parser.add_argument('--thompson', dest='thompson', action='store_true',
@@ -519,7 +524,7 @@ if __name__ == '__main__':
                    config=config,
                    policies=policies,
                    iterations=args.iterations,
-                   episodes=args.episodes,
+                   budget=args.budget,
                    epsilon=args.epsilon,
                    thompson=args.thompson,
                    resolve_interval=args.resolve_interval)

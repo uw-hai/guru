@@ -26,7 +26,6 @@ import seaborn as sns
 import util
 import work_learn_problem as wlp
 
-INTERPOLATE_MIN = 11
 CI = 95  # Confidence interval
 
 def step_by_t(df, interval=0.1):
@@ -92,41 +91,34 @@ def plot_actions(df, outfname, t_frac=1.0, formatter=None, line=False,
 
 def plot_actions_subcount(df, outfname, actions_filter, ylabel):
     """Plot mean number of times the given actions are taken"""
-    df = df[['iteration','policy','episode','a']].copy()
+    df = df[['iteration','policy','a']].copy()
     df = df[df['a'].map(lambda a: not np.isnan(a) and actions_filter(a))]
-    df = df.groupby(['iteration','policy','episode'])['a'].count().fillna(0.).reset_index()
+    df = df.groupby(['iteration','policy'])['a'].count().fillna(0.).reset_index()
     if len(df) == 0:
         return
 
-    if df['episode'].max() > 0:
-        ax = sns.tsplot(
-            df, time='episode', condition='policy', unit='iteration', value='a',
-            ci=CI, interpolate=df['episode'].max() >= INTERPOLATE_MIN)
-        plt.xlabel('Episode')
-        ax.set_xlim(0, None)
-    else:
-        ax = sns.barplot('policy', y='a', data=df, ci=CI)
+    ax = sns.barplot('policy', y='a', data=df, ci=CI)
 
-        # Save .csv file.
-        s1 = df.groupby('policy')['a'].mean()
-        s2 = df.groupby('policy')['a'].sem()
-        df_means = pd.DataFrame({'count (mean)': s1,
-                                 'count (sem)': s2}).reset_index()
-        df_means.to_csv(outfname + '.csv', index=False)
+    # Save .csv file.
+    s1 = df.groupby('policy')['a'].mean()
+    s2 = df.groupby('policy')['a'].sem()
+    df_means = pd.DataFrame({'count (mean)': s1,
+                             'count (sem)': s2}).reset_index()
+    df_means.to_csv(outfname + '.csv', index=False)
 
-        # Record significance
-        policies = df['policy'].unique()
-        sigs = []
-        for p1,p2 in itertools.combinations(policies, 2):
-            v1 = df[df.policy == p1]['a']
-            v2 = df[df.policy == p2]['a']
-            t, pval = ss.ttest_ind(v1, v2)
-            sigs.append({'policy1': p1,
-                         'policy2': p2,
-                         'tstat': t,
-                         'pval': pval})
-        df_sig = pd.DataFrame(sigs)
-        df_sig.to_csv(outfname + '_sig.csv', index=False)
+    # Record significance
+    policies = df['policy'].unique()
+    sigs = []
+    for p1,p2 in itertools.combinations(policies, 2):
+        v1 = df[df.policy == p1]['a']
+        v2 = df[df.policy == p2]['a']
+        t, pval = ss.ttest_ind(v1, v2)
+        sigs.append({'policy1': p1,
+                     'policy2': p2,
+                     'tstat': t,
+                     'pval': pval})
+    df_sig = pd.DataFrame(sigs)
+    df_sig.to_csv(outfname + '_sig.csv', index=False)
 
     # Finish plotting.
     ax.set_ylim(0, None)
@@ -153,90 +145,18 @@ def plot_observations(df, outfname, t_frac=1.0, formatter=None, line=False,
         plt.close()
         df_o.to_csv(fname + '.csv', index=False)
 
-def plot_reward(df, outfname, estimator=np.mean):
-    df = df[['iteration','policy','episode','r']]
-    df = df.groupby(['iteration','policy','episode']).sum().fillna(0).reset_index()[['iteration','policy','episode','r']]
-
-    ax = sns.barplot('policy', y='r', data=df, estimator=estimator, ci=CI)
-    plt.ylabel('Reward ({})'.format(estimator.__name__))
-    fname = outfname + '_bar'
-    estimator_name = estimator.__name__
-    if estimator_name != 'mean':
-        fname += '_{}'.format(estimator_name)
-    plt.savefig(fname + '.png')
-    plt.close()
-
-    if estimator_name == 'mean':
-        s1 = df.groupby('policy')['r'].mean()
-        s2 = df.groupby('policy')['r'].sem()
-        df_means = pd.DataFrame({'reward (mean)': s1,
-                                 'reward (sem)': s2}).reset_index()
-        df_means.to_csv(fname + '.csv', index=False)
-
-        # Record significance
-        policies = df['policy'].unique()
-        sigs = []
-        for p1,p2 in itertools.combinations(policies, 2):
-            v1 = df[df.policy == p1]['r']
-            v2 = df[df.policy == p2]['r']
-            t, pval = ss.ttest_ind(v1, v2)
-            sigs.append({'policy1': p1,
-                         'policy2': p2,
-                         'tstat': t,
-                         'pval': pval})
-        df_sig = pd.DataFrame(sigs)
-        df_sig.to_csv(fname + '_sig.csv', index=False)
-
-def plot_reward_by_episode(df, plot=True):
-    """Return axis objects in new figures for reward and cumulative reward
-    
-    Args:
-        plot (bool):    True returns axis objects. False returns raw dataframes
-                        with mean value and standard devation.
-    """
-    df = df[['iteration','policy','episode','r']]
-    df = df.groupby(['iteration','policy','episode']).sum().fillna(0).reset_index()[['iteration','policy','episode','r']]
-    df['csr'] = df.sort(['episode']).groupby(
-        ['iteration','policy'])['r'].cumsum()
-
-    if plot:
-        plt.figure()
-        ax = sns.tsplot(df, time='episode', condition='policy',
-                        unit='iteration', value='r', ci=CI,
-                        interpolate=df['episode'].max() >= INTERPOLATE_MIN)
-        ax.set_ylabel('Reward')
-        ax.set_xlabel('Episode')
-        ax.set_xlim(0, None)
-
-        plt.figure()
-        ax_cum = sns.tsplot(df, time='episode', condition='policy',
-                            unit='iteration', value='csr', ci=CI,
-                            interpolate=df['episode'].max() >= INTERPOLATE_MIN)
-        ax_cum.set_xlim(0, None)
-        ax_cum.set_ylabel('Cumulative reward')
-        ax_cum.set_xlabel('Episode')
-
-        return ax, ax_cum
-    else:
-        s1 = df.groupby(['policy', 'episode'])['r'].mean()
-        s2 = df.groupby(['policy', 'episode'])['r'].sem()
-        df1 = pd.DataFrame({'mean': s1, 'sem': s2}).reset_index()
-
-        s1 = df.groupby(['policy', 'episode'])['csr'].mean()
-        s2 = df.groupby(['policy', 'episode'])['csr'].sem()
-        df2 = pd.DataFrame({'mean': s1, 'sem': s2}).reset_index()
-
-        return df1, df2
-
 def plot_reward_by_t(df, outfname):
-    df = df[['policy','iteration','episode','t','r']]
+    #df = df[df.t <= min(df.groupby(['policy','iteration'])['t'].max())]
+    #print df.groupby(['policy','iteration'])['t'].max()
+    #print df.groupby(['policy','iteration'])['t'].min()
+    #print df.groupby(['policy', 'iteration']).count()
+    #print '!!!!!'
+    df.sort(['t'])
+    df['reward'] = df['r'].fillna(0) + df['cost'].fillna(0)
+    df['csr'] = df.groupby(['policy','iteration'])['reward'].cumsum()
+    #ax = sns.tsplot(df, time='t', condition='policy', unit='iteration', value='csr', ci=CI)
 
-    # Fill out table.
-    df = pd.pivot_table(df, index=['iteration','episode'], columns=['policy','t'], values=['r']).stack(level=['policy','t'], dropna=False).fillna(0).reset_index()
-
-    df['csr'] = df.sort(['t']).groupby(['policy','iteration','episode'])['r'].cumsum()
-    df['it-ep'] = df['iteration'].map(str) + ',' + df['episode'].map(str)
-    ax = sns.tsplot(df, time='t', condition='policy', unit='it-ep', value='csr', ci=CI, interpolate=df['t'].max() >= INTERPOLATE_MIN)
+    ax = df.groupby(['policy','t'], as_index=False)['csr'].mean().pivot(index='t', columns='policy', values='csr').plot()
     plt.ylabel('Cumulative reward')
     plt.xlabel('t')
     ax.set_xlim(0, None)
@@ -245,18 +165,19 @@ def plot_reward_by_t(df, outfname):
     #df.sort(['policy','iteration','episode']).to_csv(fname + '.csv',
     #                                                 index=False)
 
-def plot_solve_t_by_episode(df, outfname):
-    df = df[['iteration','policy','episode','sys_t']]
-    df = df.sort('episode')
-    df = df.groupby(['iteration','policy','episode']).first().reset_index()[['iteration','policy','episode','sys_t']]
+def plot_reward_by_budget(df, outfname):
+    df.sort(['t'])
+    df['r'] = df['r'].fillna(0)
+    df['cum_r'] = df.groupby(['policy', 'iteration'])['r'].cumsum()
+    df['cum_cost'] = -1 * df.groupby(['policy', 'iteration'])['cost'].cumsum()
+    df = df.groupby(['policy', 'iteration', 'cum_cost'],
+                    as_index=False)['cum_r'].last()
+    #ax = df.groupby(['policy', 'cum_cost'], as_index=False)['cum_r'].mean().pivot(index='cum_cost', columns='policy', values='cum_r').plot()
+    ax = sns.tsplot(df, time='cum_cost', condition='policy', unit='iteration', value='cum_r', ci=CI)
 
-    # Subtract start time for first episode.
-    df = df.join(df.groupby(['iteration','policy'])['sys_t'].first(), on=['iteration','policy'], rsuffix='_start')
-    df['elapsed time'] = df['sys_t'] - df['sys_t_start']
-
-    sns.tsplot(df, time='episode', condition='policy', unit='iteration',
-               value='elapsed time',
-               ci=CI, interpolate=df['episode'].max() >= INTERPOLATE_MIN)
+    plt.ylabel('Cumulative reward')
+    plt.xlabel('Budget spent')
+    ax.set_xlim(0, None)
     plt.savefig(outfname + '.png')
     plt.close()
 
@@ -327,14 +248,14 @@ def plot_params(df_model, outfname):
     df_est['dist_l2'] = df_est['dist'].apply(lambda x: np.linalg.norm(x, 2))
 
     for s in ['l1', 'l2']:
-        df_means = df_est.groupby(['policy', 'iteration', 'episode'],
+        df_means = df_est.groupby(['policy', 'iteration', 'worker'],
                                   as_index=False).mean()
-        ax = sns.tsplot(df_means, time='episode', unit='iteration',
+        ax = sns.tsplot(df_means, time='worker', unit='iteration',
                         condition='policy', value='dist_{}'.format(s), ci=CI)
         ax.set_ylim(0, 1)
         ax.set_xlim(0, None)
         plt.ylabel('Mean distance ({}) from true parameter values'.format(s))
-        plt.xlabel('Episode')
+        plt.xlabel('worker')
         fname = outfname + '_dist_{}_mean'.format(s)
         plt.savefig(fname + '.png')
         plt.close()
@@ -343,24 +264,24 @@ def plot_params(df_model, outfname):
         # BUG: Uses only first coordinate for each parameter.
         # TODO: Make this work for dirichlet by splitting the rows.
         df_p['v_1'] = df_p['v'].apply(lambda x: np.array(x)[0])
-        ax = sns.tsplot(df_p, time='episode', unit='iteration',
+        ax = sns.tsplot(df_p, time='worker', unit='iteration',
                         condition='param', value='v_1', ci=CI)
         ax.set_ylim(0, 1)
         ax.set_xlim(0, None)
         plt.ylabel('Estimated parameter value')
-        plt.xlabel('Episode')
+        plt.xlabel('Worker')
         fname = outfname + '_p-{}'.format(p)
         plt.savefig(fname + '.png')
         plt.close()
 
         for s in ['l1', 'l2']:
-            ax = sns.tsplot(df_p, time='episode', unit='iteration',
+            ax = sns.tsplot(df_p, time='worker', unit='iteration',
                             condition='param', value='dist_{}'.format(s),
                             ci=CI)
             ax.set_ylim(0, 1)
             ax.set_xlim(0, None)
             plt.ylabel('Distance ({}) from true parameter value'.format(s))
-            plt.xlabel('Episode')
+            plt.xlabel('Worker')
             fname = outfname + '_dist_{}_p-{}'.format(s, p)
             plt.savefig(fname + '.png')
             plt.close()
@@ -377,66 +298,37 @@ def plot_params(df_model, outfname):
 
             for s in ['mean', 'var_l1', 'mode']:
                 ax = sns.tsplot(
-                    df_p, time='episode', unit='iteration',
+                    df_p, time='worker', unit='iteration',
                     condition='param', value='dirichlet_{}'.format(s), ci=CI)
                 ax.set_ylim(0, 1)
                 ax.set_xlim(0, None)
                 plt.ylabel('Parameter posterior {}'.format(s))
-                plt.xlabel('Episode')
+                plt.xlabel('Worker')
                 fname = outfname + '_dirichlet_{}_p-{}'.format(s, p)
                 plt.savefig(fname + '.png')
                 plt.close()
 
 def finished(df):
-    """Filter for policy iterations that have completed all episodes."""
+    """Filter for policy iterations that have used all budget."""
     #df.drop(df.tail(1).index, inplace=True)  # in case last row is incomplete
-    if len(df.index) > 0:
-        df = df.join(df.groupby(['iteration','policy'])['episode'].max(), on=['iteration','policy'], rsuffix='_max')
-        max_episode = df['episode'].max()
-        df = df[~(df.episode_max < max_episode)]  # TODO: Double-check
+    #if len(df.index) > 0:
+    #    df = df.join(df.groupby(['iteration','policy'])['episode'].max(), on=['iteration','policy'], rsuffix='_max')
+    #    max_episode = df['episode'].max()
+    #    df = df[~(df.episode_max < max_episode)]  # TODO: Double-check
     return df
 
-def expand_episodes(df):
-    """Make all policies have the same max episode by copying data"""
-    max_episodes = dict()
-    for p, df_p in df.groupby('policy'):
-        max_episodes[p] = df_p['episode'].max()
-    max_episode = max(max_episodes.itervalues())
-    if not all(v == 0 or v == max_episode for v in max_episodes.itervalues()):
-        raise Exception('Cannot expand different max episodes')
-    elif not max_episode >= 0:
-        raise Exception('Invalid max episode')
-    elif max_episode == 0:
-        return df
-
-    # Expand.
-    dfs = []
-    for p, df_p in df.groupby('policy'):
-        if max_episodes[p] > 0:
-            dfs.append(df_p)
-        else:
-            dfs_expanded = []
-            for i in xrange(int(max_episode) + 1):
-                df_new = df_p.copy(deep=True)
-                df_new['episode'] = i
-                dfs_expanded.append(df_new)
-            dfs += dfs_expanded
-    return pd.concat(dfs, ignore_index=True)
 
 def query_names_df(df, s, c, i):
     return df[(df.type == s) & (df.i == int(i))].reset_index()[c][0]
 
 def make_plots(infiles, outdir, models=[], timings=[], names=None,
-               episode_step=10, policies=None, fast=False,
-               line=False, log=True, first_worker=False):
+               policies=None, line=False, log=True, first_worker=False):
     """Make plots.
 
     Args:
         names:          Filepath to csv file mapping indices to strings
-        episode_step:   Episode step size for plotting t on x-axis
         log:            Use log scale for breakdown plots
         policies:       List of policies to include
-        fast:           Don't make plots with time as x-axis.
 
     """
     action_uses_gold_question = None
@@ -464,71 +356,45 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
         df = df[df.policy.isin(policies)]
     if first_worker:
         df = df[df.worker == 0]
+    # TODO: Convert r to old meaning.
+    #df.reward = df.r + df.cost astype
 
-    max_episode = df.episode.max()
-    df = expand_episodes(df)
-
+    """
     if len(timings) > 0:
         df_timings = pd.concat([finished(pd.read_csv(f)) for f in timings],
                                ignore_index=True)
         if policies is not None:
             df_timings = df_timings[df_timings.policy.isin(policies)]
         if len(df_timings.index) > 0:
-            df_timings = expand_episodes(df_timings)
-            plot_timings(df_timings, os.path.join(outdir, 't'))
-            print 'Done plotting timings'
+            df_timings = df_timings
+            # TODO: Test timings
+            #plot_timings(df_timings, os.path.join(outdir, 't'))
+            #print 'Done plotting timings'
 
     if action_uses_gold_question is not None:
         plot_actions_subcount(
             df, outfname=os.path.join(outdir, 'gold_questions_used'),
             actions_filter=action_uses_gold_question,
             ylabel='Mean number of gold questions used')
+    """
 
-    if max_episode > 0:
-        # Make time series plots with episode as x-axis.
-        ax, ax_cum = plot_reward_by_episode(df)
-        plt.sca(ax)
-        plt.savefig(os.path.join(outdir, 'r.png'))
-        plt.close()
-        plt.sca(ax_cum)
-        plt.savefig(os.path.join(outdir, 'r_cum.png'))
-        plt.close()
-        plot_solve_t_by_episode(df, os.path.join(outdir, 't'))
-        print 'Done plotting reward and solve_t by episode'
-        if not fast:
-            for m in models:
-                df_model = finished(pd.read_csv(m))
-                if df_model['episode'].max() > 0:
-                    plot_params(df_model, os.path.join(outdir, 'params'))
-            print 'Done plotting params'
-    else:
-        plot_reward(df, os.path.join(outdir, 'r'))
-        plot_reward(df, os.path.join(outdir, 'r'), estimator=np.std)
-        plot_reward(df, os.path.join(outdir, 'r'), estimator=ss.variation)
-        print 'Done plotting reward'
+    #for m in models:
+    #    df_model = finished(pd.read_csv(m))
+    #    plot_params(df_model, os.path.join(outdir, 'params'))
+    #print 'Done plotting params'
 
-    #episode_pairs = range(0, max_episode + 2, min(max_episode + 1, episode_step))
-    episodes_in_detail = range(0, max_episode + 1, episode_step)
-    if episodes_in_detail[-1] != max_episode:
-        episodes_in_detail.append(max_episode)
-    if not fast:
-        #for p in zip(episode_pairs[:-1], episode_pairs[1:]):
-        for e in episodes_in_detail:
-            #df_filter = df[(df.episode >= p[0]) & (df.episode < p[1])]
-            df_filter = df[df.episode == e]
-            #e_str = 'e{}-{}'.format(*p)
-            e_str = 'e{}'.format(e)
-            plot_reward_by_t(df_filter, os.path.join(outdir, 'r_t_' + e_str))
-            plot_beliefs(df_filter, os.path.join(outdir, 'b_' + e_str),
-                         formatter=str_state, line=line, logx=log)
-            plot_actions(df_filter, os.path.join(outdir, 'a_' + e_str),
-                         formatter=str_action, line=line, logx=log)
-            plot_observations(df_filter, os.path.join(outdir, 'o_' + e_str),
-                              formatter=str_observation, line=line, logx=log)
-            print 'Done plotting episode {} in detail'.format(e)
+    # TODO: Test reward.
+    plot_reward_by_t(df, os.path.join(outdir, 'r_t'))
+    plot_reward_by_budget(df, os.path.join(outdir, 'r_cost'))
+    plot_beliefs(df, os.path.join(outdir, 'b'),
+                 formatter=str_state, line=line, logx=log)
+    plot_actions(df, os.path.join(outdir, 'a'),
+                 formatter=str_action, line=line, logx=log)
+    plot_observations(df, os.path.join(outdir, 'o'),
+                      formatter=str_observation, line=line, logx=log)
 
-def main(filenames, policies=None, fast=False, line=False, log=True,
-         episode_step=10, single=False, dest=None, first_worker=False):
+def main(filenames, policies=None, line=False, log=True,
+         single=False, dest=None, first_worker=False):
     if single:
         if dest is None:
             raise Exception('Must specify a destination folder')
@@ -544,9 +410,7 @@ def main(filenames, policies=None, fast=False, line=False, log=True,
                    names=names,
                    models=models,
                    timings=timings,
-                   episode_step=episode_step,
                    policies=policies,
-                   fast=fast,
                    line=line,
                    log=log,
                    first_worker=first_worker)
@@ -581,9 +445,7 @@ def main(filenames, policies=None, fast=False, line=False, log=True,
                 names=names,
                 models=[model],
                 timings=timings,
-                episode_step=episode_step,
                 policies=policies,
-                fast=fast,
                 line=line,
                 log=log,
                 first_worker=first_worker))
@@ -594,7 +456,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Visualize policies.')
     parser.add_argument('result', type=str, nargs='+',
                         help='main experiment result .txt files')
-    parser.add_argument('--episode_step', type=int, default=10)
     parser.add_argument('--line', dest='line', action='store_true',
                         help="Use line plots instead of area")
     parser.set_defaults(line=False)
@@ -604,9 +465,6 @@ if __name__ == '__main__':
     parser.add_argument('--single', dest='single', action='store_true',
                         help='Treat multiple inputs as single experiment')
     parser.set_defaults(single=False)
-    parser.add_argument('--fast', dest='fast', action='store_true',
-                        help="Don't make plots with time as x-axis")
-    parser.set_defaults(fast=False)
     parser.add_argument('--dest', '-d', type=str, help='Folder to store plots')
     parser.add_argument('--policies', type=str, nargs='*',
                         help='Policies to use')
@@ -617,10 +475,8 @@ if __name__ == '__main__':
 
     main(filenames=args.result,
          policies=args.policies,
-         fast=args.fast,
          line=args.line,
          log=args.log,
-         episode_step=args.episode_step,
          single=args.single,
          dest=args.dest,
          first_worker=args.first_worker)

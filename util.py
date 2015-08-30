@@ -70,7 +70,7 @@ assert dbeta(0.5, 2, 2) == 0
 assert dbeta(0.6, 2, 2) != 0
 
 def dirichlet_mode(x):
-    return [(v - (len(x) - 1)) / (sum(x) - len(x)) for v in x]
+    return [(v - 1) / (sum(x) - len(x)) for v in x]
 
 
 #----------- WorkLearn-specific utils --------
