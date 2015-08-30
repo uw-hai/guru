@@ -19,6 +19,8 @@ from history import History
 from util import get_or_default, ensure_dir, equation_safe_filename
 import analyze
 
+BOOTS_TERM = 5  # Terminate after booting this many workers in a row.
+
 logger = mp.log_to_stderr()
 logger.setLevel(logging.INFO)
 
@@ -114,8 +116,11 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
 
     budget_spent = 0
     worker_n = 0
+    n_actions_by_worker = []
     t = 0
-    while budget_spent < budget:
+    while (budget_spent < budget and
+           not (worker_n > BOOTS_TERM and
+                all(n == 1 for n in n_actions_by_worker[-1 * BOOTS_TERM:]))):
         logger.info('{} (i:{}, w:{}, b:{:.2f}/{:.2f})'.format(
             pol, it, worker_n, budget_spent, budget))
         history.new_worker()
@@ -140,6 +145,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
                         'cost': '',
                         'r': '',
                         'b': belief_to_str(belief)})
+        worker_first_t = t
         t += 1
 
         while (budget_spent < budget and
@@ -171,6 +177,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
                             'b': belief_to_str(belief)})
             t += 1
 
+        n_actions_by_worker.append(t - worker_first_t - 1)
         worker_n += 1
 
     # Record models, estimate times, and resolve times.
