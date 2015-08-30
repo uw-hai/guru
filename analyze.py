@@ -182,22 +182,14 @@ def plot_reward_by_budget(df, outfname):
     plt.close()
 
 def plot_timings(df_timings, outfname):
-    if df_timings['episode'].max() > 1:
-        for t in ('resolve', 'estimate'):
-            df_filter = df_timings[df_timings['type'] == t]
-            if len(df_filter.index) > 0:
-                ax = sns.tsplot(df_filter, time='episode', unit='iteration',
-                                condition='policy', value='duration', ci=CI)
-                ax.set_ylim(0, None)
-                ax.set_xlim(0, None)
-                fname = outfname + '-{}'.format(t)
-                plt.savefig(fname + '.png')
-                plt.close()
-    else:
-        df_filter = df_timings[df_timings['type'] == 'resolve']
+    for t in ('resolve', 'estimate'):
+        df_filter = df_timings[df_timings['type'] == t]
         if len(df_filter.index) > 0:
-            sns.barplot('policy', y='duration', data=df_filter, ci=CI)
-            fname = outfname + '-resolve'
+            ax = sns.tsplot(df_filter, time='worker', unit='iteration',
+                            condition='policy', value='duration', ci=CI)
+            ax.set_ylim(0, None)
+            ax.set_xlim(0, None)
+            fname = outfname + '-{}'.format(t)
             plt.savefig(fname + '.png')
             plt.close()
 
@@ -356,10 +348,7 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
         df = df[df.policy.isin(policies)]
     if first_worker:
         df = df[df.worker == 0]
-    # TODO: Convert r to old meaning.
-    #df.reward = df.r + df.cost astype
 
-    """
     if len(timings) > 0:
         df_timings = pd.concat([finished(pd.read_csv(f)) for f in timings],
                                ignore_index=True)
@@ -367,23 +356,20 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
             df_timings = df_timings[df_timings.policy.isin(policies)]
         if len(df_timings.index) > 0:
             df_timings = df_timings
-            # TODO: Test timings
-            #plot_timings(df_timings, os.path.join(outdir, 't'))
-            #print 'Done plotting timings'
+            plot_timings(df_timings, os.path.join(outdir, 't'))
+            print 'Done plotting timings'
 
     if action_uses_gold_question is not None:
         plot_actions_subcount(
             df, outfname=os.path.join(outdir, 'gold_questions_used'),
             actions_filter=action_uses_gold_question,
             ylabel='Mean number of gold questions used')
-    """
 
-    #for m in models:
-    #    df_model = finished(pd.read_csv(m))
-    #    plot_params(df_model, os.path.join(outdir, 'params'))
-    #print 'Done plotting params'
+    for m in models:
+        df_model = finished(pd.read_csv(m))
+        plot_params(df_model, os.path.join(outdir, 'params'))
+    print 'Done plotting params'
 
-    # TODO: Test reward.
     plot_reward_by_t(df, os.path.join(outdir, 'r_t'))
     plot_reward_by_budget(df, os.path.join(outdir, 'r_cost'))
     plot_beliefs(df, os.path.join(outdir, 'b'),
