@@ -441,10 +441,10 @@ if __name__ == '__main__':
     config_group.add_argument(
         '--p_worker', type=float, nargs='+', default=[1.0],
         help='Prior probabilities of worker classes')
-    config_group.add_argument('--no_tell', dest='tell', action='store_false',
-                              help="Don't include 'tell' actions")
-    config_group.add_argument('--no_exp',  dest='exp', action='store_false',
-                              help="Don't include 'exp(lain)' actions")
+    config_group.add_argument('--tell', dest='tell', action='store_true',
+                              help="Allow 'tell' actions")
+    config_group.add_argument('--exp',  dest='exp', action='store_true',
+                              help="Allow 'exp(lain)' actions")
     config_group.add_argument('--cost', type=float, default=-0.1,
                               help="Cost of 'ask' actions.")
     config_group.add_argument('--cost_exp', type=float, default=-0.1,
