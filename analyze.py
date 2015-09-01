@@ -28,6 +28,21 @@ import work_learn_problem as wlp
 
 CI = 95  # Confidence interval
 
+def tsplot_robust(df, time, unit, condition, value, ci):
+    """Plot timeseries data with different x measurements and 95% ci."""
+    if ci != 95:
+        raise NotImplementedError
+    n = df.groupby([condition, time]).count()[value].reset_index().pivot(index=time, columns=condition, values=value)
+    # Use seaborn iff all conditions have the same number of measurements for
+    # each time point.
+    if len(n) == sum(n.duplicated()) + 1:
+        return sns.tsplot(df, time=time, condition=condition,
+                          unit=unit, value=value, ci=ci)
+    else:
+        means = df.groupby([condition, time], as_index=False)[value].mean().pivot(index=time, columns=condition, values=value)
+        sem = df.groupby([condition, time], as_index=False)[value].aggregate(ss.sem).pivot(index=time, columns=condition, values=value)
+        return means.plot(yerr=1.96 * sem)
+
 def step_by_t(df, interval=0.1):
     """Copy data from t=i to the range t=[i, i+1) at the given interval.
     
@@ -173,7 +188,7 @@ def plot_reward_by_budget(df, outfname):
     df = df.groupby(['policy', 'iteration', 'cum_cost'],
                     as_index=False)['cum_r'].last()
     #ax = df.groupby(['policy', 'cum_cost'], as_index=False)['cum_r'].mean().pivot(index='cum_cost', columns='policy', values='cum_r').plot()
-    ax = sns.tsplot(df, time='cum_cost', condition='policy', unit='iteration', value='cum_r', ci=CI)
+    ax = tsplot_robust(df, time='cum_cost', condition='policy', unit='iteration', value='cum_r', ci=CI)
 
     plt.ylabel('Cumulative reward')
     plt.xlabel('Budget spent')
@@ -185,8 +200,8 @@ def plot_timings(df_timings, outfname):
     for t in ('resolve', 'estimate'):
         df_filter = df_timings[df_timings['type'] == t]
         if len(df_filter.index) > 0:
-            ax = sns.tsplot(df_filter, time='worker', unit='iteration',
-                            condition='policy', value='duration', ci=CI)
+            ax = tsplot_robust(df_filter, time='worker', unit='iteration',
+                               condition='policy', value='duration', ci=CI)
             ax.set_ylim(0, None)
             ax.set_xlim(0, None)
             fname = outfname + '-{}'.format(t)
@@ -242,8 +257,9 @@ def plot_params(df_model, outfname):
     for s in ['l1', 'l2']:
         df_means = df_est.groupby(['policy', 'iteration', 'worker'],
                                   as_index=False).mean()
-        ax = sns.tsplot(df_means, time='worker', unit='iteration',
-                        condition='policy', value='dist_{}'.format(s), ci=CI)
+        ax = tsplot_robust(df_means, time='worker', unit='iteration',
+                           condition='policy', value='dist_{}'.format(s),
+                           ci=CI)
         ax.set_ylim(0, 1)
         ax.set_xlim(0, None)
         plt.ylabel('Mean distance ({}) from true parameter values'.format(s))
@@ -256,8 +272,8 @@ def plot_params(df_model, outfname):
         # BUG: Uses only first coordinate for each parameter.
         # TODO: Make this work for dirichlet by splitting the rows.
         df_p['v_1'] = df_p['v'].apply(lambda x: np.array(x)[0])
-        ax = sns.tsplot(df_p, time='worker', unit='iteration',
-                        condition='param', value='v_1', ci=CI)
+        ax = tsplot_robust(df_p, time='worker', unit='iteration',
+                           condition='param', value='v_1', ci=CI)
         ax.set_ylim(0, 1)
         ax.set_xlim(0, None)
         plt.ylabel('Estimated parameter value')
@@ -267,9 +283,9 @@ def plot_params(df_model, outfname):
         plt.close()
 
         for s in ['l1', 'l2']:
-            ax = sns.tsplot(df_p, time='worker', unit='iteration',
-                            condition='param', value='dist_{}'.format(s),
-                            ci=CI)
+            ax = tsplot_robust(df_p, time='worker', unit='iteration',
+                               condition='param', value='dist_{}'.format(s),
+                               ci=CI)
             ax.set_ylim(0, 1)
             ax.set_xlim(0, None)
             plt.ylabel('Distance ({}) from true parameter value'.format(s))
@@ -289,7 +305,7 @@ def plot_params(df_model, outfname):
                 lambda x: util.dirichlet_mode(x)[0])
 
             for s in ['mean', 'var_l1', 'mode']:
-                ax = sns.tsplot(
+                ax = tsplot_robust(
                     df_p, time='worker', unit='iteration',
                     condition='param', value='dirichlet_{}'.format(s), ci=CI)
                 ax.set_ylim(0, 1)
