@@ -237,11 +237,6 @@ def param_to_string(p):
     return name if p[1] is None else '{}_w{}'.format(name, p[1])
 
 def plot_params(df_model, outfname):
-    # Parse
-    df_model['param'] = df_model['param'].apply(
-        lambda x: param_to_string(ast.literal_eval(x)) if
-                  x.startswith('(') else x)
-
     # Separate ground truth params
     df_gt = df_model[df_model.iteration.isnull()]
     df_est = df_model[df_model.iteration.notnull()]
