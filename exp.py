@@ -503,8 +503,12 @@ if __name__ == '__main__':
 
     config_params = [
         'p_worker', 'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
-        'p_learn_exp', 'p_learn_tell', 'p_lose', 'p_leave',
+        'p_lose', 'p_leave',
         'p_slip', 'p_guess', 'p_r', 'p_1', 'p_s', 'utility_type']
+    if args.exp:
+        config_params.append('p_learn_exp')
+    if args.tell:
+        config_params.append('p_learn_tell')
     config = dict((k, args_vars[k]) for k in config_params)
 
     policies = []
