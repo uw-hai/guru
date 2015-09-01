@@ -33,14 +33,19 @@ def tsplot_robust(df, time, unit, condition, value, ci):
     if ci != 95:
         raise NotImplementedError
     n = df.groupby([condition, time]).count()[value].reset_index().pivot(index=time, columns=condition, values=value)
+    means = df.groupby([condition, time], as_index=False)[value].mean().pivot(index=time, columns=condition, values=value)
+    sem = df.groupby([condition, time], as_index=False)[value].aggregate(ss.sem).pivot(index=time, columns=condition, values=value)
+
     # Use seaborn iff all conditions have the same number of measurements for
     # each time point.
-    if len(n) == sum(n.duplicated()) + 1:
+    if len(n) == 1:
+        #return means.reset_index(drop=True).plot(kind='bar', yerr=1.96 * sem.reset_index(drop=True))
+        means = means.reset_index(drop=True).stack()
+        return means.plot(kind='barh')#), yerr=1.96 * sem.reset_index(drop=True))
+    elif len(n) == sum(n.duplicated()) + 1:
         return sns.tsplot(df, time=time, condition=condition,
                           unit=unit, value=value, ci=ci)
     else:
-        means = df.groupby([condition, time], as_index=False)[value].mean().pivot(index=time, columns=condition, values=value)
-        sem = df.groupby([condition, time], as_index=False)[value].aggregate(ss.sem).pivot(index=time, columns=condition, values=value)
         return means.plot(yerr=1.96 * sem)
 
 def step_by_t(df, interval=0.1):
@@ -107,7 +112,9 @@ def plot_actions(df, outfname, t_frac=1.0, formatter=None, line=False,
 def plot_actions_subcount(df, outfname, actions_filter, ylabel):
     """Plot mean number of times the given actions are taken"""
     df = df[['iteration','policy','a']].copy()
-    df = df[df['a'].map(lambda a: not np.isnan(a) and actions_filter(a))]
+    actions_passing = [a for a in df['a'].dropna().unique() if
+                       actions_filter(a)]
+    df = df[df.a.isin(actions_passing)]
     df = df.groupby(['iteration','policy'])['a'].count().fillna(0.).reset_index()
     if len(df) == 0:
         return
@@ -202,8 +209,6 @@ def plot_timings(df_timings, outfname):
         if len(df_filter.index) > 0:
             ax = tsplot_robust(df_filter, time='worker', unit='iteration',
                                condition='policy', value='duration', ci=CI)
-            ax.set_ylim(0, None)
-            ax.set_xlim(0, None)
             fname = outfname + '-{}'.format(t)
             plt.savefig(fname + '.png')
             plt.close()
@@ -371,7 +376,6 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
         if policies is not None:
             df_timings = df_timings[df_timings.policy.isin(policies)]
         if len(df_timings.index) > 0:
-            df_timings = df_timings
             plot_timings(df_timings, os.path.join(outdir, 't'))
             print 'Done plotting timings'
 
@@ -383,7 +387,8 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
 
     for m in models:
         df_model = finished(pd.read_csv(m))
-        plot_params(df_model, os.path.join(outdir, 'params'))
+        if len(df_model['policy'].dropna().unique()) > 0:
+            plot_params(df_model, os.path.join(outdir, 'params'))
     print 'Done plotting params'
 
     plot_reward_by_t(df, os.path.join(outdir, 'r_t'))
