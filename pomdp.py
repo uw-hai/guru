@@ -16,6 +16,29 @@ from work_learn_problem import Action
 import elementtree.ElementTree as ee
 import zmdp_util
 
+def param_to_string(p):
+    """Convert a param in tuple form to a string.
+
+    >>> param_to_string(('p_learn', None))
+    'p_learn'
+    >>> param_to_string(('p_guess', 2))
+    'p_guess_w2'
+    >>> param_to_string((('p_s', 2), None))
+    'p_s2'
+    >>> param_to_string((('p_s', 2), 1))
+    'p_s2_w1'
+
+    """
+    if not isinstance(p, tuple):
+        return p
+
+    if isinstance(p[0], tuple):
+        name = '{}{}'.format(*p[0])
+    else:
+        name = p[0]
+    return name if p[1] is None else '{}_w{}'.format(name, p[1])
+
+
 class POMDPModel:
     """POMDP model"""
     def __init__(self, n_worker_classes, params, estimate_all=False):

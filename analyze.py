@@ -29,26 +29,36 @@ import work_learn_problem as wlp
 CI = 95  # Confidence interval
 
 def tsplot_robust(df, time, unit, condition, value, ci):
-    """Plot timeseries data with different x measurements and 95% ci."""
-    if ci != 95:
-        raise NotImplementedError
+    """Plot timeseries data with different x measurements"""
     n = df.groupby([condition, time]).count()[value].reset_index().pivot(index=time, columns=condition, values=value)
     means = df.groupby([condition, time], as_index=False)[value].mean().pivot(index=time, columns=condition, values=value)
     sem = df.groupby([condition, time], as_index=False)[value].aggregate(ss.sem).pivot(index=time, columns=condition, values=value)
 
     # Use seaborn iff all conditions have the same number of measurements for
     # each time point.
+    if len(n) == 0:
+        raise Exception('Unable to plot empty dataframe')
     if len(n) == 1:
-        #return means.reset_index(drop=True).plot(kind='bar', yerr=1.96 * sem.reset_index(drop=True))
-        means = means.reset_index(drop=True).stack()
-        return means.plot(kind='barh')#), yerr=1.96 * sem.reset_index(drop=True))
+        return sns.barplot(condition, y=value, data=df, ci=CI)
     elif len(n) == sum(n.duplicated()) + 1:
         return sns.tsplot(df, time=time, condition=condition,
                           unit=unit, value=value, ci=ci)
     else:
-        return means.plot(yerr=1.96 * sem)
+        if ci != 95:
+            raise NotImplementedError
+        ax = plt.gca()
+        for col in means.columns:
+            line, = plt.plot(means.index, means[col], label=col)
+            ax.fill_between(means.index,
+                            means[col] - 1.96 * sem[col],
+                            means[col] + 1.96 * sem[col],
+                            facecolor=line.get_color(),
+                            alpha=0.5,
+                            where=np.isfinite(sem[col]))
+        plt.legend()
+        return ax
 
-def step_by_t(df, interval=0.1):
+def step_by_col(df, col, interval=0.1):
     """Copy data from t=i to the range t=[i, i+1) at the given interval.
     
     Area plots look jagged, so this makes the lines more vertical.
@@ -57,50 +67,46 @@ def step_by_t(df, interval=0.1):
     dfs = []
     for i in np.arange(0, 1, interval):
         df2 = df.copy()
-        df2['t'] = df2['t'].map(lambda x: x + i)
+        df2[col] = df2[col].map(lambda x: x + i)
         dfs.append(df2)
     df_out = pd.concat(dfs, ignore_index=True)
-    df_out.sort(['policy','t'], inplace=True)
+    df_out.sort(['policy', col], inplace=True)
     df_out.reset_index()
     return df_out
 
-def plot_beliefs(df, outfname, t_frac=1.0, formatter=None, line=False,
-                 logx=True):
-    df = df[df.t <= df.t.max() * t_frac].reset_index()
-
+def plot_beliefs(df, outfname, formatter=None, line=False, logx=True):
     df_b = pd.DataFrame(df.b.str.split().tolist()).astype(float)
     states = df_b.columns
 
     df = df.join(df_b)
-    b_sums = df.groupby(['policy','t'], as_index=False).sum()
+    b_sums = df.groupby(['policy','t_rel'], as_index=False).sum()
     if formatter:
-        b_sums.rename(columns=dict((x, formatter(x)) for x in states), inplace=True)
+        b_sums.rename(columns=dict((x, formatter(x)) for x in states),
+                      inplace=True)
         states = [formatter(x) for x in df_b.columns]
     for p, df_b in b_sums.groupby('policy', as_index=False):
         if not line:
-            step_by_t(df_b).plot(x='t', y=states, kind='area',
+            step_by_col(df_b, 't_rel').plot(x='t_rel', y=states, kind='area',
                                  title='Belief counts', logx=logx)
         else:
-            df_b.plot(x='t', y=states, kind='line',
+            df_b.plot(x='t_rel', y=states, kind='line',
                       title='Belief counts', logx=logx)
         fname = outfname + '_p-{}'.format(p)
         plt.savefig(fname + '.png')
         plt.close()
         df_b.to_csv(fname + '.csv', index=False)
 
-def plot_actions(df, outfname, t_frac=1.0, formatter=None, line=False,
-                 logx=True):
-    df = df[df.t <= df.t.max() * t_frac]
-
-    actions = df.groupby(['policy', 't'])['a'].value_counts().unstack().fillna(0.).reset_index()
+def plot_actions(df, outfname, formatter=None, line=False, logx=True):
+    actions = df.groupby(['policy', 't_rel'])['a'].value_counts().unstack().fillna(0.).reset_index()
     if formatter:
         actions.rename(columns=dict((x, formatter(x)) for x in actions.columns[2:]), inplace=True)
     for p, df_a in actions.groupby('policy', as_index=False):
         if not line:
-            step_by_t(df_a).plot(x='t', y=actions.columns[2:], kind='area',
-                                 logx=logx)
+            step_by_col(df_a, 't_rel').plot(x='t_rel', y=sorted(actions.columns[2:]),
+                                 kind='area', logx=logx)
         else:
-            df_a.plot(x='t', y=actions.columns[2:], kind='line', logx=logx)
+            df_a.plot(x='t_rel', y=sorted(actions.columns[2:]),
+                      kind='line', logx=logx)
         plt.ylabel('Number of actions')
         plt.xlabel('Time')
 
@@ -148,19 +154,16 @@ def plot_actions_subcount(df, outfname, actions_filter, ylabel):
     plt.savefig(outfname + '.png')
     plt.close()
 
-def plot_observations(df, outfname, t_frac=1.0, formatter=None, line=False,
-                      logx=True):
-    df = df[df.t <= df.t.max() * t_frac]
-
-    obs = df.groupby(['policy', 't'])['o'].value_counts().unstack().fillna(0.).reset_index()
+def plot_observations(df, outfname, formatter=None, line=False, logx=True):
+    obs = df.groupby(['policy', 't_rel'])['o'].value_counts().unstack().fillna(0.).reset_index()
     if formatter:
         obs.rename(columns=dict((x, formatter(x)) for x in obs.columns[2:]), inplace=True)
     for p, df_o in obs.groupby('policy', as_index=False):
         if not line:
-            step_by_t(df_o).plot(x='t', y=obs.columns[2:], kind='area',
+            step_by_col(df_o, 't_rel').plot(x='t_rel', y=obs.columns[2:], kind='area',
                                  title='Observation counts', logx=logx)
         else:
-            df_o.plot(x='t', y=obs.columns[2:], kind='line',
+            df_o.plot(x='t_rel', y=obs.columns[2:], kind='line',
                       title='Observation counts', logx=logx)
         fname = outfname + '_p-{}'.format(p)
         plt.savefig(fname + '.png')
@@ -203,6 +206,29 @@ def plot_reward_by_budget(df, outfname):
     plt.savefig(outfname + '.png')
     plt.close()
 
+def plot_n_workers_by_budget(df, outfname):
+    df.sort(['t'])
+    df['cum_cost'] = -1 * df.groupby(['policy', 'iteration'])['cost'].cumsum()
+    df = df.groupby(['policy', 'iteration', 'cum_cost'],
+                    as_index=False)['worker'].max()
+    ax = tsplot_robust(df, time='cum_cost', condition='policy',
+                       unit='iteration', value='worker', ci=CI)
+
+    plt.ylabel('Mean workers hired')
+    plt.xlabel('Budget spent')
+    ax.set_xlim(0, None)
+    ax.set_ylim(0, None)
+    plt.savefig(outfname + '.png')
+    plt.close()
+
+def plot_n_workers(df, outfname):
+    df = df.groupby(['policy', 'iteration'], as_index=False)['worker'].max()
+    ax = sns.boxplot(y='policy', x='worker', data=df, orient='h')
+    plt.xlabel('Number of workers hired')
+    plt.tight_layout()
+    plt.savefig(outfname + '.png')
+    plt.close()
+
 def plot_timings(df_timings, outfname):
     for t in ('resolve', 'estimate'):
         df_filter = df_timings[df_timings['type'] == t]
@@ -210,31 +236,10 @@ def plot_timings(df_timings, outfname):
             ax = tsplot_robust(df_filter, time='worker', unit='iteration',
                                condition='policy', value='duration', ci=CI)
             fname = outfname + '-{}'.format(t)
+            plt.xlabel('Worker number')
+            plt.ylabel('Mean seconds to {}'.format(t))
             plt.savefig(fname + '.png')
             plt.close()
-
-# TODO: Move this to pomdp.py
-def param_to_string(p):
-    """Convert a param in tuple form, as in pomdp.py to a string.
-
-    >>> param_to_string(('p_learn', None))
-    'p_learn'
-    >>> param_to_string(('p_guess', 2))
-    'p_guess_w2'
-    >>> param_to_string((('p_s', 2), None))
-    'p_s2'
-    >>> param_to_string((('p_s', 2), 1))
-    'p_s2_w1'
-
-    """
-    if not isinstance(p, tuple):
-        return p
-
-    if isinstance(p[0], tuple):
-        name = '{}{}'.format(*p[0])
-    else:
-        name = p[0]
-    return name if p[1] is None else '{}_w{}'.format(name, p[1])
 
 def plot_params(df_model, outfname):
     # Separate ground truth params
@@ -316,21 +321,11 @@ def plot_params(df_model, outfname):
                 plt.savefig(fname + '.png')
                 plt.close()
 
-def finished(df):
-    """Filter for policy iterations that have used all budget."""
-    #df.drop(df.tail(1).index, inplace=True)  # in case last row is incomplete
-    #if len(df.index) > 0:
-    #    df = df.join(df.groupby(['iteration','policy'])['episode'].max(), on=['iteration','policy'], rsuffix='_max')
-    #    max_episode = df['episode'].max()
-    #    df = df[~(df.episode_max < max_episode)]  # TODO: Double-check
-    return df
-
-
 def query_names_df(df, s, c, i):
     return df[(df.type == s) & (df.i == int(i))].reset_index()[c][0]
 
 def make_plots(infiles, outdir, models=[], timings=[], names=None,
-               policies=None, line=False, log=True, first_worker=False):
+               policies=None, line=False, log=True, worker_interval=5):
     """Make plots.
 
     Args:
@@ -358,15 +353,17 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
 
     util.ensure_dir(outdir)
 
-    df = pd.concat([finished(pd.read_csv(f)) for f in infiles],
+    df = pd.concat([pd.read_csv(f) for f in infiles],
                    ignore_index=True)
     if policies is not None:
         df = df[df.policy.isin(policies)]
-    if first_worker:
-        df = df[df.worker == 0]
+    
+    # New column for 't' relative to worker.
+    df.sort('t')
+    df['t_rel'] = df.groupby(['policy', 'iteration', 'worker'])['t'].apply(lambda s: s - s.min())
 
     if len(timings) > 0:
-        df_timings = pd.concat([finished(pd.read_csv(f)) for f in timings],
+        df_timings = pd.concat([pd.read_csv(f) for f in timings],
                                ignore_index=True)
         if policies is not None:
             df_timings = df_timings[df_timings.policy.isin(policies)]
@@ -380,23 +377,35 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
             actions_filter=action_uses_gold_question,
             ylabel='Mean number of gold questions used')
 
-    for m in models:
-        df_model = finished(pd.read_csv(m))
-        if len(df_model['policy'].dropna().unique()) > 0:
-            plot_params(df_model, os.path.join(outdir, 'params'))
+    df_model = pd.concat([pd.read_csv(f) for f in models],
+                         ignore_index=True)
+    if len(df_model['policy'].dropna().unique()) > 0:
+        plot_params(df_model, os.path.join(outdir, 'params'))
     print 'Done plotting params'
 
     plot_reward_by_t(df, os.path.join(outdir, 'r_t'))
     plot_reward_by_budget(df, os.path.join(outdir, 'r_cost'))
-    plot_beliefs(df, os.path.join(outdir, 'b'),
-                 formatter=str_state, line=line, logx=log)
-    plot_actions(df, os.path.join(outdir, 'a'),
-                 formatter=str_action, line=line, logx=log)
-    plot_observations(df, os.path.join(outdir, 'o'),
-                      formatter=str_observation, line=line, logx=log)
+    plot_n_workers_by_budget(df, os.path.join(outdir, 'n_workers_cost'))
+    plot_n_workers(df, os.path.join(outdir, 'n_workers'))
+
+    for p, df_filter in df.groupby('policy'):
+        last_worker = df_filter['worker'].max()
+        worker_indices = range(0, last_worker + 1, worker_interval)
+        if worker_indices[-1] != last_worker:
+            worker_indices.append(last_worker)
+        for w in worker_indices:
+            df_worker = df_filter[df_filter.worker == w]
+            worker_dir = os.path.join(outdir, 'w', '{:04d}'.format(w))
+            util.ensure_dir(worker_dir)
+            plot_beliefs(df_worker, os.path.join(worker_dir, 'b'),
+                         formatter=str_state, line=line, logx=log)
+            plot_actions(df_worker, os.path.join(worker_dir, 'a'),
+                         formatter=str_action, line=line, logx=log)
+            plot_observations(df_worker, os.path.join(worker_dir, 'o'),
+                              formatter=str_observation, line=line, logx=log)
 
 def main(filenames, policies=None, line=False, log=True,
-         single=False, dest=None, first_worker=False):
+         single=False, dest=None, worker_interval=5):
     if single:
         if dest is None:
             raise Exception('Must specify a destination folder')
@@ -415,7 +424,7 @@ def main(filenames, policies=None, line=False, log=True,
                    policies=policies,
                    line=line,
                    log=log,
-                   first_worker=first_worker)
+                   worker_interval=worker_interval)
     else:
         jobs = []
         for f in filenames:
@@ -450,7 +459,7 @@ def main(filenames, policies=None, line=False, log=True,
                 policies=policies,
                 line=line,
                 log=log,
-                first_worker=first_worker))
+                worker_interval=worker_interval))
             jobs.append(p)
             p.start()
 
@@ -460,19 +469,15 @@ if __name__ == '__main__':
                         help='main experiment result .txt files')
     parser.add_argument('--line', dest='line', action='store_true',
                         help="Use line plots instead of area")
-    parser.set_defaults(line=False)
     parser.add_argument('--no_log', dest='log', action='store_false',
                         help="Don't use log for x-axis")
-    parser.set_defaults(log=True)
     parser.add_argument('--single', dest='single', action='store_true',
                         help='Treat multiple inputs as single experiment')
-    parser.set_defaults(single=False)
     parser.add_argument('--dest', '-d', type=str, help='Folder to store plots')
     parser.add_argument('--policies', type=str, nargs='*',
                         help='Policies to use')
-    parser.add_argument('--first_worker', dest='first_worker',
-                        action='store_true', help='Plot only first worker')
-    parser.set_defaults(first_worker=False)
+    parser.add_argument('--worker_interval', type=int, default=10,
+                        help='Interval between plots for worker plots')
     args = parser.parse_args()
 
     main(filenames=args.result,
@@ -481,4 +486,4 @@ if __name__ == '__main__':
          log=args.log,
          single=args.single,
          dest=args.dest,
-         first_worker=args.first_worker)
+         worker_interval=args.worker_interval)
