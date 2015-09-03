@@ -41,7 +41,8 @@ def param_to_string(p):
 
 class POMDPModel:
     """POMDP model"""
-    def __init__(self, n_worker_classes, params, estimate_all=False):
+    def __init__(self, n_worker_classes, params, hyperparams=None,
+                 estimate_all=False):
         """Initialize.
 
         Args:
@@ -53,10 +54,9 @@ class POMDPModel:
                                     that the parameter be shared across
                                     worker classes. Do not use both None
                                     and worker classes for a given parameter.
+            hyperparams (object):   HyperParams instance.
             estimate_all (bool):    Ignore parameter values that we can
                                     estimate.
-            exp (bool):             Include exp(lain) action.
-            tell (bool):            Include tell actions.
 
         """
         self.n_skills = len(params['p_r'])
@@ -78,31 +78,7 @@ class POMDPModel:
             self.params = params
         self.hparams = None
 
-        # TODO: Rename from beta_priors, since dirichlet hyperparams.
-        # p_s:      Bias < 0.5 to encourage initial teaching exploration.
-        # p_lose:   Bias < 0.5 since workers probably don't "forget" right
-        #           away.
-        # p_slip:   Bias < 0.5 since random guessing on multiple choice
-        #           is no better than 0.5.
-        self.beta_priors = dict()
-        for k in self.params:
-            if k in self.params_fixed:
-                continue
-            elif k == 'p_worker':
-                self.beta_priors[k] = [
-                    1.1 for i in xrange(self.n_worker_classes)]
-            elif isinstance(k, tuple) and k[0] == 'p_guess':
-                self.beta_priors[k] = [10, 10] # Pretty sure this is 0.5.
-            elif isinstance(k, tuple) and k[0] == 'p_slip':
-                self.beta_priors[k] = [2, 5] # Lower prob of making a mistake.
-            elif isinstance(k, tuple) and k[0] in ['p_lose',
-                                                   'p_learn_exp',
-                                                   'p_learn_tell',
-                                                   'p_leave']:
-                self.beta_priors[k] = [1.1, 1.1]
-            elif (isinstance(k, tuple) and isinstance(k[0], tuple) and
-                  k[0][0] == 'p_s'):
-                self.beta_priors[k] = [1.1, 1.1]
+        self.hyperparams = hyperparams
 
     def get_params_est(self):
         """Return subset of parameters that are estimated"""
@@ -644,7 +620,7 @@ class POMDPModel:
 
         # Add param likelihood.
         for p in params:
-            ll += log(ss.dirichlet.pdf(params[p], self.beta_priors[p]))
+            ll += log(ss.dirichlet.pdf(params[p], self.hyperparams.p[p]))
  
         return ess_t, ess_o, ess_i, ll
 
@@ -654,7 +630,7 @@ class POMDPModel:
         A = len(self.actions)
         O = len(self.observations)
 
-        params = copy.deepcopy(self.beta_priors)
+        params = copy.deepcopy(self.hyperparams.p)
         for s in xrange(S):
             exponents = self.get_start_probability(s, exponents=True)
             for p in exponents:

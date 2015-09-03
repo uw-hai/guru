@@ -24,7 +24,8 @@ class Policy:
     Assumes policy files for appl policies live in relative folder 'policies'
 
     """
-    def __init__(self, policy_type, exp_name, **kwargs):
+    def __init__(self, policy_type, exp_name, n_worker_classes, params_gt,
+                 **kwargs):
         default_discount = 0.99
         self.policy = policy_type
         self.exp_name = exp_name
@@ -50,6 +51,17 @@ class Policy:
             self.accuracy = kwargs['accuracy']
         else:
             raise NotImplementedError
+
+        if self.rl_p():
+            name = kwargs['hyperparams']
+            mod = __import__('param', fromlist=[name])
+            cls = getattr(mod, name)
+            self.model = POMDPModel(
+                n_worker_classes, params=params_gt,
+                hyperparams=cls(params_gt, n_worker_classes),
+                estimate_all=True)
+        else:
+            self.model = POMDPModel(n_worker_classes, params=params_gt)
 
         self.params_estimated = dict()
         self.hparams_estimated = dict()
@@ -77,7 +89,7 @@ class Policy:
         else:
             return self.epsilon
 
-    def estimate_and_solve(self, model, iteration, history):
+    def estimate_and_solve(self, iteration, history):
         """Reestimate and resolve as needed."""
         worker = history.n_workers() - 1
 
@@ -87,6 +99,7 @@ class Policy:
                        worker % self.resolve_interval == 0)))
         estimate_p = (self.rl_p() and
                       (resolve_p or worker % self.estimate_interval == 0))
+        model = self.model
         if estimate_p:
             start = time.clock()
             model.estimate(history,
@@ -99,16 +112,14 @@ class Policy:
             self.hparams_estimated[worker] = copy.deepcopy(model.hparams)
         if resolve_p:
             utime1, stime1, cutime1, cstime1, _ = os.times()
-            self.external_policy = self.get_external_policy(
-                model, iteration, worker)
+            self.external_policy = self.get_external_policy(iteration, worker)
             utime2, stime2, cutime2, cstime2, _ = os.times()
             # All solvers are run as subprocesses, so count elapsed
             # child process time.
             self.resolve_times[worker] = cutime2 - cutime1 + \
                                          cstime2 - cstime1
 
-    def get_next_action(self, model, iteration, history, valid_actions,
-                        belief=None):
+    def get_next_action(self, iteration, history, valid_actions, belief=None):
         """Get next action, according to policy.
 
         If this is an RL policy, take random action (other than boot)
@@ -120,21 +131,19 @@ class Policy:
         if (self.epsilon is not None and
                 np.random.random() <= self.get_epsilon_probability(worker, t)):
             valid_actions_no_boot = [i for i in valid_actions if
-                                     model.actions[i].name != 'boot']
+                                     self.model.actions[i].name != 'boot']
             return np.random.choice(valid_actions_no_boot)
         else:
-            return self.get_best_action(model, iteration, history,
+            return self.get_best_action(iteration, history,
                                         valid_actions, belief)
 
 
-    def get_best_action(self, model, iteration, history, valid_actions,
-                        belief=None):
+    def get_best_action(self, iteration, history, valid_actions, belief=None):
         """Get best action according to policy.
 
         If policy requires an external_policy, assumes it already exists.
 
         Args:
-            model (POMDPModel object):  Current estimated model.
             iteration (int):            Current iteration.
             valid_actions (lst):        Indices of valid actions.
             history (History object):   Defined in history.py.
@@ -142,6 +151,7 @@ class Policy:
         Returns: Action index.
 
         """
+        model = self.model
         a_ask = model.actions.index(wlp.Action('ask'))
         a_boot = model.actions.index(wlp.Action('boot'))
         worker = history.n_workers() - 1
@@ -237,7 +247,7 @@ class Policy:
         else:
             raise NotImplementedError
 
-    def get_external_policy(self, model, iteration, worker):
+    def get_external_policy(self, iteration, worker):
         """Compute external policy and store in unique locations.
         
         Store POMDP files as
@@ -261,15 +271,13 @@ class Policy:
         policy_fpath = os.path.join(
             policy_dirpath, '{}-{:06d}.policy'.format(self, worker))
 
-        return self.run_solver(model=model,
-                               model_filename=pomdp_fpath,
+        return self.run_solver(model_filename=pomdp_fpath,
                                policy_filename=policy_fpath)
 
-    def run_solver(self, model, model_filename, policy_filename):
+    def run_solver(self, model_filename, policy_filename):
         """Run POMDP solver.
         
         Args:
-            model (POMDPModel):         Model.
             model_filename (str):       Path for input to POMDP solver.
             policy_filename (str):      Path for computed policy.
 
@@ -277,6 +285,7 @@ class Policy:
             policy (POMDPPolicy)
 
         """
+        model = self.model
         if self.policy == 'appl':
             with open(model_filename, 'w') as f:
                 model.write_pomdp(f, discount=self.discount)

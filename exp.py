@@ -99,20 +99,14 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
     params_gt = config_params
     n_worker_classes = len(config_params['p_worker'])
 
-    pol = Policy(policy_type=policy['type'], exp_name=exp_name, **policy)
-
-    # GT model
-    model_gt = POMDPModel(n_worker_classes, params=params_gt)
-
-    results = []
+    pol = Policy(policy_type=policy['type'], exp_name=exp_name,
+                 n_worker_classes=n_worker_classes, params_gt=params_gt,
+                 **policy)
 
     # Begin experiment
+    model_gt = POMDPModel(n_worker_classes, params=params_gt)
+    results = []
     history = History()
-    if pol.rl_p():
-        model_est = POMDPModel(n_worker_classes, params=params_gt,
-                               estimate_all=True)
-    else:
-        model_est = model_gt
 
     budget_spent = 0
     worker_n = 0
@@ -132,8 +126,8 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
         o = None
 
         # Belief using estimated model.
-        pol.estimate_and_solve(model_est, iteration, history)
-        belief = model_est.get_start_belief()
+        pol.estimate_and_solve(iteration, history)
+        belief = pol.model.get_start_belief()
         results.append({'iteration': it,
                         'worker': worker_n,
                         't': t,
@@ -152,8 +146,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
                (o is None or model_gt.observations[o] != 'term')):
             valid_actions = [i for i,a in enumerate(model_gt.actions) if
                              model_gt.states[s].is_valid_action(a)]
-            a = pol.get_next_action(model_est, it, history, valid_actions,
-                                    belief)
+            a = pol.get_next_action(it, history, valid_actions, belief)
 
             # Simulate a step
             s, o, (cost, r) = model_gt.sample_SOR(s, a)
@@ -162,7 +155,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
             if model_gt.observations[o] == 'term':
                 s = None
             history.record(a, o)
-            belief = model_est.update_belief(belief, a, o)
+            belief = pol.model.update_belief(belief, a, o)
 
             results.append({'iteration': it,
                             'worker': worker_n,
@@ -212,7 +205,8 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
     return results, models, timings
 
 def run_experiment(name, config, policies, iterations, budget, epsilon=None,
-                   thompson=False, resolve_interval=None):
+                   thompson=False, resolve_interval=None,
+                   hyperparams='HyperParams'):
     """Run experiment using multiprocessing.
 
     Args:
@@ -232,6 +226,7 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
                                 w (worker) and t (timestep).
         thompson (bool):        Perform Thompson sampling.
         resolve_interval (int): Number of workers to see before resolving.
+        hyperparams (str):      Hyperparams classname.
 
     """
     exp_name = name
@@ -254,6 +249,7 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
 
     # Augment policies with exploration options.
     for p in policies:
+        p['hyperparams'] = hyperparams
         if epsilon is not None:
             p['epsilon'] = epsilon
         if thompson:
@@ -281,6 +277,8 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
         policies_name += '-thomp'
     if resolve_interval is not None:
         policies_name += '-s_int_{}'.format(resolve_interval)
+    if hyperparams != 'HyperParams':
+        policies_name += '-{}'.format(hyperparams)
 
     # Explode policies.
     policies_exploded = []
@@ -495,6 +493,9 @@ if __name__ == '__main__':
                         help='Total budget')
     parser.add_argument('--epsilon', type=str,
                         help='Epsilon to use for all policies')
+    parser.add_argument('--hyperparams', type=str, default='HyperParams',
+                        choices=['HyperParams', 'HyperParamsUnknownRatio'],
+                        help='Hyperparams class name, in param.py')
     parser.add_argument('--thompson', dest='thompson', action='store_true',
                         help="Use Thompson sampling")
     parser.add_argument('--resolve_interval', type=int, help='Resolve interval to use for all policies')
@@ -539,4 +540,5 @@ if __name__ == '__main__':
                    budget=args.budget,
                    epsilon=args.epsilon,
                    thompson=args.thompson,
-                   resolve_interval=args.resolve_interval)
+                   resolve_interval=args.resolve_interval,
+                   hyperparams=args.hyperparams)
