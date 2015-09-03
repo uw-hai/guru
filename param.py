@@ -25,7 +25,7 @@ class HyperParams(object):
             t = get_param_type(k)
             if t in param_types_known:
                 # Make peaked dirichlet at parameters.
-                p[k] = [1 + PEAKEDNESS * v for v in params[k]]
+                p[k] = [1.00001 + PEAKEDNESS * v for v in params[k]]
             elif t == 'p_worker':
                 p[k] = [1.00001 for i in xrange(n_worker_classes)]
             elif t == 'p_guess':
