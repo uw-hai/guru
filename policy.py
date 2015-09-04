@@ -31,6 +31,7 @@ class Policy:
         self.exp_name = exp_name
         self.epsilon = get_or_default(kwargs, 'epsilon', None)
         self.thompson = bool(get_or_default(kwargs, 'thompson', False))
+        self.hyperparams = get_or_default(kwargs, 'hyperparams', None)
         if self.rl_p():
             self.resolve_interval = get_or_default(
                 kwargs, 'resolve_interval', 1)
@@ -359,6 +360,8 @@ class Policy:
                 s += '-eps_{}'.format(equation_safe_filename(self.epsilon))
             if self.thompson:
                 s += '-thomp'
+            if self.hyperparams and self.hyperparams != 'HyperParams'
+                s += '-{}'.format(self.hyperparams)
             if (self.estimate_interval > 1):
                 s += '-e_int{}'.format(self.estimate_interval)
             if (self.resolve_interval > 1):
