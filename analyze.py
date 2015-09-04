@@ -259,6 +259,25 @@ def plot_params(df_model, outfname):
     df_est['dist_l1'] = df_est['dist'].apply(lambda x: np.linalg.norm(x, 1))
     df_est['dist_l2'] = df_est['dist'].apply(lambda x: np.linalg.norm(x, 2))
 
+    if np.all(df_est.hyper.notnull()):
+        df_est['dirichlet_mean'] = df_est['hyper'].apply(ss.dirichlet.mean)
+        df_est['dirichlet_var_l1'] = df_est['hyper'].apply(
+            lambda x: np.linalg.norm(ss.dirichlet.var(x), 1))
+        df_est['dirichlet_mode'] = df_est['hyper'].apply(util.dirichlet_mode)
+
+    # Split up dirichlet_mean, dirichlet_mode, and v columns for plotting
+    cols = []
+    for c in ['v', 'dirichlet_mean', 'dirichlet_mode']:
+        if c in df_est.columns:
+            s = df_est[c].apply(lambda x: x[:-1]).apply(pd.Series, 1).stack()
+            s.name = '{}_single'.format(c)
+            cols.append(s)
+    df_split = pd.concat(cols, axis=1, keys=[s.name for s in cols])
+    df_split = df_split.reset_index(level=1)
+    df_split.rename(columns={'level_1': 'ind'}, inplace=True)
+    df_split = df_est[['policy', 'iteration', 'worker', 'param']].join(df_split)
+    df_split['param'] = df_split['param'] + '-' + df_split['ind'].astype(str)
+
     for s in ['l1', 'l2']:
         df_means = df_est.groupby(['policy', 'iteration', 'worker'],
                                   as_index=False).mean()
@@ -268,56 +287,40 @@ def plot_params(df_model, outfname):
         ax.set_ylim(0, 1)
         ax.set_xlim(0, None)
         plt.ylabel('Mean distance ({}) from true parameter values'.format(s))
-        plt.xlabel('worker')
+        plt.xlabel('Worker')
         fname = outfname + '_dist_{}_mean'.format(s)
         plt.savefig(fname + '.png')
         plt.close()
 
+    # Plot param vector properties.
     for p, df_p in df_est.groupby('policy', as_index=False):
-        # BUG: Uses only first coordinate for each parameter.
-        # TODO: Make this work for dirichlet by splitting the rows.
-        df_p['v_1'] = df_p['v'].apply(lambda x: np.array(x)[0])
-        ax = tsplot_robust(df_p, time='worker', unit='iteration',
-                           condition='param', value='v_1', ci=CI)
-        ax.set_ylim(0, 1)
-        ax.set_xlim(0, None)
-        plt.ylabel('Estimated parameter value')
-        plt.xlabel('Worker')
-        fname = outfname + '_p-{}'.format(p)
-        plt.savefig(fname + '.png')
-        plt.close()
-
-        for s in ['l1', 'l2']:
-            ax = tsplot_robust(df_p, time='worker', unit='iteration',
-                               condition='param', value='dist_{}'.format(s),
-                               ci=CI)
-            ax.set_ylim(0, 1)
-            ax.set_xlim(0, None)
-            plt.ylabel('Distance ({}) from true parameter value'.format(s))
-            plt.xlabel('Worker')
-            fname = outfname + '_dist_{}_p-{}'.format(s, p)
-            plt.savefig(fname + '.png')
-            plt.close()
-
-        if np.all(df_p.hyper.notnull()):
-            # BUG: Uses only first coordinate for each parameter.
-            # TODO: Make this work for dirichlet by splitting the rows.
-            df_p['dirichlet_mean'] = df_p['hyper'].apply(
-                lambda x: ss.dirichlet.mean(x)[0])
-            df_p['dirichlet_var_l1'] = df_p['hyper'].apply(
-                lambda x: np.linalg.norm(ss.dirichlet.var(x), 1))
-            df_p['dirichlet_mode'] = df_p['hyper'].apply(
-                lambda x: util.dirichlet_mode(x)[0])
-
-            for s in ['mean', 'var_l1', 'mode']:
-                ax = tsplot_robust(
-                    df_p, time='worker', unit='iteration',
-                    condition='param', value='dirichlet_{}'.format(s), ci=CI)
+        for s in ['dist_l1', 'dist_l2', 'dirichlet_var_l1']:
+            if s in df_p.columns:
+                ax = tsplot_robust(df_p, time='worker', unit='iteration',
+                                   condition='param', value=s, ci=CI)
                 ax.set_ylim(0, 1)
                 ax.set_xlim(0, None)
-                plt.ylabel('Parameter posterior {}'.format(s))
+                if s.startswith('dist'):
+                    plt.ylabel('{} from true parameter value'.format(s))
+                else:
+                    plt.ylabel('Posterior {}'.format(s))
                 plt.xlabel('Worker')
-                fname = outfname + '_dirichlet_{}_p-{}'.format(s, p)
+                fname = outfname + '_{}_p-{}'.format(s, p)
+                plt.savefig(fname + '.png')
+                plt.close()
+
+    # Plot param component properties.
+    for p, df_p in df_split.groupby('policy', as_index=False):
+        for s in ['v', 'dirichlet_mean', 'dirichlet_mode']:
+            if '{}_single'.format(s) in df_p.columns:
+                ax = tsplot_robust(df_p, time='worker', unit='iteration',
+                                   condition='param',
+                                   value='{}_single'.format(s), ci=CI)
+                ax.set_ylim(0, 1)
+                ax.set_xlim(0, None)
+                plt.ylabel('Estimated parameter {}'.format(s))
+                plt.xlabel('Worker')
+                fname = outfname + '_{}_p-{}'.format(s, p)
                 plt.savefig(fname + '.png')
                 plt.close()
 
