@@ -265,7 +265,8 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
         for k in (k for k in p if k not in ['type',
                                             'epsilon',
                                             'thompson',
-                                            'resolve_interval']):
+                                            'resolve_interval',
+                                            'hyperparams']):
             if isinstance(p[k], list):
                 value_string  = '_'.join(str(x) for x in p[k])
             else:
