@@ -360,7 +360,7 @@ class Policy:
                 s += '-eps_{}'.format(equation_safe_filename(self.epsilon))
             if self.thompson:
                 s += '-thomp'
-            if self.hyperparams and self.hyperparams != 'HyperParams'
+            if self.hyperparams and self.hyperparams != 'HyperParams':
                 s += '-{}'.format(self.hyperparams)
             if (self.estimate_interval > 1):
                 s += '-e_int{}'.format(self.estimate_interval)
