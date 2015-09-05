@@ -5,7 +5,6 @@ import pickle
 import networkx as nx
 import numpy as np
 import json
-from analyze import finished
 
 tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 app = Flask(__name__, template_folder=tmpl_dir)
@@ -24,10 +23,10 @@ def belief_to_str(states, belief):
            sorted(state_to_belief, key=lambda x: state_to_belief[x],
                   reverse=True))
 
-def load_tree(f_exp, f_names, policy, episode=0):
+def load_tree(f_exp, f_names, policy):
     """Read an experiment output file and load a tree of execution traces"""
-    df = finished(pd.read_csv(f_exp))
-    df = df[(df.policy == policy) & (df.episode == episode)]
+    df = pd.read_csv(f_exp)
+    df = df[df.policy == policy]
 
     df_names = pd.read_csv(f_names,
                            true_values=['True', 'true'],
@@ -101,15 +100,13 @@ def index():
     exp = request.args.get('e')
     basename = request.args.get('f')
     policy = request.args.get('p')
-    episode = request.args.get('episode', default=0)
     exp_filepath = os.path.join('res', exp, basename + '.txt')
     names_filepath = os.path.join('res', exp, basename + '_names.csv')
 
     # Wordtree visualization.
     tree = load_tree(f_exp=exp_filepath,
                      f_names=names_filepath,
-                     policy=policy,
-                     episode=episode)
+                     policy=policy)
     print 'done loading tree'
     tree = nx.convert_node_labels_to_integers(tree,
                                               first_label=-1,
