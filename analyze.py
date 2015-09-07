@@ -66,6 +66,31 @@ class Plotter(object):
                                 'uses_gold' in df_names.columns)
 
     @staticmethod
+    def filter_workers_quantile(df, q1, q2):
+        """Filter dataframe for iterations with number of workers in given range.
+
+        Args:
+            df:     Dataframe
+            q1:     Lower quantile
+            q2:     Upper quantile
+
+        Returns:
+            Dataframe.
+
+        """
+        max_workers = df.groupby(['policy', 'iteration'])['worker'].max()
+        quantiles = max_workers.quantile([q1, q2])
+
+        max_workers_in_range = max_workers[(max_workers >= quantiles[q1]) &
+                                           (max_workers <= quantiles[q2])]
+
+        cols = df.columns.values
+        joined = df.join(max_workers_in_range,
+                         on=['policy', 'iteration'], how='inner',
+                         rsuffix='_max')
+        return joined[cols]
+
+    @staticmethod
     def step_by_col(df, col, interval=0.1):
         """Return a new dataframe with data copied in step function manner.
 
@@ -336,12 +361,19 @@ class ModelPlotter(Plotter):
 
     def plot_params(self, outfname):
         self.plot_params_vector(outfname)
+        self.plot_params_vector(outfname + '-quart123', quantile=[0, 0.75])
+        self.plot_params_vector(outfname + '-quart4', quantile=[0.75, 1])
         self.plot_params_component(outfname)
+        self.plot_params_component(outfname + '-quart123', quantile=[0, 0.75])
+        self.plot_params_component(outfname + '-quart4', quantile=[0.75, 1])
 
-    def plot_params_vector(self, outfname):
+    def plot_params_vector(self, outfname, quantile=[0, 1]):
         """Plot param vector properties."""
+        df_est = self.df_est
+        if quantile != [0, 1]:
+            df_est = self.filter_workers_quantile(df_est, *quantile)
         for s in ['l1', 'l2']:
-            ax = tsplot_robust(self.df_est, time='worker', unit='iteration',
+            ax = tsplot_robust(df_est, time='worker', unit='iteration',
                                condition='policy', value='dist_{}'.format(s),
                                ci=CI)
             ax.set_ylim(0, 1)
@@ -352,7 +384,7 @@ class ModelPlotter(Plotter):
             plt.savefig(fname + '.png')
             plt.close()
 
-        for p, df_p in self.df_est.groupby('policy', as_index=False):
+        for p, df_p in df_est.groupby('policy', as_index=False):
             for s in ['dist_l1', 'dist_l2', 'dirichlet_var_l1']:
                 if s in df_p.columns:
                     ax = tsplot_robust(df_p, time='worker', unit='iteration',
@@ -368,9 +400,12 @@ class ModelPlotter(Plotter):
                     plt.savefig(fname + '.png')
                     plt.close()
 
-    def plot_params_component(self, outfname):
+    def plot_params_component(self, outfname, quantile=[0, 1]):
         """Plot param component properties."""
-        for p, df_p in self.df_split.groupby('policy', as_index=False):
+        df_split = self.df_split
+        if quantile != [0, 1]:
+            df_split = self.filter_workers_quantile(df_split, *quantile)
+        for p, df_p in df_split.groupby('policy', as_index=False):
             for s in ['v', 'dirichlet_mean', 'dirichlet_mode']:
                 if '{}_single'.format(s) in df_p.columns:
                     ax = tsplot_robust(df_p, time='worker', unit='iteration',
