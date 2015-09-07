@@ -132,6 +132,40 @@ class ResultPlotter(Plotter):
         self.df['t_rel'] = self.df.groupby(
             ['policy', 'iteration', 'worker'])['t'].apply(lambda s: s - s.min())
 
+    def make_plots(self, outdir, worker_interval, line, logx):
+        if self.uses_gold_known:
+            self.plot_actions_subcount(
+                outfname=os.path.join(outdir, 'gold_questions_used'),
+                ylabel='Mean number of gold questions used')
+
+        self.plot_reward_by_t(os.path.join(outdir, 'r_t'))
+        self.plot_reward_by_budget(os.path.join(outdir, 'r_cost'))
+        self.plot_reward_by_budget(os.path.join(outdir, 'r_cost-quart123'),
+                                   quantile=[0, 0.75])
+        self.plot_reward_by_budget(os.path.join(outdir, 'r_cost-quart4'),
+                                   quantile=[0.75, 1])
+        self.plot_n_workers_by_budget(os.path.join(outdir, 'n_workers_cost'))
+        self.plot_n_workers(os.path.join(outdir, 'n_workers'))
+
+        for p, df_filter in self.df.groupby('policy'):
+            last_worker = df_filter['worker'].max()
+            worker_indices = range(0, last_worker + 1, worker_interval)
+            if worker_indices[-1] != last_worker:
+                worker_indices.append(last_worker)
+            for w in worker_indices:
+                df_worker = df_filter[df_filter.worker == w]
+                worker_dir = os.path.join(outdir, 'w', '{:04d}'.format(w))
+                util.ensure_dir(worker_dir)
+                self.plot_beliefs(
+                    df_worker, os.path.join(worker_dir, 'b'),
+                    line=line, logx=logx)
+                self.plot_actions(
+                    df_worker, os.path.join(worker_dir, 'a'),
+                    line=line, logx=logx)
+                self.plot_observations(
+                    df_worker, os.path.join(worker_dir, 'o'),
+                    line=line, logx=logx)
+
     def plot_beliefs(self, df, outfname, line=False, logx=True):
         """Plot beliefs for subset of entire dataframe"""
         df_b = pd.DataFrame(df.b.str.split().tolist()).astype(float)
@@ -254,8 +288,10 @@ class ResultPlotter(Plotter):
         #df.sort(['policy','iteration','episode']).to_csv(fname + '.csv',
         #                                                 index=False)
 
-    def plot_reward_by_budget(self, outfname):
+    def plot_reward_by_budget(self, outfname, quantile=[0, 1]):
         df = self.df
+        if quantile != [0, 1]:
+            df = self.filter_workers_quantile(df, *quantile)
         df['r'] = df['r'].fillna(0)
         df['cum_r'] = df.groupby(['policy', 'iteration'])['r'].cumsum()
         df['cum_cost'] = -1 * df.groupby(['policy', 'iteration'])['cost'].cumsum()
@@ -295,7 +331,7 @@ class ResultPlotter(Plotter):
         plt.close()
 
 class TimingsPlotter(Plotter):
-    def plot_timings(self, outfname):
+    def make_plots(self, outfname):
         df_timings = self.df
         for t in ('resolve', 'estimate'):
             df_filter = df_timings[df_timings['type'] == t]
@@ -359,7 +395,7 @@ class ModelPlotter(Plotter):
         for i, df_i in df.groupby('iteration'):
             yield df_i.sort('worker')['v_single']
 
-    def plot_params(self, outfname):
+    def make_plots(self, outfname):
         self.plot_params_vector(outfname)
         self.plot_params_vector(outfname + '-quart123', quantile=[0, 0.75])
         self.plot_params_vector(outfname + '-quart4', quantile=[0.75, 1])
@@ -450,7 +486,7 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
             df_timings = df_timings[df_timings.policy.isin(policies)]
         if len(df_timings.index) > 0:
             tplotter = TimingsPlotter(df_timings)
-            tplotter.plot_timings(os.path.join(outdir, 't'))
+            tplotter.make_plots(os.path.join(outdir, 't'))
             print 'Done plotting timings'
 
     df_model = pd.concat([pd.read_csv(f) for f in models],
@@ -458,39 +494,12 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
     df_model = df_model.drop_duplicates()
     if len(df_model['policy'].dropna().unique()) > 0:
         mplotter = ModelPlotter(df_model)
-        mplotter.plot_params(os.path.join(outdir, 'params'))
+        mplotter.make_plots(os.path.join(outdir, 'params'))
     print 'Done plotting params'
 
     rplotter = ResultPlotter(df, df_names)
-    if rplotter.uses_gold_known:
-        rplotter.plot_actions_subcount(
-            outfname=os.path.join(outdir, 'gold_questions_used'),
-            ylabel='Mean number of gold questions used')
-
-    rplotter.plot_reward_by_t(os.path.join(outdir, 'r_t'))
-    rplotter.plot_reward_by_budget(os.path.join(outdir, 'r_cost'))
-    rplotter.plot_n_workers_by_budget(os.path.join(outdir, 'n_workers_cost'))
-    rplotter.plot_n_workers(os.path.join(outdir, 'n_workers'))
-
-    # TODO: Move logic inside ResultPlotter.
-    for p, df_filter in rplotter.df.groupby('policy'):
-        last_worker = df_filter['worker'].max()
-        worker_indices = range(0, last_worker + 1, worker_interval)
-        if worker_indices[-1] != last_worker:
-            worker_indices.append(last_worker)
-        for w in worker_indices:
-            df_worker = df_filter[df_filter.worker == w]
-            worker_dir = os.path.join(outdir, 'w', '{:04d}'.format(w))
-            util.ensure_dir(worker_dir)
-            rplotter.plot_beliefs(
-                df_worker, os.path.join(worker_dir, 'b'),
-                line=line, logx=log)
-            rplotter.plot_actions(
-                df_worker, os.path.join(worker_dir, 'a'),
-                line=line, logx=log)
-            rplotter.plot_observations(
-                df_worker, os.path.join(worker_dir, 'o'),
-                line=line, logx=log)
+    rplotter.make_plots(outdir, worker_interval=worker_interval, line=line,
+                        logx=log)
 
 def main(filenames, policies=None, line=False, log=True,
          single=False, dest=None, worker_interval=5):
