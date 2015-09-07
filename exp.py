@@ -205,8 +205,8 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
     return results, models, timings
 
 def run_experiment(name, config, policies, iterations, budget, epsilon=None,
-                   thompson=False, resolve_interval=None,
-                   hyperparams='HyperParams'):
+                   explore_actions=['test'], thompson=False,
+                   resolve_interval=None, hyperparams='HyperParams'):
     """Run experiment using multiprocessing.
 
     Args:
@@ -224,6 +224,7 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
         budget (float):         Maximum budget to spend before halting.
         epsilon (str):          Exploration function string, with arguments
                                 w (worker) and t (timestep).
+        explore_actions (list): Action types for exploration.
         thompson (bool):        Perform Thompson sampling.
         resolve_interval (int): Number of workers to see before resolving.
         hyperparams (str):      Hyperparams classname.
@@ -252,6 +253,7 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
         p['hyperparams'] = hyperparams
         if epsilon is not None:
             p['epsilon'] = epsilon
+            p['explore_actions'] = explore_actions
         if thompson:
             p['thompson'] = True
         if resolve_interval is not None:
@@ -274,6 +276,7 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
             policies_name += '-{}_{}'.format(k, value_string)
     if epsilon is not None:
         policies_name += '-eps_{}'.format(equation_safe_filename(epsilon))
+        policies_name += '-explore_{}'.format('_'.join(explore_actions))
     if thompson:
         policies_name += '-thomp'
     if resolve_interval is not None:
@@ -472,7 +475,7 @@ if __name__ == '__main__':
                         choices=['teach_first', 'test_and_boot',
                                  'zmdp', 'appl', 'aitoolbox'])
     parser.add_argument('--teach_first_n', type=int, nargs='+')
-    parser.add_argument('--teach_first_type', type=str, nargs='+',
+    parser.add_argument('--teach_first_type', type=str,
                         choices=['tell', 'exp'], default='tell')
     parser.add_argument('--test_and_boot_n_test', type=int, nargs='+')
     parser.add_argument('--test_and_boot_n_work', type=int, nargs='+')
@@ -494,9 +497,14 @@ if __name__ == '__main__':
                         help='Total budget')
     parser.add_argument('--epsilon', type=str,
                         help='Epsilon to use for all policies')
-    parser.add_argument('--hyperparams', type=str, default='HyperParams',
-                        choices=['HyperParams', 'HyperParamsUnknownRatio'],
-                        help='Hyperparams class name, in param.py')
+    parser.add_argument('--explore_actions', type=str, nargs='+',
+                        choices=['test', 'work', 'tell', 'exp', 'boot'],
+                        default=['test', 'work'])
+    parser.add_argument(
+        '--hyperparams', type=str, default='HyperParams',
+        choices=['HyperParams', 'HyperParamsWorker5',
+                 'HyperParamsUnknownRatio', 'HyperParamsUnknownRatioWorker5'],
+        help='Hyperparams class name, in param.py')
     parser.add_argument('--thompson', dest='thompson', action='store_true',
                         help="Use Thompson sampling")
     parser.add_argument('--resolve_interval', type=int, help='Resolve interval to use for all policies')
@@ -540,6 +548,7 @@ if __name__ == '__main__':
                    iterations=args.iterations,
                    budget=args.budget,
                    epsilon=args.epsilon,
+                   explore_actions=args.explore_actions,
                    thompson=args.thompson,
                    resolve_interval=args.resolve_interval,
                    hyperparams=args.hyperparams)

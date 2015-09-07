@@ -13,6 +13,14 @@ class Action:
     def __init__(self, name, quiz_val=None):
         self.name = name
         self.quiz_val = quiz_val
+    def get_type(self):
+        """Return the action type"""
+        if self.name == 'ask' and self.quiz_val is None:
+            return 'work'
+        elif self.is_quiz():
+            return 'test'
+        else:
+            return self.name
     def is_quiz(self):
         return self.name == 'ask' and self.quiz_val is not None
     def uses_gold(self):

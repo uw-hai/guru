@@ -19,6 +19,7 @@ def get_param_type(p):
         return p[0][0]
 
 class HyperParams(object):
+    """Mostly uninformed priors"""
     def __init__(self, params, n_worker_classes, param_types_known=[]):
         p = dict()
         for k in params:
@@ -37,10 +38,43 @@ class HyperParams(object):
                 p[k] = [1.00001, 1.00001]
         self.p = p
 
+class HyperParamsWorker5(object):
+    """Mostly uninformed priors, except Dirichlet(5) for p_worker"""
+    def __init__(self, params, n_worker_classes, param_types_known=[]):
+        p = dict()
+        for k in params:
+            t = get_param_type(k)
+            if t in param_types_known:
+                # Make peaked dirichlet at parameters.
+                p[k] = [1.00001 + PEAKEDNESS * v for v in params[k]]
+            elif t == 'p_worker':
+                p[k] = [5 for i in xrange(n_worker_classes)]
+            elif t == 'p_guess':
+                p[k] = [10, 10] # Pretty sure this is 0.5.
+            elif t == 'p_slip':
+                p[k] = [2, 5] # Lower prob of making a mistake.
+            elif t in ['p_lose', 'p_learn_exp', 'p_learn_tell', 'p_leave',
+                       'p_s']:
+                p[k] = [1.00001, 1.00001]
+        self.p = p
+
+
 class HyperParamsUnknownRatio(HyperParams):
     """Hyperparameters with known class properties but unknown ratio."""
     def __init__(self, params, n_worker_classes):
         super(HyperParamsUnknownRatio, self).__init__(
+            params, n_worker_classes, ['p_guess',
+                                       'p_slip',
+                                       'p_lose',
+                                       'p_learn_exp',
+                                       'p_learn_tell',
+                                       'p_leave',
+                                       'p_s'])
+
+class HyperParamsUnknownRatioWorker5(HyperParamsWorker5):
+    """Hyperparameters with known class properties but unknown ratio."""
+    def __init__(self, params, n_worker_classes):
+        super(HyperParamsUnknownRatioWorker5, self).__init__(
             params, n_worker_classes, ['p_guess',
                                        'p_slip',
                                        'p_lose',

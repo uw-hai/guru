@@ -30,6 +30,7 @@ class Policy:
         self.policy = policy_type
         self.exp_name = exp_name
         self.epsilon = get_or_default(kwargs, 'epsilon', None)
+        self.explore_actions = get_or_default(kwargs, 'explore_actions', None)
         self.thompson = bool(get_or_default(kwargs, 'thompson', False))
         self.hyperparams = get_or_default(kwargs, 'hyperparams', None)
         if self.rl_p():
@@ -131,9 +132,10 @@ class Policy:
         t = history.n_t(worker)
         if (self.epsilon is not None and
                 np.random.random() <= self.get_epsilon_probability(worker, t)):
-            valid_actions_no_boot = [i for i in valid_actions if
-                                     self.model.actions[i].name != 'boot']
-            return np.random.choice(valid_actions_no_boot)
+            valid_explore_actions = [
+                i for i in valid_actions if
+                self.model.actions[i].get_type() in self.explore_actions]
+            return np.random.choice(valid_explore_actions)
         else:
             return self.get_best_action(iteration, history,
                                         valid_actions, belief)
@@ -358,6 +360,7 @@ class Policy:
         if self.rl_p():
             if self.epsilon is not None:
                 s += '-eps_{}'.format(equation_safe_filename(self.epsilon))
+                s += '-explore_{}'.format('_'.join(self.explore_actions))
             if self.thompson:
                 s += '-thomp'
             if self.hyperparams and self.hyperparams != 'HyperParams':
