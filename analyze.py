@@ -122,6 +122,23 @@ class Plotter(object):
     def _query_names_df(self, df, s, c, i):
         return df[(df.type == s) & (df.i == int(i))].reset_index()[c][0]
 
+class JoinPlotter(Plotter):
+    """Plotter for join of three data files."""
+    def __init__(self, df, df_model, df_timings, df_names=None):
+        super(JoinPlotter, self).__init__(df, df_names)
+        self.model_plotter = ModelPlotter(df_model)
+        self.df_timings = df_timings
+
+    def get_traces(self, policy):
+        df = self.df[self.df.policy == policy]
+        df = df.sort(['iteration', 'worker'])
+        for (it, w), df_i in df.groupby(['iteration', 'worker']):
+            timings = self.df_timings[(self.df_timings.iteration == it) &
+                                      (self.df_timings.worker == w)]
+            model = self.model_plotter.df[(self.model_plotter.df.iteration == it) &
+                                          (self.model_plotter.df.worker == w)]
+            yield df_i.sort('t'), timings, model
+
 
 class ResultPlotter(Plotter):
     """Plotter for main result file."""
