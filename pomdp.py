@@ -522,7 +522,7 @@ class POMDPModel:
             T = history.n_t(worker)
             for t in xrange(T):
                 for s in xrange(S):
-                    a, o = history.history[worker][t]
+                    a, o, _ = history.history[worker][t]
                     ess_o[s][a][o] += m_norm[t+1][s]
             ess_i += m_norm[0,:]
 
@@ -530,7 +530,7 @@ class POMDPModel:
             pm_norm = np.exp(pm - logsumexp(pm, axis=(1,2), keepdims=True))
             T = history.n_t(worker)
             for t in xrange(T):
-                a, o = history.history[worker][t]
+                a, o, _ = history.history[worker][t]
                 for s in xrange(S):
                     for s1 in xrange(S):
                         ess_t[s][a][s1] += pm_norm[t][s][s1]
@@ -572,7 +572,7 @@ class POMDPModel:
 
             # Forward.
             for t in xrange(T):
-                a, o = worker_AO[t]
+                a, o, _ = worker_AO[t]
                 for s1 in xrange(S):
                     v = []
                     for s0 in xrange(S):
@@ -583,7 +583,7 @@ class POMDPModel:
 
             # Backward.
             for t in reversed(xrange(T)):
-                a, o = worker_AO[t]
+                a, o, _ = worker_AO[t]
                 for s0 in xrange(S):
                     v = []
                     for s1 in xrange(S):
@@ -597,7 +597,7 @@ class POMDPModel:
             # Make pairwise marginals
             pm = np.zeros((T, S, S))
             for t in xrange(T):
-                a, o = worker_AO[t]
+                a, o, _ = worker_AO[t]
                 for s in xrange(S):
                     for s1 in xrange(S):
                         p_t = self.get_transition(s, a, s1, params)

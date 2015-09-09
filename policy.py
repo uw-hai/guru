@@ -31,6 +31,7 @@ class Policy:
         self.exp_name = exp_name
         self.epsilon = get_or_default(kwargs, 'epsilon', None)
         self.explore_actions = get_or_default(kwargs, 'explore_actions', None)
+        self.explore_policy = get_or_default(kwargs, 'explore_policy', None)
         self.thompson = bool(get_or_default(kwargs, 'thompson', False))
         self.hyperparams = get_or_default(kwargs, 'hyperparams', None)
         if self.rl_p():
@@ -62,6 +63,13 @@ class Policy:
                 n_worker_classes, params=params_gt,
                 hyperparams=cls(params_gt, n_worker_classes),
                 estimate_all=True)
+            if self.explore_policy is not None:
+                self.explore_policy = Policy(
+                    policy_type=self.explore_policy['type'],
+                    exp_name=exp_name,
+                    n_worker_classes=n_worker_classes,
+                    params_gt=params_gt,
+                    **self.explore_policy)
         else:
             self.model = POMDPModel(n_worker_classes, params=params_gt)
 
@@ -122,23 +130,32 @@ class Policy:
                                          cstime2 - cstime1
 
     def get_next_action(self, iteration, history, valid_actions, belief=None):
-        """Get next action, according to policy.
-
-        If this is an RL policy, take random action (other than boot)
-        with probability specified by the given exploration function.
-
-        """
+        """Return next action and whether or policy is exploring."""
         worker = history.n_workers() - 1
         t = history.n_t(worker)
+        if t == 0:
+            last_explored = None
+        else:
+            last_explored = history.history[-1][-1][2]
         if (self.epsilon is not None and
+                self.explore_policy is None and
                 np.random.random() <= self.get_epsilon_probability(worker, t)):
             valid_explore_actions = [
                 i for i in valid_actions if
                 self.model.actions[i].get_type() in self.explore_actions]
-            return np.random.choice(valid_explore_actions)
+            return np.random.choice(valid_explore_actions), True
+        elif (self.epsilon is not None and
+                self.explore_policy is not None and
+                (last_explored or
+                 (t == 0 and
+                  np.random.random() <= self.get_epsilon_probability(
+                      worker, t)))):
+            next_a, _ = self.explore_policy.get_next_action(
+                iteration, history, valid_actions, belief)
+            return next_a, True
         else:
             return self.get_best_action(iteration, history,
-                                        valid_actions, belief)
+                                        valid_actions, belief), False
 
 
     def get_best_action(self, iteration, history, valid_actions, belief=None):
@@ -163,7 +180,7 @@ class Policy:
             current_actions = []
             current_observations = []
         else:
-            current_actions, current_observations = zip(*current_AO)
+            current_actions, current_observations, _ = zip(*current_AO)
         n_skills = model.n_skills
         n_actions = len(current_actions)
         if self.policy == 'teach_first':
@@ -361,6 +378,8 @@ class Policy:
             if self.epsilon is not None:
                 s += '-eps_{}'.format(equation_safe_filename(self.epsilon))
                 s += '-explore_{}'.format('_'.join(self.explore_actions))
+                if self.explore_policy is not None:
+                    s += '-explore_p_{}'.format(self.explore_policy.policy)
             if self.thompson:
                 s += '-thomp'
             if self.hyperparams and self.hyperparams != 'HyperParams':

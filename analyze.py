@@ -372,8 +372,9 @@ class ModelPlotter(Plotter):
         df_est = self.df_est
         if quantile != [0, 1]:
             df_est = self.filter_workers_quantile(df_est, *quantile)
+        df_est['param-iteration'] = df_est['param'] + '-' + df_est['iteration'].astype(str)
         for s in ['l1', 'l2']:
-            ax = tsplot_robust(df_est, time='worker', unit='iteration',
+            ax = tsplot_robust(df_est, time='worker', unit='param-iteration',
                                condition='policy', value='dist_{}'.format(s),
                                ci=CI)
             ax.set_ylim(0, 1)

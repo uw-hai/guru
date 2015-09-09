@@ -6,9 +6,9 @@ class History:
         """Initialize new worker"""
         self.history.append([])
 
-    def record(self, action, observation):
+    def record(self, action, observation, explore=None):
         """Record action and subsequent observation"""
-        self.history[-1].append((action, observation))
+        self.history[-1].append((action, observation, explore))
 
     def n_workers(self):
         return len(self.history)
