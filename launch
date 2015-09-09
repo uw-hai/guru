@@ -1,12 +1,14 @@
 #!/bin/env bash
 
 # $1: server
-# $2: screen name
-# $3-n: options
+# $2: cpu list
+# $3: screen name
+# $4-n: options
 
 sname=e.$cbase.$pbase
 
-options=${@:3}
+options=${@:4}
 
+cd ~/dev/worklearn/; git pull;
 cd ~/rv/dev/worklearn/; git pull;
-ssh $1 "screen -dm -S $2; screen -S $2 -p 0 -X stuff $'cd ~/dev/worklearn/\nworkon worklearn\npython exp.py $options \n'";
+ssh $1 "screen -dm -S $3; screen -S $3 -p 0 -X stuff $'cd ~/dev/worklearn/\nworkon worklearn\ntaskset -c $2 python exp.py $options \n'";

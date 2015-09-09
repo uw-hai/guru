@@ -133,11 +133,12 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
                         't': t,
                         'policy': str(pol),
                         'sys_t': time.clock(),
-                        'a': '',
+                        'a': None,
+                        'explore': None,
                         's': s,
-                        'o': '',
-                        'cost': '',
-                        'r': '',
+                        'o': None,
+                        'cost': None,
+                        'r': None,
                         'b': belief_to_str(belief)})
         worker_first_t = t
         t += 1
@@ -146,7 +147,8 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
                (o is None or model_gt.observations[o] != 'term')):
             valid_actions = [i for i,a in enumerate(model_gt.actions) if
                              model_gt.states[s].is_valid_action(a)]
-            a = pol.get_next_action(it, history, valid_actions, belief)
+            a, explore = pol.get_next_action(
+                it, history, valid_actions, belief)
 
             # Simulate a step
             s, o, (cost, r) = model_gt.sample_SOR(s, a)
@@ -154,7 +156,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
             budget_spent -= cost
             if model_gt.observations[o] == 'term':
                 s = None
-            history.record(a, o)
+            history.record(a, o, explore=explore)
             belief = pol.model.update_belief(belief, a, o)
 
             results.append({'iteration': it,
@@ -163,6 +165,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
                             'policy': str(pol),
                             'sys_t': time.clock(),
                             'a': a,
+                            'explore': explore,
                             's': s,
                             'o': o,
                             'cost': cost,
@@ -205,8 +208,9 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
     return results, models, timings
 
 def run_experiment(name, config, policies, iterations, budget, epsilon=None,
-                   thompson=False, resolve_interval=None,
-                   hyperparams='HyperParams'):
+                   explore_actions=['test'], explore_policy=None,
+                   thompson=False,
+                   resolve_interval=None, hyperparams='HyperParams'):
     """Run experiment using multiprocessing.
 
     Args:
@@ -224,6 +228,8 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
         budget (float):         Maximum budget to spend before halting.
         epsilon (str):          Exploration function string, with arguments
                                 w (worker) and t (timestep).
+        explore_actions (list): Action types for exploration.
+        explore_policy (str):   Policy type name to use for exploration.
         thompson (bool):        Perform Thompson sampling.
         resolve_interval (int): Number of workers to see before resolving.
         hyperparams (str):      Hyperparams classname.
@@ -247,11 +253,25 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
     params_gt = cmd_config_to_pomdp_params(config)
     n_worker_classes = len(params_gt['p_worker'])
 
+    if explore_policy is not None:
+        if epsilon is None:
+            raise Exception('Must specify epsilon for explore_policy')
+        matching_explore_policies = [
+            p for p in policies if p['type'] == explore_policy]
+        other_policies = [
+            p for p in policies if p['type'] != explore_policy]
+        # TODO: Check none of matching policies can be exploded.
+        assert len(matching_explore_policies) == 1
+        explore_policy = matching_explore_policies[0]
+        policies = other_policies
+
     # Augment policies with exploration options.
     for p in policies:
         p['hyperparams'] = hyperparams
         if epsilon is not None:
             p['epsilon'] = epsilon
+            p['explore_actions'] = explore_actions
+            p['explore_policy'] = explore_policy
         if thompson:
             p['thompson'] = True
         if resolve_interval is not None:
@@ -266,7 +286,8 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
                                             'epsilon',
                                             'thompson',
                                             'resolve_interval',
-                                            'hyperparams']):
+                                            'hyperparams',
+                                            'explore_policy']):
             if isinstance(p[k], list):
                 value_string  = '_'.join(str(x) for x in p[k])
             else:
@@ -274,6 +295,9 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
             policies_name += '-{}_{}'.format(k, value_string)
     if epsilon is not None:
         policies_name += '-eps_{}'.format(equation_safe_filename(epsilon))
+        policies_name += '-explore_{}'.format('_'.join(explore_actions))
+        if explore_policy is not None:
+            policies_name += '-explore_p_{}'.format('_'.join(explore_actions))
     if thompson:
         policies_name += '-thomp'
     if resolve_interval is not None:
@@ -283,11 +307,19 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
 
     # Explode policies.
     policies_exploded = []
-    for p in policies:
+    allowed_list_parameters = ['explore_actions']
+    def flatten_single(p):
         for k in p:
-            if isinstance(p[k], list) and len(p[k]) == 1:
+            if (k not in allowed_list_parameters and
+                    isinstance(p[k], list) and len(p[k]) == 1):
                 p[k] = p[k][0]
-        list_parameters = [k for k in p if isinstance(p[k], list)]
+    for p in policies:
+        flatten_single(p)
+        if 'explore_policy' in p and p['explore_policy'] is not None:
+            flatten_single(p['explore_policy'])
+        list_parameters = [
+            k for k in p if
+            k not in allowed_list_parameters and isinstance(p[k], list)]
         if len(list_parameters) == 0:
             policies_exploded.append(p)
         elif len(list_parameters) == 1:
@@ -330,8 +362,8 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
 
     results_filepath = os.path.join(res_path, '{}.txt'.format(policies_name))
     results_fp = open(results_filepath, 'wb')
-    results_fieldnames = [
-        'iteration','t','worker','policy','sys_t','a','s','o','cost','r','b']
+    results_fieldnames = ['iteration', 't', 'worker', 'policy', 'sys_t',
+                          'a', 'explore', 's', 'o', 'cost', 'r', 'b']
     r_writer = csv.DictWriter(results_fp, fieldnames=results_fieldnames)
     r_writer.writeheader()
 
@@ -471,8 +503,11 @@ if __name__ == '__main__':
     parser.add_argument('--policies', '-p', type=str, nargs='+', required=True,
                         choices=['teach_first', 'test_and_boot',
                                  'zmdp', 'appl', 'aitoolbox'])
+    parser.add_argument('--explore_policy', type=str,
+                        choices=['teach_first', 'test_and_boot'],
+                        help='Use one of the baseline policies as the exploration policy')
     parser.add_argument('--teach_first_n', type=int, nargs='+')
-    parser.add_argument('--teach_first_type', type=str, nargs='+',
+    parser.add_argument('--teach_first_type', type=str,
                         choices=['tell', 'exp'], default='tell')
     parser.add_argument('--test_and_boot_n_test', type=int, nargs='+')
     parser.add_argument('--test_and_boot_n_work', type=int, nargs='+')
@@ -494,9 +529,14 @@ if __name__ == '__main__':
                         help='Total budget')
     parser.add_argument('--epsilon', type=str,
                         help='Epsilon to use for all policies')
-    parser.add_argument('--hyperparams', type=str, default='HyperParams',
-                        choices=['HyperParams', 'HyperParamsUnknownRatio'],
-                        help='Hyperparams class name, in param.py')
+    parser.add_argument('--explore_actions', type=str, nargs='+',
+                        choices=['test', 'work', 'tell', 'exp', 'boot'],
+                        default=['test', 'work'])
+    parser.add_argument(
+        '--hyperparams', type=str, default='HyperParams',
+        choices=['HyperParams', 'HyperParamsWorker5',
+                 'HyperParamsUnknownRatio', 'HyperParamsUnknownRatioWorker5'],
+        help='Hyperparams class name, in param.py')
     parser.add_argument('--thompson', dest='thompson', action='store_true',
                         help="Use Thompson sampling")
     parser.add_argument('--resolve_interval', type=int, help='Resolve interval to use for all policies')
@@ -540,6 +580,8 @@ if __name__ == '__main__':
                    iterations=args.iterations,
                    budget=args.budget,
                    epsilon=args.epsilon,
+                   explore_actions=args.explore_actions,
+                   explore_policy=args.explore_policy,
                    thompson=args.thompson,
                    resolve_interval=args.resolve_interval,
                    hyperparams=args.hyperparams)
