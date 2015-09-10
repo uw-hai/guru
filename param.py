@@ -71,6 +71,17 @@ class HyperParamsUnknownRatio(HyperParams):
                                        'p_leave',
                                        'p_s'])
 
+class HyperParamsUnknownRatioSlipLeave(HyperParams):
+    """Hyperparameters with known class properties but unknown ratio."""
+    def __init__(self, params, n_worker_classes):
+        super(HyperParamsUnknownRatioSlipLeave, self).__init__(
+            params, n_worker_classes, ['p_guess',
+                                       'p_lose',
+                                       'p_learn_exp',
+                                       'p_learn_tell',
+                                       'p_s'])
+
+
 class HyperParamsUnknownRatioWorker5(HyperParamsWorker5):
     """Hyperparameters with known class properties but unknown ratio."""
     def __init__(self, params, n_worker_classes):

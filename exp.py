@@ -535,7 +535,8 @@ if __name__ == '__main__':
     parser.add_argument(
         '--hyperparams', type=str, default='HyperParams',
         choices=['HyperParams', 'HyperParamsWorker5',
-                 'HyperParamsUnknownRatio', 'HyperParamsUnknownRatioWorker5'],
+                 'HyperParamsUnknownRatio', 'HyperParamsUnknownRatioWorker5',
+                 'HyperParamsUnknownRatioSlipLeave'],
         help='Hyperparams class name, in param.py')
     parser.add_argument('--thompson', dest='thompson', action='store_true',
                         help="Use Thompson sampling")
