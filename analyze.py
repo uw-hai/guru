@@ -28,6 +28,14 @@ import work_learn_problem as wlp
 
 CI = 95  # Confidence interval
 
+def savefig(ax, name):
+    """Save the current figure taking into account legends."""
+    lgd = ax.legend()
+    if lgd is not None:
+        plt.savefig(name, bbox_inches='tight', bbox_extra_artists=(lgd,))
+    else:
+        plt.savefig(name, bbox_inches='tight')
+
 def tsplot_robust(df, time, unit, condition, value, ci):
     """Plot timeseries data with different x measurements"""
     n = df.groupby([condition, time]).count()[value].reset_index().pivot(index=time, columns=condition, values=value)
@@ -203,7 +211,8 @@ class ResultPlotter(Plotter):
                 df_b.plot(x='t_rel', y=states, kind='line',
                           title='Belief counts', logx=logx)
             fname = outfname + '_p-{}'.format(p)
-            plt.savefig(fname + '.png')
+            ax = plt.gca()
+            savefig(ax, fname + '.png')
             plt.close()
             df_b.to_csv(fname + '.csv', index=False)
 
@@ -224,7 +233,8 @@ class ResultPlotter(Plotter):
             plt.xlabel('Time')
 
             fname = outfname + '_p-{}'.format(p)
-            plt.savefig(fname + '.png')
+            ax = plt.gca()
+            savefig(ax, fname + '.png')
             plt.close()
             df_a.to_csv(fname + '.csv', index=False)
 
@@ -265,7 +275,7 @@ class ResultPlotter(Plotter):
         # Finish plotting.
         ax.set_ylim(0, None)
         plt.ylabel(ylabel)
-        plt.savefig(outfname + '.png')
+        savefig(ax, outfname + '.png')
         plt.close()
 
     def plot_observations(self, df, outfname, line=False, logx=True):
@@ -281,7 +291,8 @@ class ResultPlotter(Plotter):
                 df_o.plot(x='t_rel', y=obs.columns[2:], kind='line',
                           title='Observation counts', logx=logx)
             fname = outfname + '_p-{}'.format(p)
-            plt.savefig(fname + '.png')
+            ax = plt.gca()
+            savefig(ax, fname + '.png')
             plt.close()
             df_o.to_csv(fname + '.csv', index=False)
 
@@ -300,7 +311,7 @@ class ResultPlotter(Plotter):
         plt.ylabel('Cumulative reward')
         plt.xlabel('t')
         ax.set_xlim(0, None)
-        plt.savefig(outfname + '.png')
+        savefig(ax, outfname + '.png')
         plt.close()
         #df.sort(['policy','iteration','episode']).to_csv(fname + '.csv',
         #                                                 index=False)
@@ -320,7 +331,7 @@ class ResultPlotter(Plotter):
         plt.ylabel('Cumulative reward')
         plt.xlabel('Budget spent')
         ax.set_xlim(0, None)
-        plt.savefig(outfname + '.png')
+        savefig(ax, outfname + '.png')
         plt.close()
 
     def plot_n_workers_by_budget(self, outfname):
@@ -335,7 +346,7 @@ class ResultPlotter(Plotter):
         plt.xlabel('Budget spent')
         ax.set_xlim(0, None)
         ax.set_ylim(0, None)
-        plt.savefig(outfname + '.png')
+        savefig(ax, outfname + '.png')
         plt.close()
 
     def plot_n_workers(self, outfname):
@@ -343,8 +354,7 @@ class ResultPlotter(Plotter):
         df = df.groupby(['policy', 'iteration'], as_index=False)['worker'].max()
         ax = sns.boxplot(y='policy', x='worker', data=df, orient='h')
         plt.xlabel('Number of workers hired')
-        plt.tight_layout()
-        plt.savefig(outfname + '.png')
+        savefig(ax, outfname + '.png')
         plt.close()
 
 class TimingsPlotter(Plotter):
@@ -358,7 +368,7 @@ class TimingsPlotter(Plotter):
                 fname = outfname + '-{}'.format(t)
                 plt.xlabel('Worker number')
                 plt.ylabel('Mean seconds to {}'.format(t))
-                plt.savefig(fname + '.png')
+                savefig(ax, fname + '.png')
                 plt.close()
 
 class ModelPlotter(Plotter):
@@ -435,7 +445,7 @@ class ModelPlotter(Plotter):
             plt.ylabel('Mean distance ({}) from true parameter values'.format(s))
             plt.xlabel('Worker')
             fname = outfname + '_dist_{}_mean'.format(s)
-            plt.savefig(fname + '.png')
+            savefig(ax, fname + '.png')
             plt.close()
 
         for p, df_p in df_est.groupby('policy', as_index=False):
@@ -451,7 +461,7 @@ class ModelPlotter(Plotter):
                         plt.ylabel('Posterior {}'.format(s))
                     plt.xlabel('Worker')
                     fname = outfname + '_{}_p-{}'.format(s, p)
-                    plt.savefig(fname + '.png')
+                    savefig(ax, fname + '.png')
                     plt.close()
 
     def plot_params_component(self, outfname, quantile=[0, 1]):
@@ -470,7 +480,7 @@ class ModelPlotter(Plotter):
                     plt.ylabel('Estimated parameter {}'.format(s))
                     plt.xlabel('Worker')
                     fname = outfname + '_{}_p-{}'.format(s, p)
-                    plt.savefig(fname + '.png')
+                    savefig(ax, fname + '.png')
                     plt.close()
 
 def make_plots(infiles, outdir, models=[], timings=[], names=None,
