@@ -37,34 +37,45 @@ def savefig(ax, name):
         plt.savefig(name, bbox_inches='tight')
 
 def tsplot_robust(df, time, unit, condition, value, ci):
-    """Plot timeseries data with different x measurements"""
-    n = df.groupby([condition, time]).count()[value].reset_index().pivot(index=time, columns=condition, values=value)
-    means = df.groupby([condition, time], as_index=False)[value].mean().pivot(index=time, columns=condition, values=value)
-    sem = df.groupby([condition, time], as_index=False)[value].aggregate(ss.sem).pivot(index=time, columns=condition, values=value)
+    """Plot timeseries data with different x measurements.
+
+    Returns:
+        ax:     Axis object.
+        df:     Dataframe containing: time, condition, mean, n, sem.
+
+    """
+    n = df.groupby([condition, time])[value].count()
+    n.name = 'n'
+    means = df.groupby([condition, time])[value].mean()
+    means.name = 'mean'
+    sem = df.groupby([condition, time])[value].aggregate(ss.sem)
+    sem.name = 'sem'
+    df_stat = pd.concat([means, n, sem], axis=1).reset_index()
 
     # Use seaborn iff all conditions have the same number of measurements for
     # each time point.
-    if len(n) == 0:
+    n_pivot = n.reset_index().pivot(index=time, columns=condition, values='n')
+    if len(df) == 0:
         raise Exception('Unable to plot empty dataframe')
-    if len(n) == 1:
-        return sns.barplot(condition, y=value, data=df, ci=CI)
-    elif len(n) == sum(n.duplicated()) + 1:
-        return sns.tsplot(df, time=time, condition=condition,
-                          unit=unit, value=value, ci=ci)
+    if len(n_pivot) == 1:
+        ax = sns.barplot(condition, y=value, data=df, ci=CI)
+    elif len(n_pivot) == sum(n_pivot.duplicated()) + 1:
+        ax = sns.tsplot(df, time=time, condition=condition,
+                        unit=unit, value=value, ci=ci)
     else:
         if ci != 95:
             raise NotImplementedError
         ax = plt.gca()
-        for col in means.columns:
-            line, = plt.plot(means.index, means[col], label=col)
-            ax.fill_between(means.index,
-                            means[col] - 1.96 * sem[col],
-                            means[col] + 1.96 * sem[col],
+        for c, df in df_stat.groupby(condition):
+            line, = plt.plot(df[time], df['mean'], label=c)
+            ax.fill_between(df[time],
+                            df['mean'] - 1.96 * df['sem'],
+                            df['mean'] + 1.96 * df['sem'],
                             facecolor=line.get_color(),
                             alpha=0.5,
-                            where=np.isfinite(sem[col]))
+                            where=np.isfinite(df['sem']))
         plt.legend()
-        return ax
+    return ax, df_stat
 
 class Plotter(object):
     def __init__(self, df, df_names=None):
@@ -163,11 +174,16 @@ class ResultPlotter(Plotter):
                 outfname=os.path.join(outdir, 'gold_questions_used'),
                 ylabel='Mean number of gold questions used')
 
+        quart123dir = os.path.join(outdir, 'quart123')
+        quart4dir = os.path.join(outdir, 'quart4')
+        util.ensure_dir(quart123dir)
+        util.ensure_dir(quart4dir)
+
         self.plot_reward_by_t(os.path.join(outdir, 'r_t'))
         self.plot_reward_by_budget(os.path.join(outdir, 'r_cost'))
-        self.plot_reward_by_budget(os.path.join(outdir, 'r_cost-quart123'),
+        self.plot_reward_by_budget(os.path.join(quart123dir, 'r_cost'),
                                    quantile=[0, 0.75])
-        self.plot_reward_by_budget(os.path.join(outdir, 'r_cost-quart4'),
+        self.plot_reward_by_budget(os.path.join(quart4dir, 'r_cost'),
                                    quantile=[0.75, 1])
         self.plot_n_workers_by_budget(os.path.join(outdir, 'n_workers_cost'))
         self.plot_n_workers(os.path.join(outdir, 'n_workers'))
@@ -326,7 +342,8 @@ class ResultPlotter(Plotter):
         df = df.groupby(['policy', 'iteration', 'cum_cost'],
                         as_index=False)['cum_r'].last()
         #ax = df.groupby(['policy', 'cum_cost'], as_index=False)['cum_r'].mean().pivot(index='cum_cost', columns='policy', values='cum_r').plot()
-        ax = tsplot_robust(df, time='cum_cost', condition='policy', unit='iteration', value='cum_r', ci=CI)
+        ax, _ = tsplot_robust(df, time='cum_cost', condition='policy',
+                              unit='iteration', value='cum_r', ci=CI)
 
         plt.ylabel('Cumulative reward')
         plt.xlabel('Budget spent')
@@ -339,8 +356,8 @@ class ResultPlotter(Plotter):
         df['cum_cost'] = -1 * df.groupby(['policy', 'iteration'])['cost'].cumsum()
         df = df.groupby(['policy', 'iteration', 'cum_cost'],
                         as_index=False)['worker'].max()
-        ax = tsplot_robust(df, time='cum_cost', condition='policy',
-                           unit='iteration', value='worker', ci=CI)
+        ax, _ = tsplot_robust(df, time='cum_cost', condition='policy',
+                              unit='iteration', value='worker', ci=CI)
 
         plt.ylabel('Mean workers hired')
         plt.xlabel('Budget spent')
@@ -363,8 +380,10 @@ class TimingsPlotter(Plotter):
         for t in ('resolve', 'estimate'):
             df_filter = df_timings[df_timings['type'] == t]
             if len(df_filter.index) > 0:
-                ax = tsplot_robust(df_filter, time='worker', unit='iteration',
-                                   condition='policy', value='duration', ci=CI)
+                ax, _ = tsplot_robust(df_filter,
+                                      time='worker', unit='iteration',
+                                      condition='policy', value='duration',
+                                      ci=CI)
                 fname = outfname + '-{}'.format(t)
                 plt.xlabel('Worker number')
                 plt.ylabel('Mean seconds to {}'.format(t))
@@ -422,13 +441,21 @@ class ModelPlotter(Plotter):
         for i, df_i in df.groupby('iteration'):
             yield df_i.sort('worker')['v_single']
 
-    def make_plots(self, outfname):
-        self.plot_params_vector(outfname)
-        self.plot_params_vector(outfname + '-quart123', quantile=[0, 0.75])
-        self.plot_params_vector(outfname + '-quart4', quantile=[0.75, 1])
-        self.plot_params_component(outfname)
-        self.plot_params_component(outfname + '-quart123', quantile=[0, 0.75])
-        self.plot_params_component(outfname + '-quart4', quantile=[0.75, 1])
+    def make_plots(self, outdir):
+        quart123dir = os.path.join(outdir, 'quart123')
+        quart4dir = os.path.join(outdir, 'quart4')
+        util.ensure_dir(quart123dir)
+        util.ensure_dir(quart4dir)
+        self.plot_params_vector(os.path.join(outdir, 'params'))
+        self.plot_params_vector(os.path.join(quart123dir, 'params'),
+                                quantile=[0, 0.75])
+        self.plot_params_vector(os.path.join(quart4dir, 'params'),
+                                quantile=[0.75, 1])
+        self.plot_params_component(os.path.join(outdir, 'params'))
+        self.plot_params_component(os.path.join(quart123dir, 'params'),
+                                   quantile=[0, 0.75])
+        self.plot_params_component(os.path.join(quart4dir, 'params'),
+                                   quantile=[0.75, 1])
 
     def plot_params_vector(self, outfname, quantile=[0, 1]):
         """Plot param vector properties."""
@@ -437,9 +464,9 @@ class ModelPlotter(Plotter):
             df_est = self.filter_workers_quantile(df_est, *quantile)
         df_est['param-iteration'] = df_est['param'] + '-' + df_est['iteration'].astype(str)
         for s in ['l1', 'l2']:
-            ax = tsplot_robust(df_est, time='worker', unit='param-iteration',
-                               condition='policy', value='dist_{}'.format(s),
-                               ci=CI)
+            ax, _ = tsplot_robust(df_est, time='worker', unit='param-iteration',
+                                  condition='policy', value='dist_{}'.format(s),
+                                  ci=CI)
             ax.set_ylim(0, 1)
             ax.set_xlim(0, None)
             plt.ylabel('Mean distance ({}) from true parameter values'.format(s))
@@ -451,8 +478,9 @@ class ModelPlotter(Plotter):
         for p, df_p in df_est.groupby('policy', as_index=False):
             for s in ['dist_l1', 'dist_l2', 'dirichlet_var_l1']:
                 if s in df_p.columns:
-                    ax = tsplot_robust(df_p, time='worker', unit='iteration',
-                                       condition='param', value=s, ci=CI)
+                    ax, df_stat = tsplot_robust(
+                            df_p, time='worker', unit='iteration',
+                            condition='param', value=s, ci=CI)
                     ax.set_ylim(0, 1)
                     ax.set_xlim(0, None)
                     if s.startswith('dist'):
@@ -463,6 +491,7 @@ class ModelPlotter(Plotter):
                     fname = outfname + '_{}_p-{}'.format(s, p)
                     savefig(ax, fname + '.png')
                     plt.close()
+                    df_stat.to_csv(fname + '.csv', index=False)
 
     def plot_params_component(self, outfname, quantile=[0, 1]):
         """Plot param component properties."""
@@ -472,9 +501,10 @@ class ModelPlotter(Plotter):
         for p, df_p in df_split.groupby('policy', as_index=False):
             for s in ['v', 'dirichlet_mean', 'dirichlet_mode']:
                 if '{}_single'.format(s) in df_p.columns:
-                    ax = tsplot_robust(df_p, time='worker', unit='iteration',
-                                       condition='param',
-                                       value='{}_single'.format(s), ci=CI)
+                    ax, df_stat = tsplot_robust(
+                            df_p, time='worker',
+                            unit='iteration', condition='param',
+                            value='{}_single'.format(s), ci=CI)
                     ax.set_ylim(0, 1)
                     ax.set_xlim(0, None)
                     plt.ylabel('Estimated parameter {}'.format(s))
@@ -482,6 +512,7 @@ class ModelPlotter(Plotter):
                     fname = outfname + '_{}_p-{}'.format(s, p)
                     savefig(ax, fname + '.png')
                     plt.close()
+                    df_stat.to_csv(fname + '.csv', index=False)
 
 def make_plots(infiles, outdir, models=[], timings=[], names=None,
                policies=None, line=False, log=True, worker_interval=5):
@@ -522,7 +553,7 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
     df_model = df_model.drop_duplicates()
     if len(df_model['policy'].dropna().unique()) > 0:
         mplotter = ModelPlotter(df_model)
-        mplotter.make_plots(os.path.join(outdir, 'params'))
+        mplotter.make_plots(os.path.join(outdir))
     print 'Done plotting params'
 
     rplotter = ResultPlotter(df, df_names)
