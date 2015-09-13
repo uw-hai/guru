@@ -308,20 +308,6 @@ class ResultPlotter(Plotter):
         plt.close()
         df_stat.to_csv(outfname + '.csv', index=False)
 
-        # Plot distribution.
-        ax, df_stat = tsplot_robust(actions, time='worker', condition='policy',
-                                    unit='iteration', value='t_rel',
-                                    logx=logx, logy=logy)
-        plt.ylim(0, None)
-        plt.xlim(0, None)
-        plt.xlabel('Worker')
-        plt.ylabel('Number of actions')
-        savefig(ax, outfname + '_dist.png')
-        plt.close()
-        df_stat.to_csv(outfname + '_dist.csv', index=False)
-
-
-
     def plot_actions_by_worker(self, outfname, line=True,
                                logx=False, logy=True):
         df = self.df
