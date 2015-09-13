@@ -77,7 +77,7 @@ def dirichlet_mode(x):
 
 def equation_safe_filename(eq):
     if isinstance(eq, basestring):
-        return eq.replace('/', 'div')
+        return eq.replace('/', 'div').replace('math.', '')
     else:
         return eq
 
