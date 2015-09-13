@@ -36,7 +36,8 @@ def savefig(ax, name):
     else:
         plt.savefig(name, bbox_inches='tight')
 
-def tsplot_robust(df, time, unit, condition, value, ci):
+def tsplot_robust(df, time, unit, condition, value, ci=95,
+                  logx=False, logy=False):
     """Plot timeseries data with different x measurements.
 
     Returns:
@@ -68,21 +69,74 @@ def tsplot_robust(df, time, unit, condition, value, ci):
         ax = plt.gca()
         for c, df in df_stat.groupby(condition):
             line, = plt.plot(df[time], df['mean'], label=c)
-            ax.fill_between(df[time],
-                            df['mean'] - 1.96 * df['sem'],
-                            df['mean'] + 1.96 * df['sem'],
-                            facecolor=line.get_color(),
-                            alpha=0.5,
-                            where=np.isfinite(df['sem']))
+            # Disable filling for logy, since may exceed desirable range.
+            if not logy:
+                ax.fill_between(df[time],
+                                df['mean'] - 1.96 * df['sem'],
+                                df['mean'] + 1.96 * df['sem'],
+                                facecolor=line.get_color(),
+                                alpha=0.5,
+                                where=np.isfinite(df['sem']))
         plt.legend()
+    if logy:
+        plt.yscale('log')
+    if logx:
+        plt.xscale('log')
+    return ax, df_stat
+
+def tsplot_dist(df, time, unit, condition, value,
+                logx=False, logy=False):
+    """Plot mean and two standard deviations interval.
+
+    Returns:
+        ax:     Axis object.
+        df:     Dataframe containing: time, condition, mean, n, std.
+
+    """
+    n = df.groupby([condition, time])[value].count()
+    n.name = 'n'
+    means = df.groupby([condition, time])[value].mean()
+    means.name = 'mean'
+    std = df.groupby([condition, time])[value].std()
+    std.name = 'std'
+    df_stat = pd.concat([means, n, std], axis=1).reset_index()
+
+    # Use seaborn iff all conditions have the same number of measurements for
+    # each time point.
+    n_pivot = n.reset_index().pivot(index=time, columns=condition, values='n')
+    if len(df) == 0:
+        raise Exception('Unable to plot empty dataframe')
+    if len(n_pivot) == 1:
+        ax = sns.boxplot(y=condition, x=value, data=df, orient='h')
+    else:
+        ax = plt.gca()
+        for c, df in df_stat.groupby(condition):
+            line, = plt.plot(df[time], df['mean'], label=c)
+            # Disable filling for logy, since may exceed desirable range.
+            if not logy:
+                ax.fill_between(df[time],
+                                df['mean'] - 1.96 * df['std'],
+                                df['mean'] + 1.96 * df['std'],
+                                facecolor=line.get_color(),
+                                alpha=0.5,
+                                where=np.isfinite(df['std']))
+        plt.legend()
+    if logy:
+        plt.yscale('log')
+    if logx:
+        plt.xscale('log')
     return ax, df_stat
 
 class Plotter(object):
     def __init__(self, df, df_names=None):
         self.df = df
+        self.df_full = df
         self.df_names = df_names
         self.uses_gold_known = (df_names is not None and
                                 'uses_gold' in df_names.columns)
+
+    def set_quantile(self, quantile=[0, 1]):
+        self.df = self.filter_workers_quantile(self.df_full, *quantile)
 
     @staticmethod
     def filter_workers_quantile(df, q1, q2):
@@ -167,6 +221,7 @@ class ResultPlotter(Plotter):
         self.df = self.df.sort('t')
         self.df['t_rel'] = self.df.groupby(
             ['policy', 'iteration', 'worker'])['t'].apply(lambda s: s - s.min())
+        self.df_full = self.df
 
     def make_plots(self, outdir, worker_interval, line, logx):
         if self.uses_gold_known:
@@ -179,13 +234,18 @@ class ResultPlotter(Plotter):
         util.ensure_dir(quart123dir)
         util.ensure_dir(quart4dir)
 
-        self.plot_reward_by_t(os.path.join(outdir, 'r_t'))
-        self.plot_reward_by_budget(os.path.join(outdir, 'r_cost'))
-        self.plot_reward_by_budget(os.path.join(quart123dir, 'r_cost'),
-                                   quantile=[0, 0.75])
-        self.plot_reward_by_budget(os.path.join(quart4dir, 'r_cost'),
-                                   quantile=[0.75, 1])
-        self.plot_n_workers_by_budget(os.path.join(outdir, 'n_workers_cost'))
+        for d, q in [(outdir, [0, 1]),
+                     (quart123dir, [0, 0.75]),
+                     (quart4dir, [0.75, 1])]:
+            self.set_quantile(q)
+            self.plot_actions_by_worker_agg(
+                os.path.join(d, 'n_actions_by_worker'))
+            self.plot_actions_by_worker(
+                os.path.join(d, 'n_actions_by_worker'))
+            self.plot_reward_by_t(os.path.join(d, 'r_t'))
+            self.plot_reward_by_budget(os.path.join(d, 'r_cost'))
+            self.plot_n_workers_by_budget(os.path.join(d, 'n_workers_cost'))
+        self.set_quantile([0, 1])
         self.plot_n_workers(os.path.join(outdir, 'n_workers'))
 
         for p, df_filter in self.df.groupby('policy'):
@@ -232,7 +292,68 @@ class ResultPlotter(Plotter):
             plt.close()
             df_b.to_csv(fname + '.csv', index=False)
 
-    def plot_actions(self, df, outfname, line=False, logx=True):
+    def plot_actions_by_worker_agg(self, outfname, logx=False, logy=True):
+        """Plot timeseries with mean number of actions per worker."""
+        df = self.df
+        actions = df.groupby(
+            ['policy', 'iteration', 'worker'], as_index=False)['t_rel'].max()
+        ax, df_stat = tsplot_robust(actions, time='worker', condition='policy',
+                                    unit='iteration', value='t_rel', ci=95,
+                                    logx=logx, logy=logy)
+        plt.ylim(0, None)
+        plt.xlim(0, None)
+        plt.xlabel('Worker')
+        plt.ylabel('Mean number of actions')
+        savefig(ax, outfname + '.png')
+        plt.close()
+        df_stat.to_csv(outfname + '.csv', index=False)
+
+        # Plot distribution.
+        ax, df_stat = tsplot_robust(actions, time='worker', condition='policy',
+                                    unit='iteration', value='t_rel',
+                                    logx=logx, logy=logy)
+        plt.ylim(0, None)
+        plt.xlim(0, None)
+        plt.xlabel('Worker')
+        plt.ylabel('Number of actions')
+        savefig(ax, outfname + '_dist.png')
+        plt.close()
+        df_stat.to_csv(outfname + '_dist.csv', index=False)
+
+
+
+    def plot_actions_by_worker(self, outfname, line=True,
+                               logx=False, logy=True):
+        df = self.df
+        actions = df.groupby(['policy', 'iteration', 'worker'])['a'].value_counts().unstack().fillna(0.).reset_index()
+        actions.rename(columns=dict((x, self.get_name('action', x)) for
+                                    x in actions.columns[3:]), inplace=True)
+        actions = actions.groupby(['policy', 'worker'], as_index=False)[actions.columns.values[3:]].mean()
+        for p, df_a in actions.groupby('policy', as_index=False):
+            if not line:
+                self.step_by_col(df_a, 'worker').plot(
+                    x='worker', y=sorted(actions.columns[2:]),
+                    kind='area', logx=logx)
+            else:
+                if logy:
+                    df_a[actions.columns[2:]] += 1
+                df_a.plot(x='worker', y=sorted(actions.columns[2:]),
+                          kind='line', logx=logx, logy=logy)
+            plt.xlim(0, None)
+            plt.ylim(0, None)
+            ylabel = 'Mean number of actions'
+            if logy:
+                ylabel += ' (plus 1)'
+            plt.ylabel(ylabel)
+            plt.xlabel('Worker')
+
+            fname = outfname + '_p-{}'.format(p)
+            ax = plt.gca()
+            savefig(ax, fname + '.png')
+            plt.close()
+            df_a.to_csv(fname + '.csv', index=False)
+
+    def plot_actions(self, df, outfname, line=True, logx=False):
         """Plot actions for subset of entire dataframe"""
         actions = df.groupby(['policy', 't_rel'])['a'].value_counts().unstack().fillna(0.).reset_index()
         actions.rename(columns=dict((x, self.get_name('action', x)) for
@@ -332,10 +453,8 @@ class ResultPlotter(Plotter):
         #df.sort(['policy','iteration','episode']).to_csv(fname + '.csv',
         #                                                 index=False)
 
-    def plot_reward_by_budget(self, outfname, quantile=[0, 1]):
+    def plot_reward_by_budget(self, outfname):
         df = self.df
-        if quantile != [0, 1]:
-            df = self.filter_workers_quantile(df, *quantile)
         df['r'] = df['r'].fillna(0)
         df['cum_r'] = df.groupby(['policy', 'iteration'])['r'].cumsum()
         df['cum_cost'] = -1 * df.groupby(['policy', 'iteration'])['cost'].cumsum()
@@ -435,6 +554,15 @@ class ModelPlotter(Plotter):
         self.df_est = df_est
         self.df_split = df_split
 
+        self.df_est_full = self.df_est
+        self.df_split_full = self.df_split
+
+    def set_quantile(self, quantile=[0, 1]):
+        super(ModelPlotter, self).set_quantile(quantile)
+        self.df_est = self.filter_workers_quantile(self.df_est_full, *quantile)
+        self.df_split = self.filter_workers_quantile(self.df_split_full,
+                                                     *quantile)
+
     def get_param_component_traces(self, param, policy):
         df = self.df_split[(self.df_split.param == param) &
                            (self.df_split.policy == policy)]
@@ -446,22 +574,18 @@ class ModelPlotter(Plotter):
         quart4dir = os.path.join(outdir, 'quart4')
         util.ensure_dir(quart123dir)
         util.ensure_dir(quart4dir)
-        self.plot_params_vector(os.path.join(outdir, 'params'))
-        self.plot_params_vector(os.path.join(quart123dir, 'params'),
-                                quantile=[0, 0.75])
-        self.plot_params_vector(os.path.join(quart4dir, 'params'),
-                                quantile=[0.75, 1])
-        self.plot_params_component(os.path.join(outdir, 'params'))
-        self.plot_params_component(os.path.join(quart123dir, 'params'),
-                                   quantile=[0, 0.75])
-        self.plot_params_component(os.path.join(quart4dir, 'params'),
-                                   quantile=[0.75, 1])
 
-    def plot_params_vector(self, outfname, quantile=[0, 1]):
+        for d, q in [(outdir, [0, 1]),
+                     (quart123dir, [0, 0.75]),
+                     (quart4dir, [0.75, 1])]:
+            self.set_quantile(q)
+            self.plot_params_vector(os.path.join(outdir, 'params'))
+            self.plot_params_component(os.path.join(outdir, 'params'))
+        self.set_quantile([0, 1])
+
+    def plot_params_vector(self, outfname):
         """Plot param vector properties."""
         df_est = self.df_est
-        if quantile != [0, 1]:
-            df_est = self.filter_workers_quantile(df_est, *quantile)
         df_est['param-iteration'] = df_est['param'] + '-' + df_est['iteration'].astype(str)
         for s in ['l1', 'l2']:
             ax, _ = tsplot_robust(df_est, time='worker', unit='param-iteration',
@@ -493,11 +617,9 @@ class ModelPlotter(Plotter):
                     plt.close()
                     df_stat.to_csv(fname + '.csv', index=False)
 
-    def plot_params_component(self, outfname, quantile=[0, 1]):
+    def plot_params_component(self, outfname):
         """Plot param component properties."""
         df_split = self.df_split
-        if quantile != [0, 1]:
-            df_split = self.filter_workers_quantile(df_split, *quantile)
         for p, df_p in df_split.groupby('policy', as_index=False):
             for s in ['v', 'dirichlet_mean', 'dirichlet_mode']:
                 if '{}_single'.format(s) in df_p.columns:
