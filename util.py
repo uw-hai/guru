@@ -1,88 +1,13 @@
-"""util.py
+"""util.py"""
 
-General utilities
-
-"""
-
-import os
-
-def get_or_default(d, k, default_v):
-    try:
-        return d[k]
-    except KeyError:
-        return default_v
-
-def ensure_dir(directory):
-    if not os.path.exists(directory):
-        os.makedirs(directory) 
-
-def last_equal(lst):
-    """Return longest sequence of equal elements at the end of a list.
-
-    >>> last_equal([])
-    []
-    >>> last_equal([1, 2, 3, 3, 3])
-    [3, 3, 3]
-    >>> last_equal([1, 2, 3])
-    [3]
-
-    """
-    els = []
-    for v in reversed(lst):
-        if len(els) == 0 or v == els[0]:
-            els.append(v)
-        else:
-            break
-    return els
-
-def last_true(lst, f):
-    """Return longest sequence of elements at end of list that pass f.
-
-    >>> last_true([], lambda x: x % 2 == 1)
-    []
-    >>> last_true([1, 2, 3, 3, 3], lambda x: x % 2 == 1)
-    [3, 3, 3]
-    >>> last_true([1, 2, 3], lambda x: x % 2 == 1)
-    [3]
-    >>> last_true([1, 2, 3], lambda x: x % 2 == 0)
-    []
-
-    """
-    els = last_equal(map(f, lst))
-    if len(els) == 0 or els[0]:
-        return lst[-1 * len(els):]
-    else:
-        return []
-
-
-#--------- Statistics ------
-
-from scipy.special import gamma
-import scipy.stats as ss
-
-beta = ss.beta.pdf
-
-def dbeta(x, a, b):
-    return gamma(a+b)/(gamma(a)*gamma(b)) * \
-           ((a-1) * x**(a-2) * (1-x)**(b-1) - x**(a-1) * (b-1) * (1-x)**(b-2))
-
-assert dbeta(0.5, 2, 2) == 0
-assert dbeta(0.6, 2, 2) != 0
-
-def dirichlet_mode(x):
-    return [(v - 1) / (sum(x) - len(x)) for v in x]
-
-
-#----------- WorkLearn-specific utils --------
+from research_utils.util import *
+import pandas as pd
 
 def equation_safe_filename(eq):
     if isinstance(eq, basestring):
         return eq.replace('/', 'div').replace('math.', '')
     else:
         return eq
-
-import pandas as pd
-import csv
 
 def worklearn_runtime(results_path):
     """Return experiment runtime in seconds.

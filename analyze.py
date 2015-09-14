@@ -24,108 +24,10 @@ mpl.use('agg')
 from matplotlib import pyplot as plt
 import seaborn as sns
 import util
+from util import savefig, tsplot_robust
 import work_learn_problem as wlp
 
 CI = 95  # Confidence interval
-
-def savefig(ax, name):
-    """Save the current figure taking into account legends."""
-    lgd = ax.legend()
-    if lgd is not None:
-        plt.savefig(name, bbox_inches='tight', bbox_extra_artists=(lgd,))
-    else:
-        plt.savefig(name, bbox_inches='tight')
-
-def tsplot_robust(df, time, unit, condition, value, ci=95,
-                  logx=False, logy=False):
-    """Plot timeseries data with different x measurements.
-
-    Returns:
-        ax:     Axis object.
-        df:     Dataframe containing: time, condition, mean, n, sem.
-
-    """
-    n = df.groupby([condition, time])[value].count()
-    n.name = 'n'
-    means = df.groupby([condition, time])[value].mean()
-    means.name = 'mean'
-    sem = df.groupby([condition, time])[value].aggregate(ss.sem)
-    sem.name = 'sem'
-    df_stat = pd.concat([means, n, sem], axis=1).reset_index()
-
-    # Use seaborn iff all conditions have the same number of measurements for
-    # each time point.
-    n_pivot = n.reset_index().pivot(index=time, columns=condition, values='n')
-    if len(df) == 0:
-        raise Exception('Unable to plot empty dataframe')
-    if len(n_pivot) == 1:
-        ax = sns.barplot(condition, y=value, data=df, ci=CI)
-    elif len(n_pivot) == sum(n_pivot.duplicated()) + 1:
-        ax = sns.tsplot(df, time=time, condition=condition,
-                        unit=unit, value=value, ci=ci)
-    else:
-        if ci != 95:
-            raise NotImplementedError
-        ax = plt.gca()
-        for c, df in df_stat.groupby(condition):
-            line, = plt.plot(df[time], df['mean'], label=c)
-            # Disable filling for logy, since may exceed desirable range.
-            if not logy:
-                ax.fill_between(df[time],
-                                df['mean'] - 1.96 * df['sem'],
-                                df['mean'] + 1.96 * df['sem'],
-                                facecolor=line.get_color(),
-                                alpha=0.5,
-                                where=np.isfinite(df['sem']))
-        plt.legend()
-    if logy:
-        plt.yscale('log')
-    if logx:
-        plt.xscale('log')
-    return ax, df_stat
-
-def tsplot_dist(df, time, unit, condition, value,
-                logx=False, logy=False):
-    """Plot mean and two standard deviations interval.
-
-    Returns:
-        ax:     Axis object.
-        df:     Dataframe containing: time, condition, mean, n, std.
-
-    """
-    n = df.groupby([condition, time])[value].count()
-    n.name = 'n'
-    means = df.groupby([condition, time])[value].mean()
-    means.name = 'mean'
-    std = df.groupby([condition, time])[value].std()
-    std.name = 'std'
-    df_stat = pd.concat([means, n, std], axis=1).reset_index()
-
-    # Use seaborn iff all conditions have the same number of measurements for
-    # each time point.
-    n_pivot = n.reset_index().pivot(index=time, columns=condition, values='n')
-    if len(df) == 0:
-        raise Exception('Unable to plot empty dataframe')
-    if len(n_pivot) == 1:
-        ax = sns.boxplot(y=condition, x=value, data=df, orient='h')
-    else:
-        ax = plt.gca()
-        for c, df in df_stat.groupby(condition):
-            line, = plt.plot(df[time], df['mean'], label=c)
-            # Disable filling for logy, since may exceed desirable range.
-            if not logy:
-                ax.fill_between(df[time],
-                                df['mean'] - 1.96 * df['std'],
-                                df['mean'] + 1.96 * df['std'],
-                                facecolor=line.get_color(),
-                                alpha=0.5,
-                                where=np.isfinite(df['std']))
-        plt.legend()
-    if logy:
-        plt.yscale('log')
-    if logx:
-        plt.xscale('log')
-    return ax, df_stat
 
 class Plotter(object):
     def __init__(self, df, df_names=None):
