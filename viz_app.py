@@ -5,6 +5,7 @@ import pickle
 import networkx as nx
 import numpy as np
 import json
+import util
 
 tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 app = Flask(__name__, template_folder=tmpl_dir)
@@ -146,6 +147,15 @@ def index():
         'test.html', exp=exp, basename=basename,
         policy=policy, edges=edges, edges_treemap=edges_treemap,
         edges_treemap_other=edges_treemap_other)
+
+@app.route('/status')
+def status():
+    exp = request.args.get('e')
+    d = os.path.join('res', exp)
+    results = [f for f in os.listdir(d) if f.endswith('.txt')]
+    iterations = [util.worklearn_current_iteration(os.path.join(d, r)) for
+                  r in results]
+    return render_template('status.html', iterations=iterations)
  
 if __name__ == "__main__":
     app.run(host='0.0.0.0', debug=True)

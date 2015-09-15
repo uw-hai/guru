@@ -1,0 +1,17 @@
+<table>
+  <tr>
+    <th>File</th>
+    <th>Policy</th>
+    <th>Iterations (max)</th>
+  </tr>
+{% for iters in iterations %}
+  {% set rowloop = loop %}
+  {% for p in iters %}
+    <tr>
+      <td>{{ rowloop.index }}</td>
+      <td>{{ p }}</td>
+      <td>{{ iters[p] }}</td>
+    </tr>
+  {% endfor %}
+{% endfor %}
+</table>
