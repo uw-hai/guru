@@ -277,11 +277,8 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
         if resolve_interval is not None:
             p['resolve_interval'] = resolve_interval
     # Create aggregate name for policies.
-    policies_name = ''
-    for i, p in enumerate(sorted(policies)):
-        if i:
-            policies_name += '-'
-        policies_name += p['type']
+    def make_policy_str(p):
+        s = p['type']
         for k in (k for k in p if k not in ['type',
                                             'epsilon',
                                             'thompson',
@@ -292,12 +289,21 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
                 value_string  = '_'.join(str(x) for x in p[k])
             else:
                 value_string = p[k]
-            policies_name += '-{}_{}'.format(k, value_string)
+            if value_string is not None:
+                s += '-{}_{}'.format(k, value_string)
+        return s
+    policies_name = ''
+    for i, p in enumerate(sorted(policies)):
+        if i:
+            policies_name += '-'
+        policies_name += make_policy_str(p)
     if epsilon is not None:
         policies_name += '-eps_{}'.format(equation_safe_filename(epsilon))
-        policies_name += '-explore_{}'.format('_'.join(explore_actions))
         if explore_policy is not None:
-            policies_name += '-explore_p_{}'.format('_'.join(explore_actions))
+            policies_name += '-explore_p_{}'.format(
+                make_policy_str(explore_policy))
+        else:
+            policies_name += '-explore_{}'.format('_'.join(explore_actions))
     if thompson:
         policies_name += '-thomp'
     if resolve_interval is not None:
@@ -512,6 +518,11 @@ if __name__ == '__main__':
     parser.add_argument('--test_and_boot_n_test', type=int, nargs='+')
     parser.add_argument('--test_and_boot_n_work', type=int, nargs='+')
     parser.add_argument('--test_and_boot_accuracy', type=float, nargs='+')
+    parser.add_argument('--test_and_boot_n_blocks', type=int,
+                        help='Number of test-work blocks')
+    parser.add_argument('--test_and_boot_final_action', type=str,
+                        choices=['work', 'boot'], default='work',
+                        help='Action to take after n test-work blocks')
     parser.add_argument('--zmdp_discount', type=float, nargs='+',
                         default=[0.99])
     parser.add_argument('--zmdp_timeout', type=int, nargs='+', default=[60])
@@ -565,6 +576,8 @@ if __name__ == '__main__':
             p['n_test'] = args.test_and_boot_n_test
             p['n_work'] = args.test_and_boot_n_work
             p['accuracy'] = args.test_and_boot_accuracy
+            p['n_blocks'] = args.test_and_boot_n_blocks
+            p['final_action'] = args.test_and_boot_final_action
         elif p_type == 'zmdp':
             p['discount'] = args.zmdp_discount
             p['timeout'] = args.zmdp_timeout

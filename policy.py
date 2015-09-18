@@ -53,6 +53,8 @@ class Policy:
             self.n_test = kwargs['n_test']
             self.n_work = kwargs['n_work']
             self.accuracy = kwargs['accuracy']
+            self.n_blocks = get_or_default(kwargs, 'n_blocks', None)
+            self.final_action = get_or_default(kwargs, 'final_action', 'work')
         else:
             raise NotImplementedError
 
@@ -223,12 +225,24 @@ class Policy:
                     else:
                         return a_ask
         elif self.policy == 'test_and_boot':
+            if self.final_action == 'work':
+                a_final = a_ask
+            elif self.final_action == 'boot':
+                a_final = a_boot
+            else:
+                raise Exception('Unexpected final action type')
             n_work_actions = len([a for a in current_actions if
                                   a == a_ask])
+            # If all blocks done, take final action.
+            block_length = model.n_skills * self.n_test + self.n_work
+            n_blocks_completed = len(current_actions) / block_length
+            if (self.n_blocks is not None and
+                    n_blocks_completed >= self.n_blocks):
+                return a_final
             last_action_block = util.last_true(
                 current_actions, lambda a: model.actions[a].is_quiz())
             test_counts = collections.Counter(last_action_block)
-            if n_work_actions % self.n_work == 0:
+            if self.n_work == 0 or n_work_actions % self.n_work == 0:
                 test_actions = [i for i, a in enumerate(model.actions) if
                                 a.is_quiz()]
                 test_actions_remaining = [a for a in test_actions if
@@ -372,6 +386,10 @@ class Policy:
         elif self.policy == 'test_and_boot':
             s = self.policy + '-n_test_{}-n_work_{}-acc_{}'.format(
                     self.n_test, self.n_work, self.accuracy)
+            if self.n_blocks is not None:
+                s += '-n_blocks_{}-final_{}'.format(
+                        self.n_blocks, self.final_action)
+
         else:
             raise NotImplementedError
 
