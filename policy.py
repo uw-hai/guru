@@ -116,7 +116,7 @@ class Policy:
         if estimate_p:
             start = time.clock()
             model.estimate(history,
-                           random_init=(len(self.params_estimated) == 0))
+                           last_params=(len(self.params_estimated) > 0))
             if self.thompson:
                 model.thompson_sample()
             self.estimate_times[worker] = time.clock() - start

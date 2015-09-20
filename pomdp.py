@@ -391,7 +391,7 @@ class POMDPModel:
                 return dict() if exponents else 1
             else:
                 return dict() if exponents else 0
-        elif act.is_quiz() or act.name == 'tell':
+        elif act.is_quiz():
             # Assume teaching actions ask questions that require only the
             # skill being taught.
             p_r_gold = [int(i == st.quiz_val) for i in xrange(self.n_skills)]
@@ -651,23 +651,13 @@ class POMDPModel:
                             p in params)
         return map_estimate, params
 
-    def estimate(self, history, random_init=False, ll_max_improv=0.001):
-        """Estimate parameters from history
-        
-        Args:
-            random_init:    Initialize randomly rather than with last values.
-            
-        """
+    def estimate_once(self, history, random_init, ll_max_improv):
+        """Run EM starting from a single initialization."""
         if random_init:
             params = dict()
-            # TODO: This could be made more concise if we could rely on
-            # self.params having arrays of the correct size.
             for p in self.params:
-                if p == 'p_worker':
-                    params[p] = np.random.dirichlet(
-                        [1 for i in xrange(self.n_worker_classes)])
-                elif p not in self.params_fixed:
-                    params[p] = np.random.dirichlet([1, 1])
+                if p not in self.params_fixed:
+                    params[p] = np.random.dirichlet(self.hyperparams.p[p])
         else:
             params = dict((k, copy.copy(self.params[k])) for
                           k in self.params if k not in self.params_fixed)
@@ -677,7 +667,7 @@ class POMDPModel:
         t = 0
         #print 'EM step {}: {} ({})'.format(t, ll, ll_improv)
         #print params
-        while (ll_improv > ll_max_improv):
+        while (np.isnan(ll_improv) or ll_improv > ll_max_improv):
             t += 1
             params, hparams = self.estimate_M(ess_t, ess_o, ess_i)
             ess_t, ess_o, ess_i, ll_new = self.estimate_E(history, params)
@@ -686,8 +676,41 @@ class POMDPModel:
             #print 'EM step {}: {} ({})'.format(t, ll, ll_improv)
             #print params
 
-        self.params.update(params)
-        self.hparams = hparams
+        return params, hparams, ll
+
+    def estimate(self, history, last_params=True, random_restarts=3,
+                 ll_max_improv=0.001):
+        """Estimate parameters from history.
+
+        Args:
+            history:            History object.
+            last_params:        Initialize from last parameter values.
+            random_restarts:    Number of random initializations to perform.
+            ll_max_improv:      Threshold of % log-likelihood improvement.
+
+        """
+        params_best = None
+        hparams_best = None
+        ll_best = float('-inf')
+
+        # Run EM.
+        if last_params:
+            params, hparams, ll = self.estimate_once(
+                history, random_init=False, ll_max_improv=ll_max_improv)
+            if ll > ll_best:
+                params_best = params
+                hparams_best = hparams
+                ll_best = ll
+        for i in xrange(random_restarts):
+            params, hparams, ll = self.estimate_once(
+                history, random_init=True, ll_max_improv=ll_max_improv)
+            if ll > ll_best:
+                params_best = params
+                hparams_best = hparams
+                ll_best = ll
+
+        self.params.update(params_best)
+        self.hparams = hparams_best
 
     def thompson_sample(self):
         """Reset self.params by sampling from self.hparams"""
