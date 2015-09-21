@@ -524,6 +524,14 @@ class ModelPlotter(Plotter):
                     plt.close()
                     df_stat.to_csv(fname + '.csv', index=False)
 
+def load_names(f):
+    """Helper to load names .csv file to dataframe."""
+    return pd.read_csv(f,
+                       true_values=['True', 'true'],
+                       false_values=['False', 'false'])
+
+
+
 def make_plots(infiles, outdir, models=[], timings=[], names=None,
                policies=None, line=False, log=True, worker_interval=5):
     """Make plots.
@@ -535,9 +543,7 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
 
     """
     if names:
-        df_names = pd.read_csv(names,
-                               true_values=['True', 'true'],
-                               false_values=['False', 'false'])
+        df_names = load_names(names)
     else:
         df_names = None
 
