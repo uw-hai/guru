@@ -24,7 +24,15 @@ def worklearn_runtime(results_path):
     return diff[0]
 
 def worklearn_current_iteration(results_path):
-    df = pd.read_csv(results_path)
+    """Find max iterations done.
+
+    Returns: Dataframe from policy to number max iteration done, or None.
+
+    """
+    try:
+        df = pd.read_csv(results_path)
+    except ValueError:
+        return None
     d = dict()
     for p, df_s in df.groupby('policy'):
         d[p] = df_s['iteration'].max()
