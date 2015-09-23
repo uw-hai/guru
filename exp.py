@@ -15,6 +15,7 @@ import copy
 from pomdp import POMDPModel
 from policy import Policy
 from history import History
+import util
 from util import get_or_default, ensure_dir, equation_safe_filename
 import analyze
 
