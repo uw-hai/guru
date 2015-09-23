@@ -16,6 +16,7 @@ import ast
 import argparse
 import collections
 import itertools
+import logging
 import functools as ft
 import pandas as pd
 import numpy as np
@@ -29,6 +30,14 @@ from util import savefig, tsplot_robust
 import work_learn_problem as wlp
 
 CI = 95  # Confidence interval
+
+logger = mp.log_to_stderr()
+logger.setLevel(logging.INFO)
+
+
+def rename_classes_h(d):
+    """Move ModelPlotter classmethod to top-level for MultiProcessing."""
+    return ModelPlotter.rename_classes_h(**d)
 
 class Plotter(object):
     def __init__(self, df, df_names=None):
@@ -499,25 +508,31 @@ class ModelPlotter(Plotter):
         df_gt = df_gt.sort('param')
         df_est = df_est.sort('param')
 
-        v_gt = cls.df_params_to_vec(df_gt)
-        df_est_renamed = []
-        for ind, df in df_est.groupby(['iteration', 'policy', 'worker']):
-            v_est = cls.df_params_to_vec(df)
-            m = cls.best_matching(v_est, v_gt)
-            params = df['param'].map(
-                lambda x: x if x == 'p_worker' else ast.literal_eval(x))
-            params_renamed = params.map(
-                lambda p: p if (not isinstance(p, tuple) or
-                                len(p) == 2 and p[1] is None) else \
-                          tuple([p[0], m[p[1]]]))
-            df['param'] = params_renamed
-            class_ratio = df[df.param == 'p_worker']
-            class_ratio['v'] = class_ratio['v'].map(
-                lambda x: [x[i] for i in [m[k] for k in sorted(m)]])
-
-            df_est_renamed.append(
-                pd.concat([df[df.param != 'p_worker'], class_ratio]))
+        pool = mp.Pool(initializer=util.init_worker)
+        lst = [{'df_gt': df_gt, 'df_est': df} for _, df in
+               df_est.groupby(['iteration', 'policy', 'worker'])]
+        f = rename_classes_h
+        df_est_renamed = pool.map(f, lst)
         return pd.concat(df_est_renamed)
+
+    @classmethod
+    def rename_classes_h(cls, df_gt, df_est):
+        """Helper for inner loop of rename_classes."""
+        logger.info(df_est.index)
+        v_gt = cls.df_params_to_vec(df_gt)
+        v_est = cls.df_params_to_vec(df_est)
+        m = cls.best_matching(v_est, v_gt)
+        params = df_est['param'].map(
+            lambda x: x if x == 'p_worker' else ast.literal_eval(x))
+        params_renamed = params.map(
+            lambda p: p if (not isinstance(p, tuple) or
+                            len(p) == 2 and p[1] is None) else \
+                      tuple([p[0], m[p[1]]]))
+        df_est['param'] = params_renamed
+        class_ratio = df_est[df_est.param == 'p_worker']
+        class_ratio['v'] = class_ratio['v'].map(
+            lambda x: [x[i] for i in [m[k] for k in sorted(m)]])
+        return pd.concat([df_est[df_est.param != 'p_worker'], class_ratio])
 
     @staticmethod
     def best_matching(v1, v2):

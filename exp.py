@@ -11,7 +11,6 @@ import logging
 import numpy as np
 import random
 import functools as ft
-import traceback
 import copy
 from pomdp import POMDPModel
 from policy import Policy
@@ -23,24 +22,6 @@ BOOTS_TERM = 5  # Terminate after booting this many workers in a row.
 
 logger = mp.log_to_stderr()
 logger.setLevel(logging.INFO)
-
-def run_functor(functor, x):
-    """
-    Given a no-argument functor, run it and return its result. We can 
-    use this with multiprocessing.map and map it over a list of job 
-    functors to do them.
-
-    Handles getting more than multiprocessing's pitiful exception output
-
-    https://stackoverflow.com/questions/6126007/
-    python-getting-a-traceback-from-a-multiprocessing-process
-    """
-    try:
-        # This is where you do your actual work
-        return functor(x)
-    except:
-        # Put all exception text into an exception and raise that
-        raise Exception("".join(traceback.format_exception(*sys.exc_info())))
 
 def get_start_belief(fp):
     """DEPRECATED"""
@@ -380,17 +361,9 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
     t_writer.writeheader()
 
     # Create worker processes.
-    def init_worker():
-        """Function to make sure everyone happily exits on KeyboardInterrupt
-
-        See https://stackoverflow.com/questions/1408356/
-        keyboard-interrupts-with-pythons-multiprocessing-pool
-        """
-        import signal
-        signal.signal(signal.SIGINT, signal.SIG_IGN)
-    pool = mp.Pool(initializer=init_worker)
-    f = ft.partial(run_functor, ft.partial(run_function_from_dictionary,
-                                           run_policy_iteration))
+    pool = mp.Pool(initializer=util.init_worker)
+    f = ft.partial(util.run_functor, ft.partial(run_function_from_dictionary,
+                                                run_policy_iteration))
     try:
         for res in pool.imap_unordered(f, args_iter):
             results_rows, models_rows, timings_rows = res
