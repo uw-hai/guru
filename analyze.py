@@ -518,7 +518,6 @@ class ModelPlotter(Plotter):
     @classmethod
     def rename_classes_h(cls, df_gt, df_est):
         """Helper for inner loop of rename_classes."""
-        logger.info(df_est.index)
         v_gt = cls.df_params_to_vec(df_gt)
         v_est = cls.df_params_to_vec(df_est)
         m = cls.best_matching(v_est, v_gt)
