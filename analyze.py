@@ -140,6 +140,9 @@ class ResultPlotter(Plotter):
                      (quart123dir, [0, 0.75]),
                      (quart4dir, [0.75, 1])]:
             self.set_quantile(q)
+            ax = self.plot_iteration_runtime()
+            savefig(ax, os.path.join(d, 't.png'))
+            plt.close()
             self.plot_actions_by_worker_agg(
                 os.path.join(d, 'n_actions_by_worker'))
             self.plot_actions_by_worker(
@@ -380,6 +383,15 @@ class ResultPlotter(Plotter):
         plt.xlabel('Number of workers hired')
         savefig(ax, outfname + '.png')
         plt.close()
+
+    def plot_iteration_runtime(self):
+        df = self.df
+        df = df.groupby(['policy', 'iteration'], as_index=False)['sys_t'].agg(
+                lambda x: (x.max() - x.min()) / 3600)
+        ax = sns.boxplot(y='policy', x='sys_t', data=df, orient='h')
+        plt.xlabel('Iteration time (hours)')
+        return ax
+
 
 class TimingsPlotter(Plotter):
     def make_plots(self, outfname):
