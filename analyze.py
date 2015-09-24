@@ -410,13 +410,11 @@ class TimingsPlotter(Plotter):
 class ModelPlotter(Plotter):
     def __init__(self, df):
         super(ModelPlotter, self).__init__(df)
+        # Ensure params are strings for merge.
+        df['param'] = df['param'].astype(str)
         # Separate ground truth params
         df_gt = self.df[df.iteration.isnull()]
         df_est = self.df[df.iteration.notnull()]
-
-        df_gt['v'] = df_gt['v'].apply(ast.literal_eval)
-        df_est['v'] = df_est['v'].apply(ast.literal_eval)
-        df_est['hyper'] = df_est['hyper'].apply(ast.literal_eval)
 
         # Find dist from true param.
         df_est = df_est.merge(df_gt, how='left', on='param',
@@ -470,35 +468,28 @@ class ModelPlotter(Plotter):
     @classmethod
     def from_filenames(cls, filenames):
         """Load from files. Do one-time processing on files as needed."""
-        # Preprocess as needed.
+        dfs = []
         for f in filenames:
-            shutil.copy(f, f + '.bak')
             df = pd.read_csv(f)
+
+            df_gt = df[df.iteration.isnull()]
+            df_est = df[df.iteration.notnull()]
+            df_gt['v'] = df_gt['v'].apply(ast.literal_eval)
+            df_est['v'] = df_est['v'].apply(ast.literal_eval)
+            df_est['hyper'] = df_est['hyper'].apply(ast.literal_eval)
+
+            # Preprocess as needed.
             if 'param_aligned' not in df.columns:
                 # Separate ground truth params
-                df['v'] = df['v'].apply(ast.literal_eval)
-                df_gt = df[df.iteration.isnull()]
-                df_est = df[df.iteration.notnull()]
                 df_est_aligned = cls.rename_classes(df_gt, df_est)
-                df_est['v_aligned'] = df_est_aligned['v']
-                df_est['param_aligned'] = df_est_aligned['param']
-                df_new = pd.concat([df_gt, df_est])
-                assert len(df_new) == len(df)
-                df_new.to_csv(f, index=False)
+                df_est['v'] = df_est_aligned['v']
+                df_est['param'] = df_est_aligned['param']
+                dfs.append(df_est)
 
         # Initialize
-        df = pd.concat([pd.read_csv(f) for f in filenames],
-                             ignore_index=True)
-        df = df.drop_duplicates()
-
-        # Substitute aligned versions
-        df_gt = df[df.iteration.isnull()]
-        df_est = df[df.iteration.notnull()]
-        df_est['v'] = df_est['v_aligned']
-        df_est['param'] = df_est['param_aligned']
-        df_model = pd.concat([df_gt, df_est])
-        if len(df_model['policy'].dropna().unique()) > 0:
-            return cls(df_model)
+        df = pd.concat(dfs + [df_gt], ignore_index=True)
+        if len(df['policy'].dropna().unique()) > 0:
+            return cls(df)
         else:
             raise ValueError
 
