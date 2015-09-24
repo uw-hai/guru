@@ -34,8 +34,8 @@ def worklearn_current_iteration(results_path):
     except ValueError:
         return None
     d = dict()
-    for p, df_s in df.groupby('policy'):
-        d[p] = df_s['iteration'].max()
+    for p, df_s in df.groupby('policy')['iteration']:
+        d[p] = df_s.nunique()
     return d
 
 
