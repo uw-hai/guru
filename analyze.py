@@ -10,11 +10,13 @@ TODO: Parse model 'hyper' column, in place of alpha and beta.
 import multiprocessing as mp
 import time
 import os
+import shutil
 import csv
 import ast
 import argparse
 import collections
 import itertools
+import logging
 import functools as ft
 import pandas as pd
 import numpy as np
@@ -28,6 +30,14 @@ from util import savefig, tsplot_robust
 import work_learn_problem as wlp
 
 CI = 95  # Confidence interval
+
+logger = mp.log_to_stderr()
+logger.setLevel(logging.INFO)
+
+
+def rename_classes_h(d):
+    """Move ModelPlotter classmethod to top-level for MultiProcessing."""
+    return ModelPlotter.rename_classes_h(**d)
 
 class Plotter(object):
     def __init__(self, df, df_names=None):
@@ -412,13 +422,11 @@ class TimingsPlotter(Plotter):
 class ModelPlotter(Plotter):
     def __init__(self, df):
         super(ModelPlotter, self).__init__(df)
+        # Ensure params are strings for merge.
+        df['param'] = df['param'].astype(str)
         # Separate ground truth params
         df_gt = self.df[df.iteration.isnull()]
         df_est = self.df[df.iteration.notnull()]
-
-        df_gt['v'] = df_gt['v'].apply(ast.literal_eval)
-        df_est['v'] = df_est['v'].apply(ast.literal_eval)
-        df_est['hyper'] = df_est['hyper'].apply(ast.literal_eval)
 
         # Find dist from true param.
         df_est = df_est.merge(df_gt, how='left', on='param',
@@ -468,6 +476,99 @@ class ModelPlotter(Plotter):
                            (self.df_split.policy == policy)]
         for i, df_i in df.groupby('iteration'):
             yield df_i.sort('worker')['v_single']
+
+    @classmethod
+    def from_filenames(cls, filenames):
+        """Load from files. Do one-time processing on files as needed."""
+        dfs = []
+        for f in filenames:
+            df = pd.read_csv(f)
+
+            df_gt = df[df.iteration.isnull()]
+            df_est = df[df.iteration.notnull()]
+            df_gt['v'] = df_gt['v'].apply(ast.literal_eval)
+            df_est['v'] = df_est['v'].apply(ast.literal_eval)
+            df_est['hyper'] = df_est['hyper'].apply(ast.literal_eval)
+
+            # Preprocess as needed.
+            if 'param_aligned' not in df.columns:
+                # Separate ground truth params
+                df_est_aligned = cls.rename_classes(df_gt, df_est)
+                df_est['v'] = df_est_aligned['v']
+                df_est['param'] = df_est_aligned['param']
+                dfs.append(df_est)
+
+        # Initialize
+        df = pd.concat(dfs + [df_gt], ignore_index=True)
+        if len(df['policy'].dropna().unique()) > 0:
+            return cls(df)
+        else:
+            raise ValueError
+
+    @classmethod
+    def rename_classes(cls, df_gt, df_est):
+        """Return version of df_est with classes aligned to closest in gt"""
+        df_gt = df_gt.sort('param')
+        df_est = df_est.sort('param')
+
+        pool = mp.Pool(initializer=util.init_worker)
+        lst = [{'df_gt': df_gt, 'df_est': df} for _, df in
+               df_est.groupby(['iteration', 'policy', 'worker'])]
+        f = rename_classes_h
+        df_est_renamed = pool.map(f, lst)
+        return pd.concat(df_est_renamed)
+
+    @classmethod
+    def rename_classes_h(cls, df_gt, df_est):
+        """Helper for inner loop of rename_classes."""
+        v_gt = cls.df_params_to_vec(df_gt)
+        v_est = cls.df_params_to_vec(df_est)
+        m = cls.best_matching(v_est, v_gt)
+        params = df_est['param'].map(
+            lambda x: x if x == 'p_worker' else ast.literal_eval(x))
+        params_renamed = params.map(
+            lambda p: p if (not isinstance(p, tuple) or
+                            len(p) == 2 and p[1] is None) else \
+                      tuple([p[0], m[p[1]]]))
+        df_est['param'] = params_renamed
+        class_ratio = df_est[df_est.param == 'p_worker']
+        class_ratio['v'] = class_ratio['v'].map(
+            lambda x: [x[i] for i in [m[k] for k in sorted(m)]])
+        return pd.concat([df_est[df_est.param != 'p_worker'], class_ratio])
+
+    @staticmethod
+    def best_matching(v1, v2):
+        """Return mapping with lowest average distance between classes."""
+        assert len(v1) == len(v2)
+        c1 = list(v1)
+        best_c2 = None
+        best_dist = float('inf')
+        for c2 in itertools.permutations(v2):
+            vec1 = np.vstack([v1[c] for c in c1])
+            vec2 = np.vstack([v2[c] for c in c2])
+            dist = np.subtract(vec1, vec2)
+            dist_l1 = np.linalg.norm(dist, ord=1, axis=1)
+            dist_ave = np.mean(dist_l1)
+            if dist_ave < best_dist:
+                best_dist = dist_ave
+                best_c2 = c2
+        return dict(zip(c1, best_c2))
+
+    @staticmethod
+    def df_params_to_vec(df):
+        """Return dictionary from class to parameter vector"""
+        params = df['param'].map(lambda x: x if x == 'p_worker' else ast.literal_eval(x))
+        params_conditional = params[params.map(lambda x: isinstance(x, tuple))]
+        classes = params_conditional.map(lambda x: x[1])
+        classes.name = 'class'
+
+        class_ratio = df[df['param'] == 'p_worker']['v'].iloc[0]
+        df = pd.concat([df, classes], axis=1)
+        res = dict()
+        for c, df_c in df.groupby('class'):
+            c = int(c)
+            res[c] = np.hstack([class_ratio[c], np.hstack(df_c['v'].map(lambda x: x[:-1]))])
+        return res
 
     def make_plots(self, outdir):
         quart123dir = os.path.join(outdir, 'quart123')
@@ -576,12 +677,11 @@ def make_plots(infiles, outdir, models=[], timings=[], names=None,
             tplotter.make_plots(os.path.join(outdir, 't'))
             print 'Done plotting timings'
 
-    df_model = pd.concat([pd.read_csv(f) for f in models],
-                         ignore_index=True)
-    df_model = df_model.drop_duplicates()
-    if len(df_model['policy'].dropna().unique()) > 0:
-        mplotter = ModelPlotter(df_model)
+    try:
+        mplotter = ModelPlotter.from_filenames(models)
         mplotter.make_plots(os.path.join(outdir))
+    except ValueError:
+        pass
     print 'Done plotting params'
 
     rplotter = ResultPlotter(df, df_names)
