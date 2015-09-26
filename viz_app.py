@@ -153,9 +153,9 @@ def status():
     exp = request.args.get('e')
     d = os.path.join('res', exp)
     results = [f for f in os.listdir(d) if f.endswith('.txt')]
-    iterations = [util.worklearn_current_iteration(os.path.join(d, r)) for
+    iterations = [(r, util.worklearn_current_iteration(os.path.join(d, r))) for
                   r in results]
-    iterations = filter(lambda x: x is not None, iterations)
+    iterations = filter(lambda x: x[1] is not None, iterations)
     return render_template('status.html', iterations=iterations)
  
 if __name__ == "__main__":

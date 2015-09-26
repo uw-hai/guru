@@ -4,11 +4,11 @@
     <th>Policy</th>
     <th>Iterations complete</th>
   </tr>
-{% for iters in iterations %}
+{% for f, iters in iterations %}
   {% set rowloop = loop %}
   {% for p in iters %}
     <tr>
-      <td>{{ rowloop.index }}</td>
+      <td title="{{ f }}">{{ rowloop.index }}</td>
       <td>{{ p }}</td>
       <td>{{ iters[p] }}</td>
     </tr>
