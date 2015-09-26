@@ -678,7 +678,7 @@ class POMDPModel:
 
         return params, hparams, ll
 
-    def estimate(self, history, last_params=True, random_restarts=3,
+    def estimate(self, history, last_params=True, random_restarts=1,
                  ll_max_improv=0.001):
         """Estimate parameters from history.
 

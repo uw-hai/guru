@@ -398,7 +398,7 @@ class Policy:
                 s += '-eps_{}'.format(equation_safe_filename(self.epsilon))
                 s += '-explore_{}'.format('_'.join(self.explore_actions))
                 if self.explore_policy is not None:
-                    s += '-explore_p_{}'.format(self.explore_policy.policy)
+                    s += '-explore_p_{}'.format(self.explore_policy)
             if self.thompson:
                 s += '-thomp'
             if self.hyperparams and self.hyperparams != 'HyperParams':
