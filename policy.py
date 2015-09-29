@@ -132,8 +132,9 @@ class Policy:
             self.resolve_times[worker] = cutime2 - cutime1 + \
                                          cstime2 - cstime1
 
-    def get_next_action(self, iteration, history, valid_actions, belief=None):
+    def get_next_action(self, iteration, history, belief=None):
         """Return next action and whether or policy is exploring."""
+        valid_actions = self.get_valid_actions(history)
         worker = history.n_workers() - 1
         t = history.n_t(worker)
         if t == 0:
@@ -154,26 +155,25 @@ class Policy:
                   np.random.random() <= self.get_epsilon_probability(
                       worker, t)))):
             next_a, _ = self.explore_policy.get_next_action(
-                iteration, history, valid_actions, belief)
+                iteration, history, belief)
             return next_a, True
         else:
-            return self.get_best_action(iteration, history,
-                                        valid_actions, belief), False
+            return self.get_best_action(iteration, history, belief), False
 
 
-    def get_best_action(self, iteration, history, valid_actions, belief=None):
+    def get_best_action(self, iteration, history, belief=None):
         """Get best action according to policy.
 
         If policy requires an external_policy, assumes it already exists.
 
         Args:
             iteration (int):            Current iteration.
-            valid_actions (lst):        Indices of valid actions.
             history (History object):   Defined in history.py.
 
         Returns: Action index.
 
         """
+        valid_actions = self.get_valid_actions(history)
         model = self.model
         a_ask = model.actions.index(wlp.Action('ask'))
         a_boot = model.actions.index(wlp.Action('boot'))
@@ -361,17 +361,21 @@ class Policy:
                                n_states=len(model.states))
 
 
-    def get_valid_actions(self, belief, states, actions):
-        """Return valid actions given the current belief.
+    def get_valid_actions(self, history):
+        """Return valid action indices based on the history."""
+        current_AO = history.history[-1]
+        if len(current_AO) == 0:
+            current_actions = []
+            current_observations = []
+        else:
+            current_actions, current_observations, _ = zip(*current_AO)
 
-
-        Return actions valid from the first state with non-zero probability.
-        """
-        for p,s in zip(belief, states):
-            if p > 0:
-                return [i for i,a in enumerate(actions) if s.is_valid_action(a)]
-        raise Exception('Invalid belief state')
-             
+        try:
+            last_action = self.model.actions[current_actions[-1]]
+        except IndexError:
+            last_action = None
+        return [i for i, a in enumerate(self.model.actions) if
+                a.valid_after(last_action)]
 
     def __str__(self):
         if self.policy in ('appl', 'zmdp'):

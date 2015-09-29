@@ -127,10 +127,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
 
         while (budget_spent < budget and
                (o is None or model_gt.observations[o] != 'term')):
-            valid_actions = [i for i,a in enumerate(model_gt.actions) if
-                             model_gt.states[s].is_valid_action(a)]
-            a, explore = pol.get_next_action(
-                it, history, valid_actions, belief)
+            a, explore = pol.get_next_action(it, history, belief)
 
             # Simulate a step
             s, o, (cost, r) = model_gt.sample_SOR(s, a)

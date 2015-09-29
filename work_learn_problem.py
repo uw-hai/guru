@@ -13,6 +13,7 @@ class Action:
     def __init__(self, name, quiz_val=None):
         self.name = name
         self.quiz_val = quiz_val
+
     def get_type(self):
         """Return the action type"""
         if self.name == 'ask' and self.quiz_val is None:
@@ -21,8 +22,10 @@ class Action:
             return 'test'
         else:
             return self.name
+
     def is_quiz(self):
         return self.name == 'ask' and self.quiz_val is not None
+
     def uses_gold(self):
         """Return whether an action uses a gold question.
         
@@ -32,11 +35,21 @@ class Action:
         """
         return self.name == 'tell' or (self.name == 'ask' and
                                        self.quiz_val is not None)
+
+    def valid_after(self, action=None):
+        """Return whether this action may follow the provided action.
+
+        If action is None, return whether the action may be the first action.
+
+        """
+        return self.name != 'exp' or action.is_quiz()
+
     def __str__(self):
         s = self.name
         if self.quiz_val is not None:
             s += '-rule_{}'.format(self.quiz_val)
         return s
+
     def __eq__(self, a):
         return self.name == a.name and self.quiz_val == a.quiz_val
 
