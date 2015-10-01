@@ -15,6 +15,7 @@ import copy
 from pomdp import POMDPModel
 from policy import Policy
 from history import History
+from simulator import Simulator
 import util
 from util import get_or_default, ensure_dir, equation_safe_filename
 import analyze
@@ -86,7 +87,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
                  **policy)
 
     # Begin experiment
-    model_gt = POMDPModel(n_worker_classes, params=params_gt)
+    simulator = Simulator(params_gt)
     results = []
     history = History()
 
@@ -100,12 +101,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
         logger.info('{} (i:{}, w:{}, b:{:.2f}/{:.2f})'.format(
             pol, it, worker_n, budget_spent, budget))
         history.new_worker()
-        start_belief = model_gt.get_start_belief()
-        #logger.info('start belief: {}'.format(list(start_belief)))
-        start_state = np.random.choice(range(len(start_belief)),
-                                       p=start_belief)
-        s = start_state
-        o = None
+        s = simulator.new_worker()
 
         # Belief using estimated model.
         pol.estimate_and_solve(iteration, history)
@@ -125,16 +121,12 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
         worker_first_t = t
         t += 1
 
-        while (budget_spent < budget and
-               (o is None or model_gt.observations[o] != 'term')):
+        while (budget_spent < budget and not simulator.no_worker()):
             a, explore = pol.get_next_action(it, history, belief)
 
             # Simulate a step
-            s, o, (cost, r) = model_gt.sample_SOR(s, a)
-            # Terminal states are inconsistent so don't record any.
+            s, o, (cost, r) = simulator.sample_SOR(a)
             budget_spent -= cost
-            if model_gt.observations[o] == 'term':
-                s = None
             history.record(a, o, explore=explore)
             belief = pol.model.update_belief(belief, a, o)
 
