@@ -15,7 +15,7 @@ import copy
 from pomdp import POMDPModel
 from policy import Policy
 from history import History
-from simulator import Simulator
+from simulator import Simulator, LiveSimulator
 import util
 from util import get_or_default, ensure_dir, equation_safe_filename
 import analyze
@@ -87,7 +87,10 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
                  **policy)
 
     # Begin experiment
-    simulator = Simulator(params_gt)
+    if 'dataset' in params_gt and params_gt['dataset'] is not None:
+        simulator = LiveSimulator(params_gt, params_gt['dataset'])
+    else:
+        simulator = Simulator(params_gt)
     results = []
     history = History()
 
@@ -97,7 +100,8 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
     t = 0
     while (budget_spent < budget and
            not (worker_n > BOOTS_TERM and
-                all(n == 1 for n in n_actions_by_worker[-1 * BOOTS_TERM:]))):
+                all(n == 1 for n in n_actions_by_worker[-1 * BOOTS_TERM:])) and
+           simulator.worker_available()):
         logger.info('{} (i:{}, w:{}, b:{:.2f}/{:.2f})'.format(
             pol, it, worker_n, budget_spent, budget))
         history.new_worker()
@@ -121,7 +125,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
         worker_first_t = t
         t += 1
 
-        while (budget_spent < budget and not simulator.no_worker()):
+        while (budget_spent < budget and simulator.worker_hired()):
             a, explore = pol.get_next_action(it, history, belief)
 
             # Simulate a step
@@ -438,6 +442,9 @@ if __name__ == '__main__':
     parser.add_argument('name', type=str, help='Experiment name')
 
     config_group = parser.add_argument_group('config')
+    config_group.add_argument('--dataset', type=str, choices=[
+        'lin_aaai12_tag', 'lin_aaai12_wiki', 'rajpal_icml15'],
+        help='Dataset to use.')
     config_group.add_argument(
         '--p_worker', type=float, nargs='+', default=[1.0],
         help='Prior probabilities of worker classes')
@@ -522,7 +529,7 @@ if __name__ == '__main__':
     config_params = [
         'p_worker', 'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
         'p_lose', 'p_leave',
-        'p_slip', 'p_guess', 'p_r', 'p_1', 'p_s', 'utility_type']
+        'p_slip', 'p_guess', 'p_r', 'p_1', 'p_s', 'utility_type', 'dataset']
     if args.exp:
         config_params.append('p_learn_exp')
     if args.tell:
