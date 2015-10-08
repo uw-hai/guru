@@ -428,15 +428,18 @@ class ModelPlotter(Plotter):
         df_gt = self.df[df.iteration.isnull()]
         df_est = self.df[df.iteration.notnull()]
 
-        # Find dist from true param.
-        df_est = df_est.merge(df_gt, how='left', on='param',
-                              suffixes=('', '_t'))
+        if len(df_gt) > 0:
+            # Find dist from true param.
+            df_est = df_est.merge(df_gt, how='left', on='param',
+                                  suffixes=('', '_t'))
 
-        df_est['dist'] = np.subtract(
-            df_est['v'].apply(lambda x: np.array(x)[:-1]),
-            df_est['v_t'].apply(lambda x: np.array(x)[:-1]))
-        df_est['dist_l1'] = df_est['dist'].apply(lambda x: np.linalg.norm(x, 1))
-        df_est['dist_l2'] = df_est['dist'].apply(lambda x: np.linalg.norm(x, 2))
+            df_est['dist'] = np.subtract(
+                df_est['v'].apply(lambda x: np.array(x)[:-1]),
+                df_est['v_t'].apply(lambda x: np.array(x)[:-1]))
+            df_est['dist_l1'] = df_est['dist'].apply(
+                lambda x: np.linalg.norm(x, 1))
+            df_est['dist_l2'] = df_est['dist'].apply(
+                lambda x: np.linalg.norm(x, 2))
 
         if np.all(df_est.hyper.notnull()):
             df_est['dirichlet_mean'] = df_est['hyper'].apply(ss.dirichlet.mean)
@@ -491,7 +494,7 @@ class ModelPlotter(Plotter):
             df_est['hyper'] = df_est['hyper'].apply(ast.literal_eval)
 
             # Preprocess as needed.
-            if 'param_aligned' not in df.columns:
+            if len(df_gt) > 0 and 'param_aligned' not in df.columns:
                 # Separate ground truth params
                 df_est_aligned = cls.rename_classes(df_gt, df_est)
                 df_est['v'] = df_est_aligned['v']
@@ -589,20 +592,23 @@ class ModelPlotter(Plotter):
         df_est = self.df_est
         df_est['param-iteration'] = df_est['param'] + '-' + df_est['iteration'].astype(str)
         for s in ['l1', 'l2']:
-            ax, _ = tsplot_robust(df_est, time='worker', unit='param-iteration',
-                                  condition='policy', value='dist_{}'.format(s),
-                                  ci=CI)
-            ax.set_ylim(0, 1)
-            ax.set_xlim(0, None)
-            plt.ylabel('Mean distance ({}) from true parameter values'.format(s))
-            plt.xlabel('Worker')
-            fname = outfname + '_dist_{}_mean'.format(s)
-            savefig(ax, fname + '.png')
-            plt.close()
+            if 'dist_{}'.format(s) in df_est:
+                ax, _ = tsplot_robust(
+                    df_est, time='worker', unit='param-iteration',
+                    condition='policy', value='dist_{}'.format(s),
+                    ci=CI)
+                ax.set_ylim(0, 1)
+                ax.set_xlim(0, None)
+                plt.ylabel(
+                    'Mean distance ({}) from true parameter values'.format(s))
+                plt.xlabel('Worker')
+                fname = outfname + '_dist_{}_mean'.format(s)
+                savefig(ax, fname + '.png')
+                plt.close()
 
         for p, df_p in df_est.groupby('policy', as_index=False):
             for s in ['dist_l1', 'dist_l2', 'dirichlet_var_l1']:
-                if s in df_p.columns:
+                if s in df_p:
                     ax, df_stat = tsplot_robust(
                             df_p, time='worker', unit='iteration',
                             condition='param', value=s, ci=CI)
