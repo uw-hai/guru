@@ -105,16 +105,25 @@ class POMDPModel:
         else:
             return (k, worker_class)
 
-    def write_names(self, fo):
-        """Write csv file mapping state/action/observation indices to names"""
-        writer = csv.writer(fo)
-        writer.writerow(['i', 'type', 's', 'uses_gold'])
+    def get_names(self):
+        """Get mapping of state/action/observation indices to names"""
+        rows = []
         for i, a in enumerate(self.actions):
-            writer.writerow([i, 'action', a, a.uses_gold()])
+            rows.append({'i': i,
+                         'type': 'action',
+                         's': str(a),
+                         'uses_gold': a.uses_gold()})
         for i, s in enumerate(self.states):
-            writer.writerow([i, 'state', s, None])
+            rows.append({'i': i,
+                         'type': 'state',
+                         's': str(s),
+                         'uses_gold': None})
         for i, o in enumerate(self.observations):
-            writer.writerow([i, 'observation', o, None])
+            rows.append({'i': i,
+                         'type': 'observation',
+                         's': str(o),
+                         'uses_gold': None})
+        return rows
 
     def write_txt(self, fo):
         """Write model to file as needed for AI-Toolbox."""

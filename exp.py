@@ -19,6 +19,7 @@ from simulator import Simulator, LiveSimulator
 import util
 from util import get_or_default, ensure_dir, equation_safe_filename
 import analyze
+import pymongo
 
 BOOTS_TERM = 5  # Terminate after booting this many workers in a row.
 
@@ -47,6 +48,8 @@ def params_to_rows(params, hparams=None,
         row = {'param': p, 'v': params[p]}
         if hparams is not None:
             row['hyper'] = hparams[p]
+        else:
+            row['hyper'] = None
         row.update(row_base)
         rows.append(row)
     return rows
@@ -121,7 +124,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
                         'o': None,
                         'cost': None,
                         'r': None,
-                        'b': belief_to_str(belief)})
+                        'b': list(belief)})
         worker_first_t = t
         t += 1
 
@@ -145,7 +148,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
                             'o': o,
                             'cost': cost,
                             'r': r,
-                            'b': belief_to_str(belief)})
+                            'b': list(belief)})
             t += 1
 
         n_actions_by_worker.append(t - worker_first_t - 1)
@@ -182,14 +185,15 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
 
     return results, models, timings
 
-def run_experiment(name, config, policies, iterations, budget, epsilon=None,
-                   explore_actions=['test'], explore_policy=None,
+def run_experiment(name, mongo, config, policies, iterations, budget,
+                   epsilon=None, explore_actions=['test'], explore_policy=None,
                    thompson=False,
                    resolve_interval=None, hyperparams='HyperParams'):
     """Run experiment using multiprocessing.
 
     Args:
-        name:                   Name of experiment (config name).
+        name (str):             Name of experiment (config name).
+        mongo (dict):           Connection details for mongo database.
         config (dict):          Config dictionary, in format expected by
                                 POMDPModel. If experiment folder
                                 already exists and contains config.json,
@@ -210,21 +214,23 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
         hyperparams (str):      Hyperparams classname.
 
     """
+    client = pymongo.MongoClient(mongo['host'], mongo['port'])
+    client.worklearn.authenticate(mongo['user'], mongo['pass'],
+                                  mechanism='SCRAM-SHA-1')
     exp_name = name
-    res_path = os.path.join('res', exp_name)
     models_path = os.path.join('models', exp_name)
     policies_path = os.path.join('policies', exp_name)
-    for d in [res_path, models_path, policies_path]:
+    for d in [models_path, policies_path]:
         ensure_dir(d)
 
-    # If config file already present, use that instead of passed configs.
-    config_path = os.path.join(res_path, 'config.json')
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-    else:
-        with open(config_path, 'w') as f:
-            json.dump(config, f, indent=4)
+    # If config already present, use that instead of passed configs.
+    try:
+        config = client.worklearn.config.find({'experiment': exp_name},
+                                              {'_id': False}).next()
+    except StopIteration:
+        config_insert = copy.deepcopy(config)
+        config_insert['experiment'] = exp_name
+        client.worklearn.config.insert(config_insert)
     params_gt = cmd_config_to_pomdp_params(config)
     n_worker_classes = len(params_gt['p_worker'])
 
@@ -251,40 +257,6 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
             p['thompson'] = True
         if resolve_interval is not None:
             p['resolve_interval'] = resolve_interval
-    # Create aggregate name for policies.
-    def make_policy_str(p):
-        s = p['type']
-        for k in (k for k in p if k not in ['type',
-                                            'epsilon',
-                                            'thompson',
-                                            'resolve_interval',
-                                            'hyperparams',
-                                            'explore_policy']):
-            if isinstance(p[k], list):
-                value_string  = '_'.join(str(x) for x in p[k])
-            else:
-                value_string = p[k]
-            if value_string is not None:
-                s += '-{}_{}'.format(k, value_string)
-        return s
-    policies_name = ''
-    for i, p in enumerate(sorted(policies)):
-        if i:
-            policies_name += '-'
-        policies_name += make_policy_str(p)
-    if epsilon is not None:
-        policies_name += '-eps_{}'.format(equation_safe_filename(epsilon))
-        if explore_policy is not None:
-            policies_name += '-explore_p_{}'.format(
-                make_policy_str(explore_policy))
-        else:
-            policies_name += '-explore_{}'.format('_'.join(explore_actions))
-    if thompson:
-        policies_name += '-thomp'
-    if resolve_interval is not None:
-        policies_name += '-s_int_{}'.format(resolve_interval)
-    if hyperparams != 'HyperParams':
-        policies_name += '-{}'.format(hyperparams)
 
     # Explode policies.
     policies_exploded = []
@@ -323,36 +295,20 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
                   'policy': p,
                   'iteration': i,
                   'budget': budget} for i, p in
-                 itertools.product(xrange(iterations), policies_exploded))
+                 itertools.product(xrange(iterations),
+                                   policies_exploded))
 
-    # Write one-time files.
+    # Write one-time rows.
     model_gt = POMDPModel(n_worker_classes, params=params_gt)
-    with open(os.path.join(res_path, '{}_names.csv'.format(policies_name)), 'wb') as f:
-        model_gt.write_names(f)
-
-    # Open file pointers.
-    models_fp = open(
-        os.path.join(res_path, '{}_model.csv'.format(policies_name)), 'wb')
-    models_fieldnames = ['iteration', 'worker', 'policy', 'param',
-                         'v', 'hyper']
-    m_writer = csv.DictWriter(models_fp, fieldnames=models_fieldnames)
-    m_writer.writeheader()
-
-    for r in params_to_rows(model_gt.get_params_est()):
-        m_writer.writerow(r)
-
-    results_filepath = os.path.join(res_path, '{}.txt'.format(policies_name))
-    results_fp = open(results_filepath, 'wb')
-    results_fieldnames = ['iteration', 't', 'worker', 'policy', 'sys_t',
-                          'a', 'explore', 's', 'o', 'cost', 'r', 'b']
-    r_writer = csv.DictWriter(results_fp, fieldnames=results_fieldnames)
-    r_writer.writeheader()
-
-    timings_fp = open(
-        os.path.join(res_path, '{}_timings.csv'.format(policies_name)), 'wb')
-    timings_fieldnames = ['iteration', 'worker', 'policy', 'type', 'duration']
-    t_writer = csv.DictWriter(timings_fp, fieldnames=timings_fieldnames)
-    t_writer.writeheader()
+    if not list(client.worklearn.names.find({'experiment': exp_name})):
+        for row in model_gt.get_names():
+            row['experiment'] = exp_name
+            client.worklearn.names.insert(row)
+    if not list(client.worklearn.model.find({'experiment': exp_name})):
+        for row in params_to_rows(model_gt.get_params_est()):
+            row['experiment'] = exp_name
+            row['param'] = str(row['param'])
+            client.worklearn.model.insert(row)
 
     # Create worker processes.
     pool = mp.Pool(initializer=util.init_worker)
@@ -361,28 +317,25 @@ def run_experiment(name, config, policies, iterations, budget, epsilon=None,
     try:
         for res in pool.imap_unordered(f, args_iter):
             results_rows, models_rows, timings_rows = res
-            for r in results_rows:
-                r_writer.writerow(r)
-            for r in models_rows:
-                m_writer.writerow(r)
-            for r in timings_rows:
-                t_writer.writerow(r)
-            models_fp.flush()
-            results_fp.flush()
-            timings_fp.flush()
+            for row in results_rows + models_rows + timings_rows:
+                row['experiment'] = exp_name
+            for row in models_rows:
+                row['param'] = str(row['param'])
+            if results_rows:
+                client.worklearn.res.insert(results_rows)
+            if models_rows:
+                client.worklearn.model.insert(models_rows)
+            if timings_rows:
+                client.worklearn.timing.insert(timings_rows)
         pool.close()
         pool.join()
     except KeyboardInterrupt:
         logger.warn('Control-C pressed')
         pool.terminate()
     finally:
-        # Cleanup.
-        results_fp.close()
-        models_fp.close()
-        timings_fp.close()
-
+        pass
         # Plot.
-        analyze.main(filenames=[results_filepath])
+        #analyze.main(filenames=[results_filepath])
 
 def cmd_config_to_pomdp_params(config):
     """Convert command line config parameters to params for POMDPModel.
@@ -440,7 +393,15 @@ def cmd_config_to_pomdp_params(config):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run an experiment')
     parser.add_argument('name', type=str, help='Experiment name')
+    parser.add_argument('--mongo_host', type=str,
+                        default='rv-n11.cs.washington.edu')
+    parser.add_argument('--mongo_port', type=int,
+                        default=27017)
+    parser.add_argument('--mongo_user', type=str,
+                        default='jbragg')
+    parser.add_argument('--mongo_pass', type=str, required=True)
 
+    parser.add_argument('--config_json', type=argparse.FileType('r'))
     config_group = parser.add_argument_group('config')
     config_group.add_argument('--dataset', type=str, choices=[
         'lin_aaai12_tag', 'lin_aaai12_wiki', 'rajpal_icml15'],
@@ -526,15 +487,18 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args_vars = vars(args)
 
-    config_params = [
-        'p_worker', 'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
-        'p_lose', 'p_leave',
-        'p_slip', 'p_guess', 'p_r', 'p_1', 'p_s', 'utility_type', 'dataset']
-    if args.exp:
-        config_params.append('p_learn_exp')
-    if args.tell:
-        config_params.append('p_learn_tell')
-    config = dict((k, args_vars[k]) for k in config_params)
+    if args.config_json is not None:
+        config = json.load(args.config_json)
+    else:
+        config_params = [
+            'p_worker', 'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
+            'p_lose', 'p_leave',
+            'p_slip', 'p_guess', 'p_r', 'p_1', 'p_s', 'utility_type', 'dataset']
+        if args.exp:
+            config_params.append('p_learn_exp')
+        if args.tell:
+            config_params.append('p_learn_tell')
+        config = dict((k, args_vars[k]) for k in config_params)
 
     policies = []
     for p_type in args.policies:
@@ -560,6 +524,10 @@ if __name__ == '__main__':
         policies.append(p)
 
     run_experiment(name=args.name,
+                   mongo={'host': args.mongo_host,
+                          'port': args.mongo_port,
+                          'user': args.mongo_user,
+                          'pass': args.mongo_pass},
                    config=config,
                    policies=policies,
                    iterations=args.iterations,
