@@ -1,0 +1,31 @@
+<p>Experiment: {{ request.args.get('e') }}</p>
+<p>Policy: {{ request.args.get('p') }}</p>
+<p>Iteration: {{ request.args.get('i') }}</p>
+{{ request.args }}
+<table>
+<tr>
+    <th>Worker</th>
+    <th>Explore</th>
+    <th>Action</th>
+    <th>Observation</th>
+    <th>Reward</th>
+    <th>Cost</th>
+    <th>Belief</th>
+    <th>Model</th>
+</tr>
+{% for w in res %}
+{% for a, o, b, r, cost, e in res[w] %}
+{% set i = loop.index %}
+<tr>
+    <td>{% if i == 1 %}{{ w }}{% endif %}</td>
+    <td>{{ e }}</td>
+    <td>{{ a }}</td>
+    <td>{{ o }}</td>
+    <td>{{ r }}</td>
+    <td>{{ cost }}</td>
+    <td>{{ b }}</td>
+    <td>{% if i == 1 %}{% for v in model[w] %} {{ v }}<br/> {% endfor %}{% endif %}</td>
+</tr>
+{% endfor %}
+{% endfor %}
+</table>

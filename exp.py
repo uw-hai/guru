@@ -226,7 +226,8 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
     # If config already present, use that instead of passed configs.
     try:
         config = client.worklearn.config.find({'experiment': exp_name},
-                                              {'_id': False}).next()
+                                              {'_id': False,
+                                               'experiment': False}).next()
     except StopIteration:
         config_insert = copy.deepcopy(config)
         config_insert['experiment'] = exp_name
@@ -311,7 +312,7 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
             client.worklearn.model.insert(row)
 
     # Create worker processes.
-    pool = mp.Pool(initializer=util.init_worker)
+    pool = mp.Pool(processes=util.cpu_count(), initializer=util.init_worker)
     f = ft.partial(util.run_functor, ft.partial(run_function_from_dictionary,
                                                 run_policy_iteration))
     try:
@@ -321,6 +322,27 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
                 row['experiment'] = exp_name
             for row in models_rows:
                 row['param'] = str(row['param'])
+
+            # Delete any existing rows for this policy iteration.
+            iteration = results_rows[0]['iteration']
+            policy = results_rows[0]['policy']
+            policy_iteration_query = {'experiment': exp_name,
+                                      'iteration': iteration,
+                                      'policy': policy}
+            res_removed = client.worklearn.res.remove(
+                policy_iteration_query)
+            if res_removed['n'] > 0:
+                print 'Removed {} result rows'.format(res_removed['n'])
+            model_removed = client.worklearn.model.remove(
+                policy_iteration_query)
+            if model_removed['n'] > 0:
+                print 'Removed {} result rows'.format(model_removed['n'])
+            timing_removed = client.worklearn.timing.remove(
+                policy_iteration_query)
+            if timing_removed['n'] > 0:
+                print 'Removed {} timing rows'.format(timing_removed['n'])
+
+            # Store
             if results_rows:
                 client.worklearn.res.insert(results_rows)
             if models_rows:
@@ -335,7 +357,9 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
     finally:
         pass
         # Plot.
-        #analyze.main(filenames=[results_filepath])
+        analyze.make_plots(
+            db=client.worklearn,
+            experiment=exp_name)
 
 def cmd_config_to_pomdp_params(config):
     """Convert command line config parameters to params for POMDPModel.
@@ -393,14 +417,6 @@ def cmd_config_to_pomdp_params(config):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run an experiment')
     parser.add_argument('name', type=str, help='Experiment name')
-    parser.add_argument('--mongo_host', type=str,
-                        default='rv-n11.cs.washington.edu')
-    parser.add_argument('--mongo_port', type=int,
-                        default=27017)
-    parser.add_argument('--mongo_user', type=str,
-                        default='jbragg')
-    parser.add_argument('--mongo_pass', type=str, required=True)
-
     parser.add_argument('--config_json', type=argparse.FileType('r'))
     config_group = parser.add_argument_group('config')
     config_group.add_argument('--dataset', type=str, choices=[
@@ -524,10 +540,10 @@ if __name__ == '__main__':
         policies.append(p)
 
     run_experiment(name=args.name,
-                   mongo={'host': args.mongo_host,
-                          'port': args.mongo_port,
-                          'user': args.mongo_user,
-                          'pass': args.mongo_pass},
+                   mongo={'host': os.environ['MONGO_HOST'],
+                          'port': int(os.environ['MONGO_PORT']),
+                          'user': os.environ['MONGO_USER'],
+                          'pass': os.environ['MONGO_PASS']},
                    config=config,
                    policies=policies,
                    iterations=args.iterations,

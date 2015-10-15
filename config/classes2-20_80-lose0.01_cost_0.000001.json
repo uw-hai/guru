@@ -1,0 +1,32 @@
+{
+    "cost_tell": -0.1, 
+    "utility_type": "acc", 
+    "cost": -0.000001, 
+    "p_lose": [
+        0.01
+    ], 
+    "p_guess": [
+        0.5
+    ], 
+    "tell": false, 
+    "p_leave": [
+        0.01
+    ], 
+    "p_s": [
+        1.0
+    ], 
+    "cost_exp": -0.1, 
+    "exp": false, 
+    "p_slip": [
+        0.1, 
+        0.4
+    ], 
+    "p_r": [
+        1.0
+    ], 
+    "p_worker": [
+        0.2, 
+        0.8
+    ], 
+    "p_1": 0.5
+}

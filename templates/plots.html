@@ -1,0 +1,6 @@
+{% for e in files %}
+<h1>{{ e }}</h1>
+{% for f in files[e] %}
+<img src={{ url_for('static', filename='/'.join(['plots', e, f])) }}/>
+{% endfor %}
+{% endfor %}

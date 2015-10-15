@@ -1,17 +1,15 @@
+{% for e in iterations %}
+<h1>{{ e }}</h1>
 <table>
   <tr>
-    <th>File</th>
     <th>Policy</th>
     <th>Iterations complete</th>
   </tr>
-{% for f, iters in iterations %}
-  {% set rowloop = loop %}
-  {% for p in iters %}
-    <tr>
-      <td title="{{ f }}">{{ rowloop.index }}</td>
-      <td>{{ p }}</td>
-      <td>{{ iters[p] }}</td>
-    </tr>
+  {% for p in iterations[e] %}
+  <tr>
+    <td>{{ p }}</td>
+    <td>{{ iterations[e][p] }}</td>
+  </tr>
   {% endfor %}
-{% endfor %}
 </table>
+{% endfor %}

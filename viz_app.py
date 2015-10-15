@@ -1,4 +1,7 @@
+import collections
+import flask
 from flask import Flask, request, render_template, send_from_directory
+from flask.ext.pymongo import PyMongo
 import pandas as pd
 import os
 import pickle
@@ -6,20 +9,32 @@ import networkx as nx
 import numpy as np
 import json
 import util
+import analyze
 
 tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 app = Flask(__name__, template_folder=tmpl_dir)
+app.config.from_object(os.environ['APP_SETTINGS'])
+mongo = PyMongo(app)
 
-def belief_to_str(states, belief):
+
+PLOTDIR = os.path.join(app.config['STATIC_FOLDER'], 'plots')
+
+def belief_to_str(states, belief, threshold=0):
     """Return belief string.
 
     >>> belief_to_str(['a', 'b'], ['0.3', '0.7'])
     'b (0.700), a (0.300)'
     >>> belief_to_str(['a', 'b'], ['0.7', '0.3'])
     'a (0.700), b (0.300)'
+    >>> belief_to_str(['a', 'b'], ['0.7', '0.3'], threshold=0.4)
+    'a (0.700)'
+    >>> belief_to_str(['a', 'b'], ['0.3', '0.7'], threshold=0.4)
+    'b (0.700)'
 
     """
-    state_to_belief = dict(zip(states, (float(s) for s in belief)))
+    state_to_belief = dict((
+        (s, b) for (s, b) in zip(states, (float(b) for b in belief)) if
+        float(b) > threshold))
     return ', '.join('{} ({:0.3f})'.format(k, state_to_belief[k]) for k in
            sorted(state_to_belief, key=lambda x: state_to_belief[x],
                   reverse=True))
@@ -98,6 +113,11 @@ def load_tree(f_exp, f_names, policy):
 
 @app.route("/")
 def index():
+    """Return list of experiment"""
+    return '\n'.join(mongo.db.res.distinct('experiment'))
+
+@app.route("/viz")
+def viz():
     exp = request.args.get('e')
     basename = request.args.get('f')
     policy = request.args.get('p')
@@ -150,13 +170,107 @@ def index():
 
 @app.route('/status')
 def status():
-    exp = request.args.get('e')
-    d = os.path.join('res', exp)
-    results = [f for f in os.listdir(d) if f.endswith('.txt')]
-    iterations = [(r, util.worklearn_current_iteration(os.path.join(d, r))) for
-                  r in results]
-    iterations = filter(lambda x: x[1] is not None, iterations)
-    return render_template('status.html', iterations=iterations)
- 
+    # BUG: Slow.
+    e = request.args.get('e')
+    if e:
+        experiments = [e]
+    else:
+        experiments = mongo.db.res.distinct('experiment')
+    d = dict()
+    for e in experiments:
+        d[e] = dict()
+        policies = mongo.db.res.find({'experiment': e}).distinct('policy')
+        for p in policies:
+            iters = mongo.db.res.find(
+                {'experiment': e, 'policy': p}).distinct('iteration')
+            d[e][p] = len(iters)
+    return render_template('status.html', iterations=d)
+
+@app.route('/iterations')
+def iterations():
+    e = request.args.get('e')
+    p = request.args.get('p')
+    return ' '.join(str(x) for x in mongo.db.res.find(
+        {'experiment': e, 'policy': p}).distinct('iteration'))
+
+
+@app.route('/plots')
+def plots():
+    e = request.args.get('e')
+    if e:
+        exps = [e]
+    else:
+        exps = os.listdir(PLOTDIR)
+    d = dict()
+    for e in exps:
+        expdir = os.path.join(PLOTDIR, e)
+        plots = [f for f in os.listdir(expdir) if f.endswith('.png')]
+        d[e] = plots
+    return render_template('plots.html', files=d)
+
+@app.route('/make_plots')
+def make_plots():
+    e = request.args.get('e')
+    if e:
+        experiments = [e]
+    else:
+        experiments = mongo.db.res.distinct('experiment')
+    for e in experiments:
+        analyze.make_plots(
+            db=mongo.db, experiment=e, outdir=os.path.join(PLOTDIR, e))
+
+@app.route('/traces')
+def traces():
+    e = request.args.get('e')
+    i = request.args.get('i')
+    p = request.args.get('p')
+    if not e:
+        return 'choose an experiment e'
+    if not i:
+        return 'choose an iteration i'
+    if not p:
+        return 'choose a policy p'
+    res = list(mongo.db.res.find(
+        {'experiment': e, 'policy': p, 'iteration': int(i)},
+        {'_id': False}).sort(
+            't', flask.ext.pymongo.ASCENDING))
+    model = list(mongo.db.model.find(
+        {'experiment': e, 'policy': p, 'iteration': int(i)},
+        {'_id': False}).sort('worker', flask.ext.pymongo.ASCENDING))
+    model_by_worker = collections.defaultdict(dict)
+    for r in model:
+        model_by_worker[r['worker']][r['param']] = r['v']
+    for w in model_by_worker:
+        model_by_worker[w] = ['{}: {}'.format(k, v) for
+            k, v in sorted(model_by_worker[w].iteritems())]
+    st_dict = dict((x['i'], x['s']) for x in mongo.db.names.find(
+        {'experiment': e, 'type': 'state'}, {'_id': False}))
+    st = [st_dict[x] for x in sorted(st_dict)]
+    obs_dict = dict(list((x['i'], x['s']) for x in mongo.db.names.find(
+        {'experiment': e, 'type': 'observation'}, {'_id': False})))
+    action_dict = dict(list((x['i'], x['s']) for x in mongo.db.names.find(
+        {'experiment': e, 'type': 'action'}, {'_id': False})))
+    res_by_worker = collections.defaultdict(list)
+    for r in res:
+        res_by_worker[r['worker']].append(r)
+    for w, res in res_by_worker.iteritems():
+        beliefs = [belief_to_str(st, x['b'], threshold=0.01) for x in res]
+        observations = [
+            '' if x['o'] is None else obs_dict[x['o']] for x in res]
+        actions = [
+            '' if x['a'] is None else action_dict[x['a']] for x in res]
+        rewards = [
+            '' if x['r'] is None else x['r'] for x in res]
+        costs = [
+            '' if x['cost'] is None else x['cost'] for x in res]
+        explore = [
+            '' if x['explore'] is None else x['explore'] for x in res]
+        res_by_worker[w] = zip(
+            actions, observations, beliefs, rewards, costs, explore)
+    return render_template(
+        'traces.html',
+        res=res_by_worker,
+        model=model_by_worker)
+
 if __name__ == "__main__":
     app.run(host='0.0.0.0', debug=True)

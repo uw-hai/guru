@@ -28,6 +28,7 @@ import seaborn as sns
 import util
 from util import savefig, tsplot_robust
 import work_learn_problem as wlp
+import pymongo
 
 CI = 95  # Confidence interval
 
@@ -49,6 +50,39 @@ class Plotter(object):
 
     def set_quantile(self, quantile=[0, 1]):
         self.df = self.filter_workers_quantile(self.df_full, *quantile)
+
+    @classmethod
+    def from_mongo(cls, collection, experiment, policies=None,
+                   collection_names=None):
+        """Return dataframe of rows from given Mongo collection.
+
+        Args:
+            collection: Pymongo collection object.
+            collection: Pymongo collection object for names information.
+
+        """
+        if not policies:
+            policies = collection.find({
+                'experiment': experiment}).distinct('policy')
+        results = collection.find(
+            {'experiment': experiment,
+             'policy': {'$in': policies}},
+            {'_id': False,
+             'experiment': False})
+        df = pd.DataFrame(list(results))
+        if len(df) == 0:
+            raise ValueError('No rows')
+
+        if collection_names is not None:
+            results_names = collection_names.find(
+                {'experiment': experiment},
+                {'_id': False})
+            df_names = pd.DataFrame(list(results_names))
+            if len(df_names) == 0:
+                return cls(df)
+            return cls(df, df_names)
+        else:
+            return cls(df)
 
     @staticmethod
     def filter_workers_quantile(df, q1, q2):
@@ -404,11 +438,16 @@ class ResultPlotter(Plotter):
 
 
 class TimingsPlotter(Plotter):
+    def __init__(self, df):
+        super(TimingsPlotter, self).__init__(df)
+        if any(df['worker'].isnull()):
+            raise ValueError('Null workers')
+
     def make_plots(self, outfname):
         df_timings = self.df
         for t in ('resolve', 'estimate'):
             df_filter = df_timings[df_timings['type'] == t]
-            if len(df_filter.index) > 0:
+            if len(df_filter) > 0:
                 ax, _ = tsplot_robust(df_filter,
                                       time='worker', unit='iteration',
                                       condition='policy', value='duration',
@@ -481,28 +520,54 @@ class ModelPlotter(Plotter):
             yield df_i.sort('worker')['v_single']
 
     @classmethod
-    def from_filenames(cls, filenames):
-        """Load from files. Do one-time processing on files as needed."""
-        dfs = []
-        for f in filenames:
-            df = pd.read_csv(f)
+    def from_mongo(cls, collection, experiment, policies=None):
+        """Return dataframe of rows from given Mongo collection.
 
-            df_gt = df[df.iteration.isnull()]
-            df_est = df[df.iteration.notnull()]
-            df_gt['v'] = df_gt['v'].apply(ast.literal_eval)
-            df_est['v'] = df_est['v'].apply(ast.literal_eval)
-            df_est['hyper'] = df_est['hyper'].apply(ast.literal_eval)
+        Does alignment preprocessing for model.
 
-            # Preprocess as needed.
-            if len(df_gt) > 0 and 'param_aligned' not in df.columns:
-                # Separate ground truth params
-                df_est_aligned = cls.rename_classes(df_gt, df_est)
-                df_est['v'] = df_est_aligned['v']
-                df_est['param'] = df_est_aligned['param']
-                dfs.append(df_est)
+        Args:
+            collection: Pymongo collection object.
+            collection: Pymongo collection object for names information.
+        """
+        # Load, copied from from_mongo in super().
+        if not policies:
+            policies = collection.find({
+                'experiment': experiment,
+                'policy': {'$ne': None}}).distinct('policy')
+        results = collection.find(
+            {'experiment': experiment,
+             'policy': {'$in': policies}},
+            {'_id': False,
+             'experiment': False})
+        df = pd.DataFrame(list(results))
+        if len(df) == 0:
+            raise ValueError('No rows')
+
+        # Preprocessing.
+        df_est = df
+        df_gt = pd.DataFrame(list(
+            collection.find(
+                {'experiment': experiment,
+                 'policy': None},
+                {'_id': False,
+                 'experiment': False})))
+
+        if len(df_est) == 0:
+            raise ValueError('No estimated rows')
+
+        # Preprocess as needed.
+        if len(df_gt) > 0 and 'param_aligned' not in df_est:
+            # Separate ground truth params
+            df_est_aligned = cls.rename_classes(df_gt, df_est)
+            df_est['v'] = df_est_aligned['v']
+            df_est['param'] = df_est_aligned['param']
+        elif len(df_gt) == 0:
+            print 'Empty model gt dataframe'
+        else:
+            print 'Model already aligned'
 
         # Initialize
-        df = pd.concat(dfs + [df_gt], ignore_index=True)
+        df = pd.concat([df_est, df_gt], ignore_index=True)
         if len(df['policy'].dropna().unique()) > 0:
             return cls(df)
         else:
@@ -518,7 +583,9 @@ class ModelPlotter(Plotter):
         lst = [{'df_gt': df_gt, 'df_est': df} for _, df in
                df_est.groupby(['iteration', 'policy', 'worker'])]
         f = rename_classes_h
-        df_est_renamed = pool.map(f, lst)
+        df_est_renamed = []
+        for res in pool.imap_unordered(f, lst):
+            df_est_renamed.append(res)
         return pd.concat(df_est_renamed)
 
     @classmethod
@@ -643,137 +710,128 @@ class ModelPlotter(Plotter):
                     plt.close()
                     df_stat.to_csv(fname + '.csv', index=False)
 
-def load_names(f):
-    """Helper to load names .csv file to dataframe."""
-    return pd.read_csv(f,
-                       true_values=['True', 'true'],
-                       false_values=['False', 'false'])
 
+def run_function_from_dictionary(f, d):
+    """Helper for Pool.map(), which can only use functions that take a single
+    argument"""
+    return f(**d)
 
+def make_plots_h(**kwargs):
+    client = pymongo.MongoClient(os.environ['MONGO_HOST'],
+                                 int(os.environ['MONGO_PORT'])) 
+    client.admin.authenticate(os.environ['MONGO_USER'],
+                              os.environ['MONGO_PASS'])
+    return make_plots(db=client.worklearn, **kwargs)
+ 
 
-def make_plots(infiles, outdir, models=[], timings=[], names=None,
-               policies=None, line=False, log=True, worker_interval=5):
-    """Make plots.
+def make_plots(db, experiment, outdir=None, policies=None,
+               line=False, log=True, worker_interval=5):
+    """Make plots for a single experiment.
 
     Args:
-        names:          Filepath to csv file mapping indices to strings
+        db:       Pymongo database connection.
         log:            Use log scale for breakdown plots
         policies:       List of policies to include
 
     """
-    if names:
-        df_names = load_names(names)
-    else:
-        df_names = None
-
+    if outdir is None:
+        outdir = os.path.join('static', 'plots', experiment)
     util.ensure_dir(outdir)
 
-    df = pd.concat([pd.read_csv(f) for f in infiles],
-                   ignore_index=True)
-    if policies is not None:
-        df = df[df.policy.isin(policies)]
+    #df = pd.concat([pd.read_csv(f) for f in infiles],
+    #               ignore_index=True)
+    #if policies is not None:
+    #    df = df[df.policy.isin(policies)]
     
-    if len(timings) > 0:
-        df_timings = pd.concat([pd.read_csv(f) for f in timings],
-                               ignore_index=True)
-        if policies is not None:
-            df_timings = df_timings[df_timings.policy.isin(policies)]
-        if len(df_timings.index) > 0:
-            tplotter = TimingsPlotter(df_timings)
-            tplotter.make_plots(os.path.join(outdir, 't'))
-            print 'Done plotting timings'
-
+    #if len(timings) > 0:
+    #    df_timings = pd.concat([pd.read_csv(f) for f in timings],
+    #                           ignore_index=True)
+    #    if policies is not None:
+    #        df_timings = df_timings[df_timings.policy.isin(policies)]
+    #    if len(df_timings.index) > 0:
+    #        tplotter = TimingsPlotter(df_timings)
+    #        tplotter.make_plots(os.path.join(outdir, 't'))
     try:
-        mplotter = ModelPlotter.from_filenames(models)
-        mplotter.make_plots(os.path.join(outdir))
+        tplotter = TimingsPlotter.from_mongo(
+            collection=db.timing, experiment=experiment, policies=policies)
+        tplotter.make_plots(os.path.join(outdir, 't'))
+        print 'Done plotting timings'
     except ValueError:
         pass
-    print 'Done plotting params'
 
-    rplotter = ResultPlotter(df, df_names)
-    rplotter.make_plots(outdir, worker_interval=worker_interval, line=line,
-                        logx=log)
+    try:
+        mplotter = ModelPlotter.from_mongo(
+            collection=db.model, experiment=experiment, policies=policies)
+        print 'Made model plotter'
+        mplotter.make_plots(outdir)
+        print 'Done plotting params'
+    except ValueError:
+        pass
 
-def main(filenames, policies=None, line=False, log=True,
-         single=False, dest=None, worker_interval=5):
-    if single:
-        if dest is None:
-            raise Exception('Must specify a destination folder')
-
-        names = os.path.splitext(filenames[0])[0] + '_names.csv'
-        models = [os.path.splitext(f)[0] + '_model.csv' for f in filenames]
-        timings = [os.path.splitext(f)[0] + '_timings.csv' for f in filenames]
-        if not all(os.path.exists(t) for t in timings):
-            timings = []
-
-        make_plots(infiles=filenames,
-                   outdir=dest,
-                   names=names,
-                   models=models,
-                   timings=timings,
-                   policies=policies,
-                   line=line,
-                   log=log,
-                   worker_interval=worker_interval)
-    else:
-        jobs = []
-        for f in filenames:
-            # If result file is of the form 'f.end', assume directory also
-            # contains 'f_model.csv' and 'f_names.csv'.
-            # Output plots in a subdirectory with name 'f'.
-            basename = os.path.basename(f)
-            basename_no_ending = os.path.splitext(basename)[0]
-
-            dirname = os.path.dirname(f)
-            plotdir = os.path.join(dirname, basename_no_ending)
-            util.ensure_dir(plotdir)
-
-            names = os.path.join(
-                dirname, '{}_names.csv'.format(basename_no_ending))
-            model = os.path.join(
-                dirname, '{}_model.csv'.format(basename_no_ending))
-            timings = os.path.join(
-                dirname, '{}_timings.csv'.format(basename_no_ending))
-            if os.path.exists(timings):
-                timings = [timings]
-            else:
-                timings = []
-
-            
-            p = mp.Process(target=make_plots, kwargs=dict(
-                infiles=[f],
-                outdir=plotdir,
-                names=names,
-                models=[model],
-                timings=timings,
-                policies=policies,
-                line=line,
-                log=log,
-                worker_interval=worker_interval))
-            jobs.append(p)
-            p.start()
+    try:
+        rplotter = ResultPlotter.from_mongo(
+            collection=db.res, experiment=experiment, policies=policies,
+            collection_names=db.names)
+        rplotter.make_plots(outdir, worker_interval=worker_interval, line=line,
+                            logx=log)
+        print 'Done plotting result'
+    except ValueError:
+        pass
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Visualize policies.')
-    parser.add_argument('result', type=str, nargs='+',
-                        help='main experiment result .txt files')
+    parser.add_argument('--experiment', type=str)
     parser.add_argument('--line', dest='line', action='store_true',
                         help="Use line plots instead of area")
     parser.add_argument('--no_log', dest='log', action='store_false',
                         help="Don't use log for x-axis")
-    parser.add_argument('--single', dest='single', action='store_true',
-                        help='Treat multiple inputs as single experiment')
-    parser.add_argument('--dest', '-d', type=str, help='Folder to store plots')
+    parser.add_argument('--dest', '-d', type=str,
+                        help='Folder to store plots')
     parser.add_argument('--policies', type=str, nargs='*',
                         help='Policies to use')
     parser.add_argument('--worker_interval', type=int, default=10,
                         help='Interval between plots for worker plots')
     args = parser.parse_args()
 
-    main(filenames=args.result,
-         policies=args.policies,
-         line=args.line,
-         log=args.log,
-         single=args.single,
-         dest=args.dest,
-         worker_interval=args.worker_interval)
+    client = pymongo.MongoClient(os.environ['MONGO_HOST'],
+                                 int(os.environ['MONGO_PORT'])) 
+    client.admin.authenticate(os.environ['MONGO_USER'],
+                              os.environ['MONGO_PASS'])
+
+    experiments = list(client.worklearn.res.distinct('experiment'))
+    if args.experiment:
+        if args.dest is None:
+            args.dest = os.path.join('static', 'plots', args.experiment)
+        make_plots(
+            db=client.worklearn,
+            experiment=args.experiment,
+            outdir=args.dest,
+            policies=args.policies,
+            line=args.line,
+            log=args.log,
+            worker_interval=args.worker_interval)
+    else:
+        if args.dest is None:
+            args.dest = os.path.join('static', 'plots')
+        pool = mp.Pool(initializer=util.init_worker)
+        f = ft.partial(util.run_functor,
+                       ft.partial(run_function_from_dictionary,
+                                  make_plots_h))
+
+        experiments = list(client.worklearn.res.distinct('experiment'))
+        args = [{'experiment': e,
+                 'outdir': os.path.join(args.dest, e),
+                 'policies': None,
+                 'line': args.line,
+                 'log': args.log,
+                 'worker_interval': args.worker_interval} for e in experiments]
+        try:
+            pool.map(f, args)
+            pool.close()
+            pool.join()
+        except KeyboardInterrupt:
+            logger.warn('Control-C pressed')
+            pool.terminate()
+        finally:
+            pass
+     

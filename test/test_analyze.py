@@ -2,15 +2,27 @@ import unittest
 import os
 import pandas as pd
 import analyze
+import util
+import pymongo
+import getpass
 
-data_base = os.path.join('test', 'data', 'sample_res', 'zmdp-discount_0.99-timeout_60-teach_first-teach_type_tell-n_0-test_and_boot-n_work_20-accuracy_0.8-n_test_4')
-data_base_rl = os.path.join('test', 'data', 'sample_res', 'zmdp-discount_0.99-timeout_60-eps_1div(0.1*w+1)-HyperParamsUnknownRatio')
+MONGO_HOST = 'rv-n11.cs.washington.edu'
+MONGO_PORT = 27017
+MONGO_USER = 'worklearn_reader'
 
-class PlotterTestCase(unittest.TestCase):
+TEST_EXPERIMENT = 'classes2-20_80'
+
+class AuthenticatedTestCase(unittest.TestCase):
+    pwd = getpass.getpass()
+    client = pymongo.MongoClient(MONGO_HOST, MONGO_PORT)
+    client.admin.authenticate(MONGO_USER, pwd)
+
+class PlotterTestCase(AuthenticatedTestCase):
     def setUp(self):
-        df = pd.read_csv('{}.txt'.format(data_base))
-        df_names = pd.read_csv('{}_names.csv'.format(data_base))
-        self.plotter = analyze.Plotter(df, df_names)
+        self.plotter = analyze.Plotter.from_mongo(
+            collection=self.client.worklearn.res,
+            experiment=TEST_EXPERIMENT,
+            collection_names=self.client.worklearn.names)
 
     def test_filter_workers_quantile(self):
         orig_len = len(self.plotter.df)
@@ -22,24 +34,58 @@ class PlotterTestCase(unittest.TestCase):
         self.assertGreater(len(med), len(small))
         self.assertLess(0, len(small))
 
-class ModelPlotterTestCase(unittest.TestCase):
+class ResultPlotterTestCase(AuthenticatedTestCase):
     def setUp(self):
-        df_model = pd.read_csv('{}_model.csv'.format(data_base_rl))
-        self.plotter = analyze.ModelPlotter(df_model)
+        self.plotter = analyze.ResultPlotter.from_mongo(
+            collection=self.client.worklearn.res,
+            experiment=TEST_EXPERIMENT,
+            collection_names=self.client.worklearn.names)
 
-class JoinPlotterTestCase(unittest.TestCase):
+    def test_make_plots(self):
+        path = os.path.join('test', 'tmp', 'plots', 'res')
+        util.ensure_dir(path)
+        self.plotter.make_plots(path, line=False, logx=True, worker_interval=5)
+ 
+class ModelPlotterTestCase(AuthenticatedTestCase):
     def setUp(self):
-        df = pd.read_csv('{}.txt'.format(data_base_rl))
-        df_names = pd.read_csv('{}_names.csv'.format(data_base_rl))
-        df_model = pd.read_csv('{}_model.csv'.format(data_base_rl))
-        df_timings = pd.read_csv('{}_timings.csv'.format(data_base_rl))
-        self.plotter = analyze.JoinPlotter(df, df_model, df_timings, df_names)
+        self.plotter = analyze.ModelPlotter.from_mongo(
+            collection=self.client.worklearn.model,
+            experiment=TEST_EXPERIMENT)
 
-    def test_get_traces(self):
-        p = self.plotter.df.policy.unique()[0]
-        itr = self.plotter.get_traces(p)
-        itr.next()
+    def test_load(self):
+        self.assertLess(0, len(self.plotter.df))
 
+    def test_make_plots(self):
+        path = os.path.join('test', 'tmp', 'plots', 'model')
+        util.ensure_dir(path)
+        self.plotter.make_plots(path)
+
+#class JoinPlotterTestCase(AuthenticatedTestCase):
+#    def setUp(self):
+#        df = pd.read_csv('{}.txt'.format(data_base_rl))
+#        df_names = pd.read_csv('{}_names.csv'.format(data_base_rl))
+#        df_model = pd.read_csv('{}_model.csv'.format(data_base_rl))
+#        df_timings = pd.read_csv('{}_timings.csv'.format(data_base_rl))
+#        self.plotter = analyze.JoinPlotter(df, df_model, df_timings, df_names)
+#
+#    def test_get_traces(self):
+#        p = self.plotter.df.policy.unique()[0]
+#        itr = self.plotter.get_traces(p)
+#        itr.next()
+
+class TimingsPlotterTestCase(AuthenticatedTestCase):
+    def setUp(self):
+        self.collection = self.client.worklearn.timing
+        self.plotter = analyze.TimingsPlotter.from_mongo(
+             self.collection, experiment=TEST_EXPERIMENT)
+
+    def test_load(self):
+        self.assertLess(0, len(self.plotter.df))
+
+    def test_make_plots(self):
+        path = os.path.join('test', 'tmp', 'plots', 'timings')
+        util.ensure_dir(path)
+        self.plotter.make_plots(os.path.join(path, 't'))
 
 if __name__ == '__main__':
     unittest.main()
