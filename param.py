@@ -4,40 +4,30 @@ PEAKEDNESS = 1000
 
 WEAK_BETA_MAG = 7
 
-def Params(object):
-    def __init__(self, params_dict):
-        self.p = params_dict
+def get_param_type(p):
+    """Get type of param.
 
-    def get_n_classes(self):
-        """Return number of worker classes."""
-        return len(self.p['p_worker'])
+    >>> get_param_type('p_worker')
+    'p_worker'
+    >>> get_param_type(('p_guess', None))
+    'p_guess'
+    >>> get_param_type((('p_s', 2), 3))
+    'p_s'
 
-    @staticmethod
-    def get_param_type(p):
-        """Get type of param.
-
-        >>> get_param_type('p_worker')
-        'p_worker'
-        >>> get_param_type(('p_guess', None))
-        'p_guess'
-        >>> get_param_type((('p_s', 2), 3))
-        'p_s'
-
-        """
-        if not isinstance(p, tuple):
-            return p
-        elif not isinstance(p[0], tuple):
-            return p[0]
-        else:
-            return p[0][0]
+    """
+    if not isinstance(p, tuple):
+        return p
+    elif not isinstance(p[0], tuple):
+        return p[0]
+    else:
+        return p[0][0]
 
 class HyperParams(object):
     """Mostly uninformed priors."""
     def __init__(self, params, n_worker_classes, param_types_known=[]):
-        params_obj = Params(params)
         p = dict()
         for k in params:
-            t = params_obj.get_param_type(k)
+            t = get_param_type(k)
             if t in param_types_known:
                 # Make peaked dirichlet at parameters.
                 p[k] = [1.00001 + PEAKEDNESS * v for v in params[k]]
@@ -55,10 +45,9 @@ class HyperParams(object):
 class HyperParamsSpaced(object):
     """Mostly uninformed priors, but worker accuracy spaced on [0, 0.5]."""
     def __init__(self, params, n_worker_classes, param_types_known=[]):
-        params_obj = Params(params)
         p = dict()
         for k in params:
-            t = params_obj.get_param_type(k)
+            t = get_param_type(k)
             if t in param_types_known:
                 # Make peaked dirichlet at parameters.
                 p[k] = [1.00001 + PEAKEDNESS * v for v in params[k]]
@@ -71,9 +60,8 @@ class HyperParamsSpaced(object):
                     p[k] = util.beta_fit(mode=0.25, mag=WEAK_BETA_MAG)
                 else:
                     # Prior modes evenly spaced on [0, 0.5]
-                    n = params_obj.get_n_classes()
-                    cls = k[1]
-                    p[k] = util.beta_fit(mode=0.5*(cls+1)/(n+1),
+                    c = k[1]
+                    p[k] = util.beta_fit(mode=0.5*(c+1)/(n_worker_classes+1),
                                          mag=WEAK_BETA_MAG)
             elif t in ['p_lose', 'p_learn_exp', 'p_learn_tell', 'p_leave',
                        'p_s']:
@@ -83,10 +71,9 @@ class HyperParamsSpaced(object):
 class HyperParamsWorker5(object):
     """Mostly uninformed priors, except Dirichlet(5) for p_worker."""
     def __init__(self, params, n_worker_classes, param_types_known=[]):
-        params_obj = Params(params)
         p = dict()
         for k in params:
-            t = params_obj.get_param_type(k)
+            t = get_param_type(k)
             if t in param_types_known:
                 # Make peaked dirichlet at parameters.
                 p[k] = [1.00001 + PEAKEDNESS * v for v in params[k]]

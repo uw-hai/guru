@@ -4,7 +4,6 @@ Requirements: $PATH must include pomdpsol-appl for 'appl' policies and
 pomdpsol-aitoolbox for 'aitoolbox' policies.
 
 """
-
 from __future__ import division
 import collections
 import os
@@ -86,17 +85,20 @@ class Policy:
         """Policy does reinforcement learning."""
         return self.epsilon is not None or self.thompson
     
-    def get_epsilon_probability(self, worker, t):
+    def get_epsilon_probability(self, worker, t, budget_frac):
         """Return probability specified by the given exploration function.
 
         Exploration function is a function of the worker (w or worker)
-        and the current timestep (t).
+        the current timestep (t), and the fraction of the exploration
+        budget (f or budget_frac).
 
-        WARNING: Evaluates the expression in self.epsilon without security checks.
+        WARNING: Evaluates the expression in self.epsilon without security
+        checks.
 
         """
         # Put some useful variable abbreviations in the namespace.
         w = worker
+        f = budget_frac
         if isinstance(self.epsilon, basestring):
             return eval(self.epsilon)
         else:
@@ -132,18 +134,21 @@ class Policy:
             self.resolve_times[worker] = cutime2 - cutime1 + \
                                          cstime2 - cstime1
 
-    def get_next_action(self, iteration, history, belief=None):
+    def get_next_action(self, iteration, history,
+                        budget_spent, budget_explore, belief=None):
         """Return next action and whether or policy is exploring."""
         valid_actions = self.get_valid_actions(history)
         worker = history.n_workers() - 1
         t = history.n_t(worker)
+        budget_explore_frac = budget_spent / budget_explore
         if t == 0:
             last_explored = None
         else:
             last_explored = history.history[-1][-1][2]
         if (self.epsilon is not None and
                 self.explore_policy is None and
-                np.random.random() <= self.get_epsilon_probability(worker, t)):
+                np.random.random() <= self.get_epsilon_probability(
+                    worker, t, budget_explore_frac)):
             valid_explore_actions = [
                 i for i in valid_actions if
                 self.model.actions[i].get_type() in self.explore_actions]
@@ -153,9 +158,9 @@ class Policy:
                 (last_explored or
                  (t == 0 and
                   np.random.random() <= self.get_epsilon_probability(
-                      worker, t)))):
+                      worker, t, budget_explore_frac)))):
             next_a, _ = self.explore_policy.get_next_action(
-                iteration, history, belief)
+                iteration, history, budget_spent, budget_explore, belief)
             return next_a, True
         else:
             return self.get_best_action(iteration, history, belief), False

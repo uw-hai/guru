@@ -131,7 +131,7 @@ class LiveSimulator(Simulator):
             guess = round(self.params['p_1'])
             if ans['gt'] == 0 and guess == 1:
                 penalty_old = penalty_fp
-            elif ans['gt'] == 1 and guess == 0
+            elif ans['gt'] == 1 and guess == 0:
                 penalty_old = penalty_fn
             else:
                 penalty_old = 0

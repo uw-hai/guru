@@ -108,6 +108,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration,
     n_actions_by_worker = []
     t = 0
     reserved = False
+    budget_explore = budget * (1 - budget_reserved_frac)
     while (budget_spent < budget and
            not (worker_n > BOOTS_TERM and
                 all(n == 1 for n in n_actions_by_worker[-1 * BOOTS_TERM:])) and
@@ -117,7 +118,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration,
         history.new_worker()
         s = simulator.new_worker()
 
-        if budget_spent >= budget * (1 - budget_reserved_frac):
+        if budget_spent >= budget_explore:
             reserved = True
 
         # Belief using estimated model.
@@ -145,11 +146,11 @@ def run_policy_iteration(exp_name, config_params, policy, iteration,
                 a = pol.get_best_action(it, history, belief)
                 explore = False
             else:
-                a, explore = pol.get_next_action(it, history, belief)
+                a, explore = pol.get_next_action(it, history, budget_spent,
+                                                 budget_explore, belief)
             # Override policy decision and boot worker if in
             # entered reserved portion while worker hired.
-            if (not reserved and
-                    budget_spent >= budget * (1 - budget_reserved_frac)):
+            if not reserved and budget_spent >= budget_explore:
                 a = pol.model.actions.index(wlp.Action('boot'))
 
             # Simulate a step
@@ -320,7 +321,7 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
                   'policy': p,
                   'iteration': i,
                   'budget': budget,
-                  'budget': budget_reserved_frac} for i, p in
+                  'budget_reserved_frac': budget_reserved_frac} for i, p in
                  itertools.product(xrange(iterations),
                                    policies_exploded))
 
@@ -521,10 +522,14 @@ if __name__ == '__main__':
                         default=['test', 'work'])
     parser.add_argument(
         '--hyperparams', type=str, default='HyperParams',
-        choices=['HyperParams', 'HyperParamsWorker5',
-                 'HyperParamsUnknownRatio', 'HyperParamsUnknownRatioWorker5',
+        choices=['HyperParams', 'HyperParamsSpaced', 'HyperParamsWorker5',
+                 'HyperParamsUnknownRatioWorker5',
+                 'HyperParamsUnknownRatio',
                  'HyperParamsUnknownRatioSlipLeave',
-                 'HyperParamsUnknownRatioSlipLeaveLose'],
+                 'HyperParamsUnknownRatioSlipLeaveLose',
+                 'HyperParamsSpacedUnknownRatio',
+                 'HyperParamsSpacedUnknownRatioSlipLeave',
+                 'HyperParamsSpacedUnknownRatioSlipLeaveLose'],
         help='Hyperparams class name, in param.py')
     parser.add_argument('--thompson', dest='thompson', action='store_true',
                         help="Use Thompson sampling")
@@ -549,14 +554,16 @@ if __name__ == '__main__':
         config = dict((k, args_vars[k]) for k in config_params)
 
     # For live datasets, default budget to cost of asking all questions.
-    if config['dataset'] is not None and args.budget is None:
+    if ('dataset' in config and
+            config['dataset'] is not None and
+            args.budget is None):
         if config['dataset'] == 'lin_aaai12_tag':
             data = hcomp_data_analyze.analyze.Data.from_lin_aaai12(
                 workflow='tag')
         elif config['dataset'] == 'lin_aaai12_wiki':
             data = hcomp_data_analyze.analyze.Data.from_lin_aaai12(
                 workflow='wiki')
-        elif config['dataset'] == 'rajpal_icml15']:
+        elif config['dataset'] == 'rajpal_icml15':
             data = hcomp_data_analyze.analyze.Data.from_rajpal_icml15(
                 worker_type=None)
         args.budget = config['cost'] * data.get_n_answers()

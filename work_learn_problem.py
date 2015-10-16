@@ -176,7 +176,8 @@ class State:
             p *= 1 - p_right
         return p
 
-    def rewards_ask(self, p_r, p_slip, p_guess, prior, utility_type):
+    def rewards_ask(self, p_r, p_slip, p_guess, prior, utility_type,
+                    penalty_fp, penalty_fn):
         # TODO: Move to separate class?
         """Expected rewards
 
@@ -192,7 +193,9 @@ class State:
                 p_obs += self.p_joint(p_r, p_slip, p_guess, prior, a, o)
             posterior = self.p_joint(p_r, p_slip, p_guess, prior, 1, o) / p_obs 
             # Expected reward.
-            r += p_obs * reward_new_posterior(prior, posterior, utility_type)
+            r += p_obs * reward_new_posterior(prior, posterior, utility_type,
+                                              penalty_fp=penalty_fp,
+                                              penalty_fn=penalty_fn)
         return r
 
     def is_reachable(self, next_state, exp=False):
