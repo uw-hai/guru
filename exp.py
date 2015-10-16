@@ -566,7 +566,7 @@ if __name__ == '__main__':
         elif config['dataset'] == 'rajpal_icml15':
             data = hcomp_data_analyze.analyze.Data.from_rajpal_icml15(
                 worker_type=None)
-        args.budget = config['cost'] * data.get_n_answers()
+        args.budget = -1 * config['cost'] * data.get_n_answers()
 
     policies = []
     for p_type in args.policies:
