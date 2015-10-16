@@ -64,13 +64,13 @@ class LiveSimulator(Simulator):
             raise ValueError('Unexpected parameter settings')
         self.actions = wlp.actions_all(n_skills, tell=False, exp=False)
         if dataset == 'lin_aaai12_tag':
-            self.df = hcomp_data_analyze.analyze.from_lin_aaai12(
+            self.df = hcomp_data_analyze.analyze.Data.from_lin_aaai12(
                 workflow='tag').df
         elif dataset == 'lin_aaai12_wiki':
-            self.df = hcomp_data_analyze.analyze.from_lin_aaai12(
+            self.df = hcomp_data_analyze.analyze.Data.from_lin_aaai12(
                 workflow='wiki').df
         elif dataset == 'rajpal_icml15':
-            self.df = hcomp_data_analyze.analyze.from_rajpal_icml15(
+            self.df = hcomp_data_analyze.analyze.Data.from_rajpal_icml15(
                 worker_type=None).df
         else:
             raise Exception('Unexpected dataset')
@@ -112,7 +112,7 @@ class LiveSimulator(Simulator):
         if len(self.worker_ans) == 0 or self.actions[a].get_type() == 'boot':
             self.o = self.observations.index('term')
             self.hired = False
-            return None, self.o, (0, 0)
+            return None, self.o, (0, 0), None
         else:
             ans = self.worker_ans.pop()
             self.o = ans['o']
