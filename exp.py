@@ -20,6 +20,7 @@ import util
 from util import get_or_default, ensure_dir, equation_safe_filename
 import analyze
 import pymongo
+import work_learn_problem as wlp
 
 BOOTS_TERM = 5  # Terminate after booting this many workers in a row.
 
@@ -59,16 +60,20 @@ def run_function_from_dictionary(f, d):
     argument"""
     return f(**d)
  
-def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
+def run_policy_iteration(exp_name, config_params, policy, iteration,
+                         budget, budget_reserved_frac):
     """
 
     Seeds random number generators based on iteration only.
 
     Args:
-        exp_name (str):         Experiment name, without file ending.
-        config_params (dict):   Params portion of config
+        exp_name (str):                 Experiment name, without file ending.
+        config_params (dict):           Params portion of config
         policy (dict):
         iteration (int):
+        budget (float):
+        budget_reserved_frac (float):   Fraction of budget reserved for
+                                        exploitation.
 
     Returns:
         tuple:
@@ -101,6 +106,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
     worker_n = 0
     n_actions_by_worker = []
     t = 0
+    reserved = False
     while (budget_spent < budget and
            not (worker_n > BOOTS_TERM and
                 all(n == 1 for n in n_actions_by_worker[-1 * BOOTS_TERM:])) and
@@ -109,6 +115,9 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
             pol, it, worker_n, budget_spent, budget))
         history.new_worker()
         s = simulator.new_worker()
+
+        if budget_spent >= budget * (1 - budget_reserved_frac):
+            reserved = True
 
         # Belief using estimated model.
         pol.estimate_and_solve(iteration, history)
@@ -120,6 +129,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
                         'sys_t': time.clock(),
                         'a': None,
                         'explore': None,
+                        'reserved': reserved,
                         's': s,
                         'o': None,
                         'cost': None,
@@ -130,7 +140,16 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
         t += 1
 
         while (budget_spent < budget and simulator.worker_hired()):
-            a, explore = pol.get_next_action(it, history, belief)
+            if reserved:
+                a = pol.get_best_action(it, history, belief)
+                explore = False
+            else:
+                a, explore = pol.get_next_action(it, history, belief)
+            # Override policy decision and boot worker if in
+            # entered reserved portion while worker hired.
+            if (not reserved and
+                    budget_spent >= budget * (1 - budget_reserved_frac)):
+                a = pol.model.actions.index(wlp.Action('boot'))
 
             # Simulate a step
             s, o, (cost, r), other = simulator.sample_SOR(a)
@@ -188,6 +207,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
     return results, models, timings
 
 def run_experiment(name, mongo, config, policies, iterations, budget,
+                   budget_reserved_frac,
                    epsilon=None, explore_actions=['test'], explore_policy=None,
                    thompson=False,
                    resolve_interval=None, hyperparams='HyperParams'):
@@ -207,6 +227,7 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
                                 parameter value with a list.
         iterations (int):       Number of iterations.
         budget (float):         Maximum budget to spend before halting.
+        budget_reserved_frac:   Fraction of budget reserved for exploitation.
         epsilon (str):          Exploration function string, with arguments
                                 w (worker) and t (timestep).
         explore_actions (list): Action types for exploration.
@@ -297,7 +318,8 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
                   'config_params': params_gt,
                   'policy': p,
                   'iteration': i,
-                  'budget': budget} for i, p in
+                  'budget': budget,
+                  'budget': budget_reserved_frac} for i, p in
                  itertools.product(xrange(iterations),
                                    policies_exploded))
 
@@ -488,8 +510,10 @@ if __name__ == '__main__':
 
     parser.add_argument('--iterations', '-i', type=int, default=100,
                         help='Number of iterations')
-    parser.add_argument('--budget', '-b', type=float, default=10,
+    parser.add_argument('--budget', '-b', type=float, required=True,
                         help='Total budget')
+    parser.add_argument('--budget_reserved_frac', type=float, default=0.1,
+                        help='Fraction of budget reserved for exploitation.')
     parser.add_argument('--epsilon', type=str,
                         help='Epsilon to use for all policies')
     parser.add_argument('--explore_actions', type=str, nargs='+',
@@ -514,7 +538,8 @@ if __name__ == '__main__':
         config_params = [
             'p_worker', 'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
             'p_lose', 'p_leave',
-            'p_slip', 'p_guess', 'p_r', 'p_1', 'p_s', 'utility_type', 'dataset']
+            'p_slip', 'p_guess', 'p_r', 'p_1', 'p_s', 'utility_type',
+            'dataset']
         if args.exp:
             config_params.append('p_learn_exp')
         if args.tell:
@@ -555,6 +580,7 @@ if __name__ == '__main__':
                    policies=policies,
                    iterations=args.iterations,
                    budget=args.budget,
+                   budget_reserved_frac=args.budget_reserved_frac,
                    epsilon=args.epsilon,
                    explore_actions=args.explore_actions,
                    explore_policy=args.explore_policy,

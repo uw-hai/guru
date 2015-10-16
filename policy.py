@@ -83,7 +83,7 @@ class Policy:
         self.external_policy = None
 
     def rl_p(self):
-        """Policy does reinforcement learning"""
+        """Policy does reinforcement learning."""
         return self.epsilon is not None or self.thompson
     
     def get_epsilon_probability(self, worker, t):

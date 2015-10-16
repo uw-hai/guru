@@ -59,7 +59,10 @@ class LiveSimulator(Simulator):
         self.params = params
         self.repeat = repeat
         self.observations = wlp.observations
-        self.actions = wlp.actions_all(1, tell=False, exp=False)
+        n_skills = len(params['p_r'])
+        if params['tell'] or params['exp'] or n_skills != 1:
+            raise ValueError('Unexpected parameter settings')
+        self.actions = wlp.actions_all(n_skills, tell=False, exp=False)
         if dataset == 'lin_aaai12_tag':
             self.df = hcomp_data_analyze.analyze.from_lin_aaai12(
                 workflow='tag').df
