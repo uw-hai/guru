@@ -3,7 +3,7 @@
 import random
 import numpy as np
 from pomdp import POMDPModel
-import hcomp_data_analyze.load
+import hcomp_data_analyze.analyze
 import work_learn_problem as wlp
 
 class Simulator(object):
