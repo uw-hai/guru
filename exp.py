@@ -21,6 +21,7 @@ from util import get_or_default, ensure_dir, equation_safe_filename
 import analyze
 import pymongo
 import work_learn_problem as wlp
+import hcomp_data_analyze.analyze
 
 BOOTS_TERM = 5  # Terminate after booting this many workers in a row.
 
@@ -510,8 +511,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--iterations', '-i', type=int, default=100,
                         help='Number of iterations')
-    parser.add_argument('--budget', '-b', type=float, required=True,
-                        help='Total budget')
+    parser.add_argument('--budget', '-b', type=float, help='Total budget')
     parser.add_argument('--budget_reserved_frac', type=float, default=0.1,
                         help='Fraction of budget reserved for exploitation.')
     parser.add_argument('--epsilon', type=str,
@@ -547,6 +547,19 @@ if __name__ == '__main__':
         if args.utility_type == 'pen':
             config.params += ['penalty_fp', 'penalty_fn']
         config = dict((k, args_vars[k]) for k in config_params)
+
+    # For live datasets, default budget to cost of asking all questions.
+    if config['dataset'] is not None and args.budget is None:
+        if config['dataset'] == 'lin_aaai12_tag':
+            data = hcomp_data_analyze.analyze.Data.from_lin_aaai12(
+                workflow='tag')
+        elif config['dataset'] == 'lin_aaai12_wiki':
+            data = hcomp_data_analyze.analyze.Data.from_lin_aaai12(
+                workflow='wiki')
+        elif config['dataset'] == 'rajpal_icml15']:
+            data = hcomp_data_analyze.analyze.Data.from_rajpal_icml15(
+                worker_type=None)
+        args.budget = config['cost'] * data.get_n_answers()
 
     policies = []
     for p_type in args.policies:
