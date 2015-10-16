@@ -124,7 +124,8 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
                         'o': None,
                         'cost': None,
                         'r': None,
-                        'b': list(belief)})
+                        'b': list(belief),
+                        'other': None})
         worker_first_t = t
         t += 1
 
@@ -132,7 +133,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
             a, explore = pol.get_next_action(it, history, belief)
 
             # Simulate a step
-            s, o, (cost, r) = simulator.sample_SOR(a)
+            s, o, (cost, r), other = simulator.sample_SOR(a)
             budget_spent -= cost
             history.record(a, o, explore=explore)
             belief = pol.model.update_belief(belief, a, o)
@@ -148,7 +149,8 @@ def run_policy_iteration(exp_name, config_params, policy, iteration, budget):
                             'o': o,
                             'cost': cost,
                             'r': r,
-                            'b': list(belief)})
+                            'b': list(belief),
+                            'other': other})
             t += 1
 
         n_actions_by_worker.append(t - worker_first_t - 1)
@@ -419,7 +421,8 @@ if __name__ == '__main__':
     parser.add_argument('name', type=str, help='Experiment name')
     parser.add_argument('--config_json', type=argparse.FileType('r'))
     config_group = parser.add_argument_group('config')
-    config_group.add_argument('--dataset', type=str, choices=[
+    config_group.add_argument(
+        '--dataset', type=str, choices=[
         'lin_aaai12_tag', 'lin_aaai12_wiki', 'rajpal_icml15'],
         help='Dataset to use.')
     config_group.add_argument(
@@ -451,7 +454,9 @@ if __name__ == '__main__':
     config_group.add_argument('--p_1', type=float, default=0.5)
     config_group.add_argument('--p_s', type=float, nargs='+', default=[0.2])
     config_group.add_argument('--utility_type', type=str,
-                              choices=['acc', 'posterior'], default='acc')
+                              choices=['acc', 'pen'], default='pen')
+    config_group.add_argument('--penalty_fp', type=float, default=-2)
+    config_group.add_argument('--penalty_fn', type=float, default=-2)
 
     parser.add_argument('--policies', '-p', type=str, nargs='+', required=True,
                         choices=['teach_first', 'test_and_boot',
@@ -514,6 +519,8 @@ if __name__ == '__main__':
             config_params.append('p_learn_exp')
         if args.tell:
             config_params.append('p_learn_tell')
+        if args.utility_type == 'pen':
+            config.params += ['penalty_fp', 'penalty_fn']
         config = dict((k, args_vars[k]) for k in config_params)
 
     policies = []

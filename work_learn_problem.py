@@ -227,16 +227,33 @@ class State:
                  self.quiz_val == s.quiz_val and
                  self.worker_class == s.worker_class))
 
+def reward_new_posterior(
+        prior, posterior, utility_type='acc', penalty_fp=-2, penalty_fn=-2):
+    """Return reward of new posterior.
 
-def reward_new_posterior(prior, posterior, utility_type='acc'):
-    """Return reward of new posterior"""
-    if utility_type == 'posterior':
-        if (
-            (prior >= 0.5 and posterior >= 0.5) or
-            (prior < 0.5 and posterior < 0.5)):
-            return 0.0
-        return abs(prior - posterior)
-    else:
-        # Chris style.
+    Args:
+        prior:          Prior probability.
+        posterior:      Posterior probability.
+        utility_type:   Either 'acc' (accuracy) or 'pen' (penalty).
+        penalty_fp:     False positive penalty.
+        penalty_fn:     False negative penalty.
+
+    Returns:
+        r:  Expected reward
+
+    >>> round(reward_new_posterior(0.5, 0.7, utility_type='acc'), 6)
+    0.2
+    >>> round(reward_new_posterior(0.5, 0.7, utility_type='pen', penalty_fp=-1, penalty_fn=-1), 6)
+    0.2
+    >>> round(reward_new_posterior(0.5, 0.7, utility_type='pen', penalty_fp=-2, penalty_fn=-2), 6)
+    0.4
+
+    """
+    if utility_type == 'acc':
+        # Accuracy gain.
         return max(posterior, 1-posterior) - max(prior, 1-prior)
-
+    elif utility_type == 'pen':
+        f = lambda p: p * penalty_fn if p <= 0.5 else (1-p) * penalty_fp
+        return f(posterior) - f(prior)
+    else:
+        raise ValueError('Unexpected utility type')
