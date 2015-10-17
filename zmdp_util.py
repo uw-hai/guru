@@ -43,8 +43,8 @@ def read_zmdp_policy(filename, state_count):
         # manually define the zero values of the alpha vector
         alpha_vector = [None] * state_count
         for index in range(len(plane['entries'])/2):
-            actionId = plane['entries'][index*2]
-            mdp_value = plane['entries'][index*2+1]
+            actionId = int(plane['entries'][index*2])
+            mdp_value = float(plane['entries'][index*2+1])
             alpha_vector[actionId] = mdp_value
         alpha_vectors.append(alpha_vector)
 
