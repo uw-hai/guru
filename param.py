@@ -57,12 +57,13 @@ class HyperParamsSpaced(object):
                 p[k] = [10, 10] # Pretty sure this is 0.5.
             elif t == 'p_slip':
                 if k[1] is None:
-                    p[k] = util.beta_fit(mode=0.25, mag=WEAK_BETA_MAG)
+                    p[k] = list(util.beta_fit(mode=0.25, mag=WEAK_BETA_MAG))
                 else:
                     # Prior modes evenly spaced on [0, 0.5]
                     c = k[1]
-                    p[k] = util.beta_fit(mode=0.5*(c+1)/(n_worker_classes+1),
-                                         mag=WEAK_BETA_MAG)
+                    p[k] = list(util.beta_fit(
+                        mode=0.5*(c+1)/(n_worker_classes+1),
+                        mag=WEAK_BETA_MAG))
             elif t in ['p_lose', 'p_learn_exp', 'p_learn_tell', 'p_leave',
                        'p_s']:
                 p[k] = [1.00001, 1.00001]
