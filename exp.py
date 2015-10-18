@@ -122,7 +122,8 @@ def run_policy_iteration(exp_name, config_params, policy, iteration,
             reserved = True
 
         # Belief using estimated model.
-        pol.estimate_and_solve(iteration, history)
+        pol.prep_worker(iteration, history, budget_spent, budget_explore,
+                        reserved)
         belief = pol.model.get_start_belief()
         results.append({'iteration': it,
                         'worker': worker_n,
@@ -166,6 +167,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration,
                             'sys_t': time.clock(),
                             'a': a,
                             'explore': explore,
+                            'reserved': reserved,
                             's': s,
                             'o': o,
                             'cost': cost,
@@ -211,8 +213,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration,
 def run_experiment(name, mongo, config, policies, iterations, budget,
                    budget_reserved_frac,
                    epsilon=None, explore_actions=['test'], explore_policy=None,
-                   thompson=False,
-                   resolve_interval=None, hyperparams='HyperParams'):
+                   thompson=False, hyperparams='HyperParams'):
     """Run experiment using multiprocessing.
 
     Args:
@@ -235,7 +236,6 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
         explore_actions (list): Action types for exploration.
         explore_policy (str):   Policy type name to use for exploration.
         thompson (bool):        Perform Thompson sampling.
-        resolve_interval (int): Number of workers to see before resolving.
         hyperparams (str):      Hyperparams classname.
 
     """
@@ -281,8 +281,6 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
             p['explore_policy'] = explore_policy
         if thompson:
             p['thompson'] = True
-        if resolve_interval is not None:
-            p['resolve_interval'] = resolve_interval
 
     # Explode policies.
     policies_exploded = []
@@ -522,18 +520,23 @@ if __name__ == '__main__':
                         default=['test', 'work'])
     parser.add_argument(
         '--hyperparams', type=str, default='HyperParams',
-        choices=['HyperParams', 'HyperParamsSpaced', 'HyperParamsWorker5',
-                 'HyperParamsUnknownRatioWorker5',
+        choices=['HyperParams',
                  'HyperParamsUnknownRatio',
                  'HyperParamsUnknownRatioSlipLeave',
                  'HyperParamsUnknownRatioSlipLeaveLose',
+
+                 'HyperParamsSpaced',
                  'HyperParamsSpacedUnknownRatio',
                  'HyperParamsSpacedUnknownRatioSlipLeave',
-                 'HyperParamsSpacedUnknownRatioSlipLeaveLose'],
+                 'HyperParamsSpacedUnknownRatioSlipLeaveLose',
+
+                 'HyperParamsSpacedStronger',
+                 'HyperParamsSpacedStrongerUnknownRatio',
+                 'HyperParamsSpacedStrongerUnknownRatioSlipLeave',
+                 'HyperParamsSpacedStrongerUnknownRatioSlipLeaveLose'],
         help='Hyperparams class name, in param.py')
     parser.add_argument('--thompson', dest='thompson', action='store_true',
                         help="Use Thompson sampling")
-    parser.add_argument('--resolve_interval', type=int, help='Resolve interval to use for all policies')
     args = parser.parse_args()
     args_vars = vars(args)
 
@@ -605,5 +608,4 @@ if __name__ == '__main__':
                    explore_actions=args.explore_actions,
                    explore_policy=args.explore_policy,
                    thompson=args.thompson,
-                   resolve_interval=args.resolve_interval,
                    hyperparams=args.hyperparams)

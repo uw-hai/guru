@@ -34,11 +34,6 @@ class Policy:
         self.explore_policy = get_or_default(kwargs, 'explore_policy', None)
         self.thompson = bool(get_or_default(kwargs, 'thompson', False))
         self.hyperparams = get_or_default(kwargs, 'hyperparams', None)
-        if self.rl_p():
-            self.resolve_interval = get_or_default(
-                kwargs, 'resolve_interval', 1)
-            self.estimate_interval = get_or_default(
-                kwargs, 'estimate_interval', self.resolve_interval)
         if self.policy in ('appl', 'zmdp'):
             self.discount = get_or_default(kwargs, 'discount', default_discount)
             self.timeout = get_or_default(kwargs, 'timeout', None)
@@ -80,6 +75,7 @@ class Policy:
         self.estimate_times = dict()
         self.resolve_times = dict()
         self.external_policy = None
+        self.use_explore_policy = False
 
     def rl_p(self):
         """Policy does reinforcement learning."""
@@ -104,16 +100,23 @@ class Policy:
         else:
             return self.epsilon
 
-    def estimate_and_solve(self, iteration, history):
+    def prep_worker(self, iteration, history, budget_spent, budget_explore,
+                    reserved):
         """Reestimate and resolve as needed."""
         worker = history.n_workers() - 1
+        t = 0
+        budget_explore_frac = budget_spent / budget_explore
+        self.use_explore_policy = (
+            not reserved and
+            self.epsilon is not None and
+            self.explore_policy is not None and
+            np.random.random() <= self.get_epsilon_probability(
+                worker, t, budget_explore_frac))
 
         resolve_p = (self.policy in ('appl', 'zmdp', 'aitoolbox') and
                      (self.external_policy is None or
-                      (self.rl_p() and
-                       worker % self.resolve_interval == 0)))
-        estimate_p = (self.rl_p() and
-                      (resolve_p or worker % self.estimate_interval == 0))
+                      (self.rl_p() and not self.use_explore_policy)))
+        estimate_p = self.rl_p() and resolve_p
         model = self.model
         if estimate_p:
             start = time.clock()
@@ -141,10 +144,6 @@ class Policy:
         worker = history.n_workers() - 1
         t = history.n_t(worker)
         budget_explore_frac = budget_spent / budget_explore
-        if t == 0:
-            last_explored = None
-        else:
-            last_explored = history.history[-1][-1][2]
         if (self.epsilon is not None and
                 self.explore_policy is None and
                 np.random.random() <= self.get_epsilon_probability(
@@ -153,12 +152,7 @@ class Policy:
                 i for i in valid_actions if
                 self.model.actions[i].get_type() in self.explore_actions]
             return np.random.choice(valid_explore_actions), True
-        elif (self.epsilon is not None and
-                self.explore_policy is not None and
-                (last_explored or
-                 (t == 0 and
-                  np.random.random() <= self.get_epsilon_probability(
-                      worker, t, budget_explore_frac)))):
+        elif self.use_explore_policy:
             next_a, _ = self.explore_policy.get_next_action(
                 iteration, history, budget_spent, budget_explore, belief)
             return next_a, True
@@ -412,8 +406,4 @@ class Policy:
                 s += '-thomp'
             if self.hyperparams and self.hyperparams != 'HyperParams':
                 s += '-{}'.format(self.hyperparams)
-            if (self.estimate_interval > 1):
-                s += '-e_int{}'.format(self.estimate_interval)
-            if (self.resolve_interval > 1):
-                s += '-s_int{}'.format(self.resolve_interval)
         return s
