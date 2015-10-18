@@ -579,7 +579,8 @@ class ModelPlotter(Plotter):
         df_gt = df_gt.sort('param')
         df_est = df_est.sort('param')
 
-        pool = mp.Pool(initializer=util.init_worker)
+        pool = mp.Pool(processes=util.cpu_count(),
+                       initializer=util.init_worker)
         lst = [{'df_gt': df_gt, 'df_est': df} for _, df in
                df_est.groupby(['iteration', 'policy', 'worker'])]
         f = rename_classes_h
@@ -813,7 +814,8 @@ if __name__ == '__main__':
     else:
         if args.dest is None:
             args.dest = os.path.join('static', 'plots')
-        pool = mp.Pool(initializer=util.init_worker)
+        pool = mp.Pool(processes=util.cpu_count(),
+                       initializer=util.init_worker)
         f = ft.partial(util.run_functor,
                        ft.partial(run_function_from_dictionary,
                                   make_plots_h))
