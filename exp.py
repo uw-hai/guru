@@ -28,6 +28,16 @@ BOOTS_TERM = 5  # Terminate after booting this many workers in a row.
 logger = mp.log_to_stderr()
 logger.setLevel(logging.INFO)
 
+def parseNumList(string):
+    import re
+    m = re.match(r'(\d+)(?:-(\d+))?$', string)
+    # ^ (or use .split('-'). anyway you like.)
+    if not m:
+        raise argparse.ArgumentTypeError("'" + string + "' is not a range of number. Expected forms like '0-5' or '2'.")
+    start = m.group(1)
+    end = m.group(2) or start
+    return list(range(int(start,10), int(end,10)+1))
+
 def get_start_belief(fp):
     """DEPRECATED"""
     for line in fp:
@@ -228,7 +238,7 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
                                 policies can be represented in a single
                                 dictionary by substituting a single
                                 parameter value with a list.
-        iterations (int):       Number of iterations.
+        iterations (list):      List of iterations.
         budget (float):         Maximum budget to spend before halting.
         budget_reserved_frac:   Fraction of budget reserved for exploitation.
         epsilon (str):          Exploration function string, with arguments
@@ -309,7 +319,7 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
             raise Exception('Policies must contain only a single list parameter')
 
     # Make folders (errors when too many folders are made in subprocesses).
-    for i in xrange(iterations):
+    for i in iterations:
         ensure_dir(os.path.join(models_path, str(i)))
         ensure_dir(os.path.join(policies_path, str(i)))
 
@@ -320,7 +330,7 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
                   'iteration': i,
                   'budget': budget,
                   'budget_reserved_frac': budget_reserved_frac} for i, p in
-                 itertools.product(xrange(iterations),
+                 itertools.product(iterations,
                                    policies_exploded))
 
     # Write one-time rows.
@@ -508,8 +518,8 @@ if __name__ == '__main__':
                         default=[0.99])
     parser.add_argument('--aitoolbox_horizon', type=int, nargs='+')
 
-    parser.add_argument('--iterations', '-i', type=int, default=100,
-                        help='Number of iterations')
+    parser.add_argument('--iterations', '-i', type=parseNumList,
+                        default=range(100), help='Iterations')
     parser.add_argument('--budget', '-b', type=float, help='Total budget')
     parser.add_argument('--budget_reserved_frac', type=float, default=0.1,
                         help='Fraction of budget reserved for exploitation.')
