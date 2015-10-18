@@ -48,8 +48,15 @@ class Plotter(object):
         self.uses_gold_known = (df_names is not None and
                                 'uses_gold' in df_names.columns)
 
+    def restore(self):
+        self.df = self.df_full
+
     def set_quantile(self, quantile=[0, 1]):
         self.df = self.filter_workers_quantile(self.df_full, *quantile)
+
+    def set_reserved(self):
+        if 'reserved' in self.df_full:
+            self.df = self.df_full[self.df_full.reserved]
 
     @classmethod
     def from_mongo(cls, collection, experiment, policies=None,
@@ -177,13 +184,13 @@ class ResultPlotter(Plotter):
 
         quart123dir = os.path.join(outdir, 'quart123')
         quart4dir = os.path.join(outdir, 'quart4')
+        reserveddir = os.path.join(outdir, 'reserved')
         util.ensure_dir(quart123dir)
         util.ensure_dir(quart4dir)
+        util.ensure_dir(reserveddir)
 
-        for d, q in [(outdir, [0, 1]),
-                     (quart123dir, [0, 0.75]),
-                     (quart4dir, [0.75, 1])]:
-            self.set_quantile(q)
+        def f(self, d):
+            print 'making', os.path.join(d, 't.png')
             ax = self.plot_iteration_runtime()
             savefig(ax, os.path.join(d, 't.png'))
             plt.close()
@@ -194,7 +201,15 @@ class ResultPlotter(Plotter):
             self.plot_reward_by_t(os.path.join(d, 'r_t'))
             self.plot_reward_by_budget(os.path.join(d, 'r_cost'))
             self.plot_n_workers_by_budget(os.path.join(d, 'n_workers_cost'))
-        self.set_quantile([0, 1])
+
+        for d, q in [(outdir, [0, 1]),
+                     (quart123dir, [0, 0.75]),
+                     (quart4dir, [0.75, 1])]:
+            self.set_quantile(q)
+            f(self, d)
+        self.set_reserved()
+        f(self, reserveddir)
+        self.restore()
         self.plot_n_workers(os.path.join(outdir, 'n_workers'))
 
         for p, df_filter in self.df.groupby('policy'):
