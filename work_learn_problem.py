@@ -256,7 +256,8 @@ def reward_new_posterior(
         # Accuracy gain.
         return max(posterior, 1-posterior) - max(prior, 1-prior)
     elif utility_type == 'pen':
-        f = lambda p: p * penalty_fn if p <= 0.5 else (1-p) * penalty_fp
+        f = lambda p: (1-p) + p * penalty_fn if p <= 0.5 else \
+                      p + (1-p) * penalty_fp
         return f(posterior) - f(prior)
     else:
         raise ValueError('Unexpected utility type')
