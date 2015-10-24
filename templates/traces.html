@@ -5,6 +5,7 @@
 <table>
 <tr>
     <th>Worker</th>
+    <th>Reserved</th>
     <th>Explore</th>
     <th>Action</th>
     <th>Observation</th>
@@ -14,10 +15,11 @@
     <th>Model</th>
 </tr>
 {% for w in res %}
-{% for a, o, b, r, cost, e in res[w] %}
+{% for a, o, b, r, cost, e, reserved in res[w] %}
 {% set i = loop.index %}
 <tr>
     <td>{% if i == 1 %}{{ w }}{% endif %}</td>
+    <td>{{ reserved }}</td>
     <td>{{ e }}</td>
     <td>{{ a }}</td>
     <td>{{ o }}</td>

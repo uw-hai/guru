@@ -265,8 +265,11 @@ def traces():
             '' if x['cost'] is None else x['cost'] for x in res]
         explore = [
             '' if x['explore'] is None else x['explore'] for x in res]
+        reserved = [
+            '' if 'reserved' not in x or x['reserved'] is None else
+            x['reserved'] for x in res]
         res_by_worker[w] = zip(
-            actions, observations, beliefs, rewards, costs, explore)
+            actions, observations, beliefs, rewards, costs, explore, reserved)
     return render_template(
         'traces.html',
         res=res_by_worker,
