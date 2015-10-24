@@ -1,14 +1,13 @@
 #!/bin/env bash
 
 # $1: server
-# $2: node list
-# $3: screen name
-# $4-n: options
+# $2: screen name
+# $3-n: cmd
 
 sname=e.$cbase.$pbase
 
-cmd=${@:4}
+cmd=${@:3}
 
 cd ~/dev/worklearn/; git pull;
 cd ~/rv/dev/worklearn/; git pull;
-ssh $1 "screen -dm -S $3; screen -S $3 -p 0 -X stuff $'cd ~/dev/worklearn/\nworkon worklearn\nnumactl -N $2 $cmd \n'";
+ssh $1 "screen -dm -S $2; screen -S $2 -p 0 -X stuff $'cd ~/dev/worklearn/\nworkon worklearn\n$cmd\n'";
