@@ -129,19 +129,26 @@ class LiveSimulator(Simulator):
         if self.actions[a].get_type() == 'work':
             cost = self.params['cost']
             guess = round(self.params['p_1'])
+            reward_correct = 1
             if ans['gt'] == 0 and guess == 1:
                 penalty_old = penalty_fp
+                reward_old = 0
             elif ans['gt'] == 1 and guess == 0:
                 penalty_old = penalty_fn
+                reward_old = 0
             else:
                 penalty_old = 0
+                reward_old = reward_correct
             if ans['gt'] == 0 and ans['answer'] == 1:
                 penalty_new = penalty_fp
+                reward_new = 0
             elif ans['gt'] == 1 and ans['answer'] == 0:
                 penalty_new = penalty_fn
+                reward_new = 0
             else:
                 penalty_new = 0
-            r = penalty_new - penalty_old
+                reward_new = reward_correct
+            r = (penalty_new + reward_correct) - (penalty_old + reward_old)
             self.o = self.observations.index('null')
         elif self.actions[a].get_type() == 'test':
             cost = self.params['cost']
