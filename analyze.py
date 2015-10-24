@@ -535,14 +535,15 @@ class ModelPlotter(Plotter):
             yield df_i.sort('worker')['v_single']
 
     @classmethod
-    def from_mongo(cls, collection, experiment, policies=None):
+    def from_mongo(cls, collection, experiment, policies=None, processes=None):
         """Return dataframe of rows from given Mongo collection.
 
         Does alignment preprocessing for model.
 
         Args:
             collection: Pymongo collection object.
-            collection: Pymongo collection object for names information.
+            processes:  Number of processes to use.
+
         """
         # Load, copied from from_mongo in super().
         if not policies:
@@ -573,7 +574,7 @@ class ModelPlotter(Plotter):
         # Preprocess as needed.
         if len(df_gt) > 0 and 'param_aligned' not in df_est:
             # Separate ground truth params
-            df_est_aligned = cls.rename_classes(df_gt, df_est)
+            df_est_aligned = cls.rename_classes(df_gt, df_est, processes)
             df_est['v'] = df_est_aligned['v']
             df_est['param'] = df_est_aligned['param']
         elif len(df_gt) == 0:
@@ -589,12 +590,13 @@ class ModelPlotter(Plotter):
             raise ValueError
 
     @classmethod
-    def rename_classes(cls, df_gt, df_est):
+    def rename_classes(cls, df_gt, df_est, processes=None):
         """Return version of df_est with classes aligned to closest in gt"""
         df_gt = df_gt.sort('param')
         df_est = df_est.sort('param')
 
-        pool = mp.Pool(processes=util.cpu_count(),
+        nprocesses = processes or util.cpu_count()
+        pool = mp.Pool(processes=nprocesses,
                        initializer=util.init_worker)
         lst = [{'df_gt': df_gt, 'df_est': df} for _, df in
                df_est.groupby(['iteration', 'policy', 'worker'])]
@@ -741,13 +743,15 @@ def make_plots_h(**kwargs):
  
 
 def make_plots(db, experiment, outdir=None, policies=None,
-               line=False, log=True, worker_interval=5):
+               line=False, log=True, worker_interval=5,
+               processes=None):
     """Make plots for a single experiment.
 
     Args:
-        db:       Pymongo database connection.
-        log:            Use log scale for breakdown plots
-        policies:       List of policies to include
+        db:         Pymongo database connection.
+        log:        Use log scale for breakdown plots
+        policies:   List of policies to include
+        processes:  Number of processes to use.
 
     """
     if outdir is None:
@@ -777,7 +781,8 @@ def make_plots(db, experiment, outdir=None, policies=None,
 
     try:
         mplotter = ModelPlotter.from_mongo(
-            collection=db.model, experiment=experiment, policies=policies)
+            collection=db.model, experiment=experiment, policies=policies,
+            processes=processes)
         print 'Made model plotter'
         mplotter.make_plots(outdir)
         print 'Done plotting params'
@@ -797,6 +802,7 @@ def make_plots(db, experiment, outdir=None, policies=None,
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Visualize policies.')
     parser.add_argument('--experiment', type=str)
+    parser.add_argument('--proc', type=int, help='Number of processes')
     parser.add_argument('--line', dest='line', action='store_true',
                         help="Use line plots instead of area")
     parser.add_argument('--no_log', dest='log', action='store_false',
@@ -825,11 +831,13 @@ if __name__ == '__main__':
             policies=args.policies,
             line=args.line,
             log=args.log,
-            worker_interval=args.worker_interval)
+            worker_interval=args.worker_interval,
+            processes=args.proc)
     else:
         if args.dest is None:
             args.dest = os.path.join('static', 'plots')
-        pool = mp.Pool(processes=util.cpu_count(),
+        nprocesses = args.proc or util.cpu_count()
+        pool = mp.Pool(processes=nprocesses,
                        initializer=util.init_worker)
         f = ft.partial(util.run_functor,
                        ft.partial(run_function_from_dictionary,

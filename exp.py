@@ -223,7 +223,7 @@ def run_policy_iteration(exp_name, config_params, policy, iteration,
 def run_experiment(name, mongo, config, policies, iterations, budget,
                    budget_reserved_frac,
                    epsilon=None, explore_actions=['test'], explore_policy=None,
-                   thompson=False, hyperparams='HyperParams'):
+                   thompson=False, hyperparams='HyperParams', processes=None):
     """Run experiment using multiprocessing.
 
     Args:
@@ -247,6 +247,7 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
         explore_policy (str):   Policy type name to use for exploration.
         thompson (bool):        Perform Thompson sampling.
         hyperparams (str):      Hyperparams classname.
+        processes (int):        Number of processes.
 
     """
     client = pymongo.MongoClient(mongo['host'], mongo['port'])
@@ -346,7 +347,8 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
             client.worklearn.model.insert(row)
 
     # Create worker processes.
-    pool = mp.Pool(processes=util.cpu_count(), initializer=util.init_worker)
+    nprocesses = processes or util.cpu_count()
+    pool = mp.Pool(processes=nprocesses, initializer=util.init_worker)
     f = ft.partial(util.run_functor, ft.partial(run_function_from_dictionary,
                                                 run_policy_iteration))
     try:
@@ -393,7 +395,8 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
         # Plot.
         analyze.make_plots(
             db=client.worklearn,
-            experiment=exp_name)
+            experiment=exp_name,
+            processes=nprocesses)
 
 def cmd_config_to_pomdp_params(config):
     """Convert command line config parameters to params for POMDPModel.
@@ -452,6 +455,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run an experiment')
     parser.add_argument('name', type=str, help='Experiment name')
     parser.add_argument('--config_json', type=argparse.FileType('r'))
+    parser.add_argument('--proc', type=int, help='Number of processes')
     config_group = parser.add_argument_group('config')
     config_group.add_argument(
         '--dataset', type=str, choices=[
@@ -618,4 +622,5 @@ if __name__ == '__main__':
                    explore_actions=args.explore_actions,
                    explore_policy=args.explore_policy,
                    thompson=args.thompson,
-                   hyperparams=args.hyperparams)
+                   hyperparams=args.hyperparams,
+                   processes=args.proc)
