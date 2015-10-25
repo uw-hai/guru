@@ -231,7 +231,7 @@ class State:
                  self.worker_class == s.worker_class))
 
 def reward_new_posterior(
-        prior, posterior, utility_type='acc', penalty_fp=-2, penalty_fn=-2):
+        prior, posterior, utility_type='pen', penalty_fp=-2, penalty_fn=-2):
     """Return reward of new posterior.
 
     Args:
@@ -246,18 +246,24 @@ def reward_new_posterior(
 
     >>> round(reward_new_posterior(0.5, 0.7, utility_type='acc'), 6)
     0.2
-    >>> round(reward_new_posterior(0.5, 0.7, utility_type='pen', penalty_fp=-1, penalty_fn=-1), 6)
+    >>> round(reward_new_posterior(0.5, 0.7, utility_type='pen_diff', penalty_fp=0, penalty_fn=0), 6)
     0.2
-    >>> round(reward_new_posterior(0.5, 0.7, utility_type='pen', penalty_fp=-2, penalty_fn=-2), 6)
+    >>> round(reward_new_posterior(0.5, 0.7, utility_type='pen_diff', penalty_fp=-1, penalty_fn=-1), 6)
+    0.4
+    >>> round(reward_new_posterior(0.5, 0.7, utility_type='pen', penalty_fp=0, penalty_fn=0), 6)
+    0.7
+    >>> round(reward_new_posterior(0.5, 0.7, utility_type='pen', penalty_fp=-1, penalty_fn=-1), 6)
     0.4
 
     """
+    f = lambda p: (1-p) + p * penalty_fn if p <= 0.5 else \
+                  p + (1-p) * penalty_fp
     if utility_type == 'acc':
         # Accuracy gain.
         return max(posterior, 1-posterior) - max(prior, 1-prior)
     elif utility_type == 'pen':
-        f = lambda p: (1-p) + p * penalty_fn if p <= 0.5 else \
-                      p + (1-p) * penalty_fp
+        return f(posterior)
+    elif utility_type == 'pen_diff':
         return f(posterior) - f(prior)
     else:
         raise ValueError('Unexpected utility type')
