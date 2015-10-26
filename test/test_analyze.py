@@ -40,11 +40,17 @@ class ResultPlotterTestCase(AuthenticatedTestCase):
             collection=self.client.worklearn.res,
             experiment=TEST_EXPERIMENT,
             collection_names=self.client.worklearn.names)
+        self.path = os.path.join('test', 'tmp', 'plots', 'res')
+        util.ensure_dir(self.path)
+
+
+    def test_plot_reward_by_budget(self):
+        self.plotter.plot_reward_by_budget(
+            os.path.join(self.path, 'r_cost'), fill=True)
 
     def test_make_plots(self):
-        path = os.path.join('test', 'tmp', 'plots', 'res')
-        util.ensure_dir(path)
-        self.plotter.make_plots(path, line=False, logx=True, worker_interval=5)
+        self.plotter.make_plots(self.path, line=False, logx=True,
+                                worker_interval=5)
  
 class ModelPlotterTestCase(AuthenticatedTestCase):
     def setUp(self):

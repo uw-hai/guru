@@ -403,13 +403,27 @@ class ResultPlotter(Plotter):
         #df.sort(['policy','iteration','episode']).to_csv(fname + '.csv',
         #                                                 index=False)
 
-    def plot_reward_by_budget(self, outfname):
+    def plot_reward_by_budget(self, outfname, fill=True):
         df = self.df
         df['r'] = df['r'].fillna(0)
         df['cum_r'] = df.groupby(['policy', 'iteration'])['r'].cumsum()
         df['cum_cost'] = -1 * df.groupby(['policy', 'iteration'])['cost'].cumsum()
-        df = df.groupby(['policy', 'iteration', 'cum_cost'],
-                        as_index=False)['cum_r'].last()
+        if not fill:
+            df = df.groupby(['policy', 'iteration', 'cum_cost'],
+                            as_index=False)['cum_r'].last()
+        else:
+            df = pd.pivot_table(df, values='cum_r', index=['policy', 'iteration'],
+                                columns=['cum_cost'])
+            df = df.stack(dropna=False)
+            df.name = 'cum_r'
+            df = df.reset_index()
+            dfs = []
+            for _, df in df.groupby(['policy', 'iteration'], as_index=False):
+                df = df.sort('cum_cost')
+                df['cum_r'] = df['cum_r'].fillna(method='ffill')
+                df['cum_r'] = df['cum_r'].fillna(0)
+                dfs.append(df)
+            df = pd.concat(dfs, ignore_index=True)
         #ax = df.groupby(['policy', 'cum_cost'], as_index=False)['cum_r'].mean().pivot(index='cum_cost', columns='policy', values='cum_r').plot()
         ax, _ = tsplot_robust(df, time='cum_cost', condition='policy',
                               unit='iteration', value='cum_r', ci=CI)
