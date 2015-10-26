@@ -199,7 +199,9 @@ class ResultPlotter(Plotter):
             self.plot_actions_by_worker(
                 os.path.join(d, 'n_actions_by_worker'))
             self.plot_reward_by_t(os.path.join(d, 'r_t'))
-            self.plot_reward_by_budget(os.path.join(d, 'r_cost'))
+            self.plot_reward_by_budget(os.path.join(d, 'r_cost_fill'),
+                                       fill=True)
+            self.plot_reward_by_budget(os.path.join(d, 'r_cost'), fill=False)
             self.plot_n_workers_by_budget(os.path.join(d, 'n_workers_cost'))
 
         for d, q in [(outdir, [0, 1]),
