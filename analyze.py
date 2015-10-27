@@ -551,7 +551,8 @@ class ModelPlotter(Plotter):
             yield df_i.sort('worker')['v_single']
 
     @classmethod
-    def from_mongo(cls, collection, experiment, policies=None, processes=None):
+    def from_mongo(cls, collection, experiment, policies=None,
+                   use_gt=False, processes=None):
         """Return dataframe of rows from given Mongo collection.
 
         Does alignment preprocessing for model.
@@ -577,24 +578,25 @@ class ModelPlotter(Plotter):
 
         # Preprocessing.
         df_est = df
-        df_gt = pd.DataFrame(list(
-            collection.find(
-                {'experiment': experiment,
-                 'policy': None},
-                {'_id': False,
-                 'experiment': False})))
+        if use_gt:
+            df_gt = pd.DataFrame(list(
+                collection.find(
+                    {'experiment': experiment,
+                     'policy': None},
+                    {'_id': False,
+                     'experiment': False})))
+        else:
+            df_gt = pd.DataFrame()
 
         if len(df_est) == 0:
             raise ValueError('No estimated rows')
 
         # Preprocess as needed.
-        if len(df_gt) > 0 and 'param_aligned' not in df_est:
+        if 'param_aligned' not in df_est:
             # Separate ground truth params
             df_est_aligned = cls.rename_classes(df_gt, df_est, processes)
             df_est['v'] = df_est_aligned['v']
             df_est['param'] = df_est_aligned['param']
-        elif len(df_gt) == 0:
-            print 'Empty model gt dataframe'
         else:
             print 'Model already aligned'
 
@@ -608,7 +610,8 @@ class ModelPlotter(Plotter):
     @classmethod
     def rename_classes(cls, df_gt, df_est, processes=None):
         """Return version of df_est with classes aligned to closest in gt"""
-        df_gt = df_gt.sort('param')
+        if len(df_gt) > 0:
+            df_gt = df_gt.sort('param')
         df_est = df_est.sort('param')
 
         nprocesses = processes or util.cpu_count()
@@ -622,11 +625,27 @@ class ModelPlotter(Plotter):
             df_est_renamed.append(res)
         return pd.concat(df_est_renamed)
 
+    @staticmethod
+    def make_v_gt(v_est):
+        """Return v_gt for aligning v_est."""
+        classes = sorted(v_est)
+        k = len(classes)
+        v_gt = dict()
+        for i in classes:
+            v_gt[i] = [1/k]
+            v_gt[i] += [1 - (i+1) * 1/(k+2) for j in xrange(len(v_est[i]) - 1)]
+        return v_gt
+
     @classmethod
     def rename_classes_h(cls, df_gt, df_est):
         """Helper for inner loop of rename_classes."""
-        v_gt = cls.df_params_to_vec(df_gt)
         v_est = cls.df_params_to_vec(df_est)
+        if len(df_gt) == 0:
+            # Make automated appropriate ground truth.
+            v_gt = cls.make_v_gt(v_est)
+        else:
+            v_gt = cls.df_params_to_vec(df_gt)
+
         m = cls.best_matching(v_est, v_gt)
         params = df_est['param'].map(
             lambda x: x if x == 'p_worker' else ast.literal_eval(x))
