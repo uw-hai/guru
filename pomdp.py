@@ -11,7 +11,6 @@ import random
 from scipy.misc import logsumexp
 import scipy.stats as ss
 import work_learn_problem as wlp
-from work_learn_problem import Action
 
 import elementtree.ElementTree as ee
 import zmdp_util
