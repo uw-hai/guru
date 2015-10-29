@@ -71,7 +71,7 @@ def run_function_from_dictionary(f, d):
     argument"""
     return f(**d)
  
-def run_policy_iteration(exp_name, config_params, policy, iteration,
+def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
                          budget, budget_reserved_frac):
     """
 
@@ -79,7 +79,8 @@ def run_policy_iteration(exp_name, config_params, policy, iteration,
 
     Args:
         exp_name (str):                 Experiment name, without file ending.
-        config_params (dict):           Params portion of config
+        params_gt (dict):               Params portion of config.
+        params_policy (dict):           Policy params.
         policy (dict):
         iteration (int):
         budget (float):
@@ -98,11 +99,12 @@ def run_policy_iteration(exp_name, config_params, policy, iteration,
     it = iteration
 
     # Parse config
-    params_gt = config_params
-    n_worker_classes = len(config_params['p_worker'])
+    if params_policy is None:
+        params_policy = params_gt
+    n_worker_classes = len(params_policy['p_worker'])
 
     pol = Policy(policy_type=policy['type'], exp_name=exp_name,
-                 n_worker_classes=n_worker_classes, params_gt=params_gt,
+                 n_worker_classes=n_worker_classes, params_gt=params_policy,
                  **policy)
 
     # Begin experiment
@@ -220,7 +222,8 @@ def run_policy_iteration(exp_name, config_params, policy, iteration,
 
     return results, models, timings
 
-def run_experiment(name, mongo, config, policies, iterations, budget,
+def run_experiment(name, mongo, config, config_policy,
+                   policies, iterations, budget,
                    budget_reserved_frac,
                    epsilon=None, explore_actions=['test'], explore_policy=None,
                    thompson=False, hyperparams='HyperParams', processes=None):
@@ -233,6 +236,8 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
                                 POMDPModel. If experiment folder
                                 already exists and contains config.json,
                                 ignore this parameter and use that instead.
+        config_policy (dict):   Params for _policy_, in format expected by
+                                POMDPModel.
         policies (list):        List of policy dictionaries. Acceptable
                                 to use compressed format where multiple
                                 policies can be represented in a single
@@ -269,7 +274,8 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
         config_insert['experiment'] = exp_name
         client.worklearn.config.insert(config_insert)
     params_gt = cmd_config_to_pomdp_params(config)
-    n_worker_classes = len(params_gt['p_worker'])
+    if config_policy is not None:
+        params_policy = cmd_config_to_pomdp_params(config_policy)
 
     if explore_policy is not None:
         if epsilon is None:
@@ -326,7 +332,8 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
 
     # Prepare worker process arguments
     args_iter = ({'exp_name': exp_name,
-                  'config_params': params_gt,
+                  'params_gt': params_gt,
+                  'params_policy': params_policy,
                   'policy': p,
                   'iteration': i,
                   'budget': budget,
@@ -335,6 +342,7 @@ def run_experiment(name, mongo, config, policies, iterations, budget,
                                    policies_exploded))
 
     # Write one-time rows.
+    n_worker_classes = len(params_gt['p_worker'])
     model_gt = POMDPModel(n_worker_classes, params=params_gt)
     if not list(client.worklearn.names.find({'experiment': exp_name})):
         for row in model_gt.get_names():
@@ -500,6 +508,8 @@ if __name__ == '__main__':
     parser.add_argument('--explore_policy', type=str,
                         choices=['teach_first', 'test_and_boot'],
                         help='Use one of the baseline policies as the exploration policy')
+    parser.add_argument('--accuracy_bins_n', type=int,
+                        help='Number of accuracy bins (classes) to use for the policy model.')
     parser.add_argument('--teach_first_n', type=int, nargs='+')
     parser.add_argument('--teach_first_type', type=str,
                         choices=['tell', 'exp'], default='tell')
@@ -536,6 +546,7 @@ if __name__ == '__main__':
         '--hyperparams', type=str, default='HyperParams',
         choices=['HyperParams',
                  'HyperParamsUnknownRatio',
+                 'HyperParamsUnknownRatioLeave',
                  'HyperParamsUnknownRatioSlipLeave',
                  'HyperParamsUnknownRatioSlipLeaveLose',
 
@@ -569,6 +580,13 @@ if __name__ == '__main__':
         if args.utility_type == 'pen':
             config.params += ['penalty_fp', 'penalty_fn']
         config = dict((k, args_vars[k]) for k in config_params)
+
+    if args.accuracy_bins_n is not None:
+        n = args.accuracy_bins_n
+        config_policy = dict()
+        config_policy = copy.deepcopy(config)
+        config_policy['p_worker'] = [1/n for i in xrange(n)]
+        config_policy['p_slip'] = util.midpoints(0.5, 1.0, n)
 
     # For live datasets, default budget to cost of asking all questions.
     if ('dataset' in config and
@@ -614,6 +632,7 @@ if __name__ == '__main__':
                           'user': os.environ['MONGO_USER'],
                           'pass': os.environ['MONGO_PASS']},
                    config=config,
+                   config_policy=config_policy,
                    policies=policies,
                    iterations=args.iterations,
                    budget=args.budget,

@@ -406,4 +406,5 @@ class Policy:
                 s += '-thomp'
             if self.hyperparams and self.hyperparams != 'HyperParams':
                 s += '-{}'.format(self.hyperparams)
+            s += '-cl{}'.format(self.model.n_worker_classes)
         return s
