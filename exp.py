@@ -276,6 +276,8 @@ def run_experiment(name, mongo, config, config_policy,
     params_gt = cmd_config_to_pomdp_params(config)
     if config_policy is not None:
         params_policy = cmd_config_to_pomdp_params(config_policy)
+    else:
+        params_policy = None
 
     if explore_policy is not None:
         if epsilon is None:
@@ -587,6 +589,8 @@ if __name__ == '__main__':
         config_policy = copy.deepcopy(config)
         config_policy['p_worker'] = [1/n for i in xrange(n)]
         config_policy['p_slip'] = util.midpoints(0.5, 1.0, n)
+    else:
+        config_policy = None
 
     # For live datasets, default budget to cost of asking all questions.
     if ('dataset' in config and
