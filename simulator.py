@@ -118,8 +118,9 @@ class LiveSimulator(Simulator):
             self.o = ans['o']
 
         if self.params['utility_type'] == 'acc':
-            penalty_fp = 0
-            penalty_fn = 0
+            # BUG: In order to define this, think we need to set
+            # reward_correct = 0.5 and penalty = -0.5, but need to verify.
+            raise ValueError('Accuracy gain undefined for live data')
         else:
             penalty_fp = self.params['penalty_fp']
             penalty_fn = self.params['penalty_fn']
@@ -154,9 +155,7 @@ class LiveSimulator(Simulator):
             elif self.params['utility_type'] == 'pen_diff':
                 r = (penalty_new + reward_new) - (penalty_old + reward_old)
             else:
-                # BUG: Raise exception for accuracy gain, since not sure if
-                # penalty=0 corresponds to this case.
-                raise ValueError('Unexpected utility type')
+                raise ValueError('Accuracy gain undefined for live data')
 
             self.o = self.observations.index('null')
         elif self.actions[a].get_type() == 'test':

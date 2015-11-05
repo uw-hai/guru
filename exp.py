@@ -500,7 +500,8 @@ if __name__ == '__main__':
     config_group.add_argument('--p_1', type=float, default=0.5)
     config_group.add_argument('--p_s', type=float, nargs='+', default=[0.2])
     config_group.add_argument('--utility_type', type=str,
-                              choices=['acc', 'pen'], default='pen')
+                              choices=['acc', 'pen', 'pen_diff'],
+                              default='pen')
     config_group.add_argument('--penalty_fp', type=float, default=-2)
     config_group.add_argument('--penalty_fn', type=float, default=-2)
 
@@ -579,7 +580,7 @@ if __name__ == '__main__':
             config_params.append('p_learn_exp')
         if args.tell:
             config_params.append('p_learn_tell')
-        if args.utility_type == 'pen':
+        if args.utility_type in ['pen', 'pen_diff']:
             config.params += ['penalty_fp', 'penalty_fn']
         config = dict((k, args_vars[k]) for k in config_params)
 
