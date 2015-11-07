@@ -12,6 +12,7 @@ import numpy as np
 import random
 import functools as ft
 import copy
+import param
 from pomdp import POMDPModel
 from policy import Policy
 from history import History
@@ -273,9 +274,9 @@ def run_experiment(name, mongo, config, config_policy,
         config_insert = copy.deepcopy(config)
         config_insert['experiment'] = exp_name
         client.worklearn.config.insert(config_insert)
-    params_gt = cmd_config_to_pomdp_params(config)
+    params_gt = param.Params.from_cmd(config)
     if config_policy is not None:
-        params_policy = cmd_config_to_pomdp_params(config_policy)
+        params_policy = param.Params.from_cmd(config_policy)
     else:
         params_policy = None
 
@@ -408,59 +409,6 @@ def run_experiment(name, mongo, config, config_policy,
             experiment=exp_name,
             processes=nprocesses)
 
-def cmd_config_to_pomdp_params(config):
-    """Convert command line config parameters to params for POMDPModel.
-
-    Notes:
-    - 'p_worker' must give full categorical probability vector.
-    - Other probabilities are bernoulli distributions and must be given only
-      using positive probability.
-    - Bernoulli distributions can either be conditioned on p_worker, or not.
-    
-    Infers whether Bernoulli distributions are conditioned or use parameter
-    tying from the number of parameters specified.
-
-    Args:
-        config: Dictionary of command line config parameters.
-
-    Returns:
-        New dictionary of parameters.
-
-    """
-    n_worker_classes = len(config['p_worker'])
-    n_rules = len(config['p_r'])
-
-    # Copy dictionary and split p_s by rule.
-    res = dict()
-    for k in config:
-        if k == 'p_s':
-            if (len(config[k]) != n_rules and
-                len(config[k]) != n_rules * n_worker_classes):
-                raise Exception('Config input of unexpected size')
-            for i, v in enumerate(config[k]):
-                if i < n_rules:
-                    res[k, i] = []
-                res[k, i % n_rules].append(v)
-        else:
-            if (isinstance(config[k], list) and len(config[k]) > 1 and
-                len(config[k]) != n_worker_classes):
-                raise Exception('Config input of unexpected size')
-            res[k] = config[k]
-
-    # Make bernoulli probabilites full probabilities.
-    # TODO: Move into POMDPModel?
-    for k in res.keys():
-        if (k in ['p_learn_exp', 'p_learn_tell', 'p_lose',
-                  'p_leave', 'p_slip', 'p_guess'] or
-            (len(k) == 2 and k[0] == 'p_s')):
-            probs = res.pop(k)
-            if len(probs) == 1:
-                res[k, None] = [probs[0], 1 - probs[0]]
-            else:
-                for i, v in enumerate(probs):
-                    res[k, i] = [v, 1 - v]
-    return res
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run an experiment')
     parser.add_argument('name', type=str, help='Experiment name')
@@ -494,6 +442,10 @@ if __name__ == '__main__':
                               default=[0.01])
     config_group.add_argument('--p_slip', type=float, nargs='+',
                               default=[0.1])
+    config_group.add_argument(
+        '--p_slip_std', type=float, nargs='+',
+        default=[0],
+        help='Standard deviation for simulations')
     config_group.add_argument('--p_guess', type=float, nargs='+',
                               default=[0.5])
     config_group.add_argument('--p_r', type=float, nargs='+', default=[0.5])
@@ -582,6 +534,8 @@ if __name__ == '__main__':
             config_params.append('p_learn_tell')
         if args.utility_type in ['pen', 'pen_diff']:
             config.params += ['penalty_fp', 'penalty_fn']
+        if args.dataset is None:
+            config.params.append('p_slip_std')
         config = dict((k, args_vars[k]) for k in config_params)
 
     if args.accuracy_bins_n is not None:

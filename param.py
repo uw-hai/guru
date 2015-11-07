@@ -5,23 +5,101 @@ PEAKEDNESS = 1000
 WEAK_PRIOR_MAG = 3.5
 WEAK_BETA_MAG = WEAK_PRIOR_MAG * 2
 
-def get_param_type(p):
-    """Get type of param.
+class Params(object):
+    """Class for configuration params."""
+    def __init__(self, config):
+        self.params = config
 
-    >>> get_param_type('p_worker')
-    'p_worker'
-    >>> get_param_type(('p_guess', None))
-    'p_guess'
-    >>> get_param_type((('p_s', 2), 3))
-    'p_s'
+    def sample_param_dict():
+        """Return dictionary with p_slip sampled from truncated normal.
 
-    """
-    if not isinstance(p, tuple):
-        return p
-    elif not isinstance(p[0], tuple):
-        return p[0]
-    else:
-        return p[0][0]
+        Truncated normal standard deviation specified by p_slip_std.
+
+        """
+        raise NotImplementedError
+        return dict()
+
+    @classmethod
+    def from_cmd(cls, config):
+        """Convert command line config parameters to params for POMDPModel.
+
+        Notes:
+        - 'p_worker' must give full categorical probability vector.
+        - Other probabilities are bernoulli distributions and must be given
+          only using positive probability.
+        - Bernoulli distributions can either be conditioned on p_worker, or
+          not.
+
+        Infers whether Bernoulli distributions are conditioned or use parameter
+        tying from the number of parameters specified.
+
+        Args:
+            config: Dictionary of command line config parameters.
+
+        Returns:
+            New dictionary of parameters.
+        """
+        n_worker_classes = len(config['p_worker'])
+        n_rules = len(config['p_r'])
+
+        # Copy dictionary and split p_s by rule.
+        res = dict()
+        for k in config:
+            if k == 'p_s':
+                if (len(config[k]) != n_rules and
+                    len(config[k]) != n_rules * n_worker_classes):
+                    raise Exception('Config input of unexpected size')
+                for i, v in enumerate(config[k]):
+                    if i < n_rules:
+                        res[k, i] = []
+                    res[k, i % n_rules].append(v)
+            else:
+                # All other parameters with list values must either be
+                # length 1 or |classes|.
+                if (isinstance(config[k], list) and len(config[k]) > 1 and
+                    len(config[k]) != n_worker_classes):
+                    raise Exception('Config input of unexpected size')
+                res[k] = config[k]
+
+        # Split out classes.
+        # Make berunoulli probabilities full probabilities.
+        for k in res.keys():
+            if (k in ['p_learn_exp', 'p_learn_tell', 'p_lose',
+                      'p_leave', 'p_slip', 'p_guess', 'p_slip_std'] or
+                (len(k) == 2 and k[0] == 'p_s')):
+                values = res.pop(k)
+                if len(probs) == 1:
+                    if k == 'p_slip_std':
+                        res[k, None] = values[0]
+                    else:
+                        res[k, None] = [values[0], 1 - values[0]]
+                else:
+                    for i, v in enumerate(values):
+                        if k == 'p_slip_std':
+                            res[k, i] = v
+                        else:
+                            res[k, i] = [v, 1 - v]
+
+        return cls(res)
+
+    @staticmethod
+    def get_param_type(p):
+        """Get type of param.
+
+        >>> Params.get_param_type('p_worker')
+        'p_worker'
+        >>> Params.get_param_type(('p_guess', None))
+        'p_guess'
+        >>> Params.get_param_type((('p_s', 2), 3))
+        'p_s'
+
+        """
+        if not isinstance(p, tuple):
+            return p
+        elif not isinstance(p[0], tuple):
+            return p[0]
+        else:
+            return p[0][0]
 
 
 #----------- HyperParams --------------
@@ -30,7 +108,7 @@ class HyperParams(object):
     def __init__(self, params, n_worker_classes, param_types_known=[]):
         p = dict()
         for k in params:
-            t = get_param_type(k)
+            t = Params.get_param_type(k)
             if t in param_types_known:
                 # Make peaked dirichlet at parameters.
                 p[k] = [1.00001 + PEAKEDNESS * v for v in params[k]]
@@ -96,7 +174,7 @@ class HyperParamsSpaced(HyperParams):
             params, n_worker_classes, param_types_known)
 
         for k in self.p:
-            t = get_param_type(k)
+            t = Params.get_param_type(k)
             if t == 'p_slip' and t not in param_types_known:
                 if k[1] is None:
                     self.p[k] = list(util.beta_fit(
@@ -148,7 +226,7 @@ class HyperParamsSpacedStronger(HyperParamsSpaced):
             params, n_worker_classes, param_types_known)
 
         for k in self.p:
-            t = get_param_type(k)
+            t = Params.get_param_type(k)
             if t == 'p_worker':
                 self.p[k] = [WEAK_PRIOR_MAG for i in xrange(n_worker_classes)]
 
