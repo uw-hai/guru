@@ -80,8 +80,8 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
 
     Args:
         exp_name (str):                 Experiment name, without file ending.
-        params_gt (dict):               Params portion of config.
-        params_policy (dict):           Policy params.
+        params_gt (Params object):      Params portion of config.
+        params_policy (Params object):  Policy params.
         policy (dict):
         iteration (int):
         budget (float):
@@ -102,15 +102,16 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
     # Parse config
     if params_policy is None:
         params_policy = params_gt
-    n_worker_classes = len(params_policy['p_worker'])
+    n_worker_classes = params_policy.n_classes
 
     pol = Policy(policy_type=policy['type'], exp_name=exp_name,
-                 n_worker_classes=n_worker_classes, params_gt=params_policy,
+                 n_worker_classes=n_worker_classes,
+                 params_gt=params_policy.get_param_dict(sample=False),
                  **policy)
 
     # Begin experiment
-    if 'dataset' in params_gt and params_gt['dataset'] is not None:
-        simulator = LiveSimulator(params_gt, params_gt['dataset'])
+    if 'dataset' in params_gt.params and params_gt.params['dataset']:
+        simulator = LiveSimulator(params_gt)
     else:
         simulator = Simulator(params_gt)
     results = []
@@ -257,8 +258,9 @@ def run_experiment(name, mongo, config, config_policy,
 
     """
     client = pymongo.MongoClient(mongo['host'], mongo['port'])
-    client.worklearn.authenticate(mongo['user'], mongo['pass'],
-                                  mechanism='SCRAM-SHA-1')
+    if mongo['user']:
+        client.worklearn.authenticate(mongo['user'], mongo['pass'],
+                                      mechanism='SCRAM-SHA-1')
     exp_name = name
     models_path = os.path.join('models', exp_name)
     policies_path = os.path.join('policies', exp_name)
@@ -345,8 +347,10 @@ def run_experiment(name, mongo, config, config_policy,
                                    policies_exploded))
 
     # Write one-time rows.
-    n_worker_classes = len(params_gt['p_worker'])
-    model_gt = POMDPModel(n_worker_classes, params=params_gt)
+    n_worker_classes = params_gt.n_classes
+    model_gt = POMDPModel(
+        n_worker_classes,
+        params=params_gt.get_param_dict(sample=False))
     if not list(client.worklearn.names.find({'experiment': exp_name})):
         for row in model_gt.get_names():
             row['experiment'] = exp_name
@@ -520,23 +524,27 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args_vars = vars(args)
 
+    config_params = [
+        'p_worker', 'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
+        'p_lose', 'p_leave',
+        'p_slip', 'p_slip_std', 'p_guess', 'p_r', 'p_1', 'p_s',
+        'utility_type', 'dataset']
+    if args.exp:
+        config_params.append('p_learn_exp')
+    if args.tell:
+        config_params.append('p_learn_tell')
+    if args.utility_type in ['pen', 'pen_diff']:
+        config_params += ['penalty_fp', 'penalty_fn']
+    if args.dataset is None:
+        config_params.append('p_slip_std')
+
     if args.config_json is not None:
         config = json.load(args.config_json)
     else:
-        config_params = [
-            'p_worker', 'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
-            'p_lose', 'p_leave',
-            'p_slip', 'p_guess', 'p_r', 'p_1', 'p_s', 'utility_type',
-            'dataset']
-        if args.exp:
-            config_params.append('p_learn_exp')
-        if args.tell:
-            config_params.append('p_learn_tell')
-        if args.utility_type in ['pen', 'pen_diff']:
-            config.params += ['penalty_fp', 'penalty_fn']
-        if args.dataset is None:
-            config.params.append('p_slip_std')
-        config = dict((k, args_vars[k]) for k in config_params)
+        config = dict()
+    for k in config_params:
+        if k not in config:
+            config[k] = args_vars[k]
 
     if args.accuracy_bins_n is not None:
         n = args.accuracy_bins_n
@@ -586,10 +594,11 @@ if __name__ == '__main__':
         policies.append(p)
 
     run_experiment(name=args.name,
-                   mongo={'host': os.environ['MONGO_HOST'],
-                          'port': int(os.environ['MONGO_PORT']),
-                          'user': os.environ['MONGO_USER'],
-                          'pass': os.environ['MONGO_PASS']},
+                   mongo={
+                       'host': os.environ['MONGO_HOST'],
+                       'port': int(os.environ['MONGO_PORT']),
+                       'user': get_or_default(os.environ, 'MONGO_USER', None),
+                       'pass': get_or_default(os.environ, 'MONGO_PASS', None)},
                    config=config,
                    config_policy=config_policy,
                    policies=policies,

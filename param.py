@@ -1,3 +1,4 @@
+import copy
 import util
 
 PEAKEDNESS = 1000
@@ -9,15 +10,30 @@ class Params(object):
     """Class for configuration params."""
     def __init__(self, config):
         self.params = config
+        self.n_classes = len(config['p_worker'])
 
-    def sample_param_dict():
-        """Return dictionary with p_slip sampled from truncated normal.
+    def get_param_dict(self, sample=False):
+        """Return dictionary without p_slip_std.
 
-        Truncated normal standard deviation specified by p_slip_std.
+        Args:
+            sample: Sample p_slip from truncated normal standard deviation
+                    specified by p_slip_std. (Otherwise, use mean p_slip.)
 
         """
-        raise NotImplementedError
-        return dict()
+        res = dict()
+        for k in self.params:
+            if self.get_param_type(k) == 'p_slip' and sample:
+                try:
+                    std = self.params['p_slip_std', None]
+                except KeyError:
+                    std = self.params['p_slip_std', k[1]]
+                p = util.truncnorm_sample(
+                    lower=0, upper=0.5,
+                    mu=self.params[k][0], std=std, size=1)[0]
+                res[k] = [p, 1-p]
+            elif self.get_param_type(k) != 'p_slip_std':
+                res[k] = copy.copy(self.params[k])
+        return res
 
     @classmethod
     def from_cmd(cls, config):
@@ -44,6 +60,9 @@ class Params(object):
 
         # Copy dictionary and split p_s by rule.
         res = dict()
+        print '---------'
+        print config
+        print '------'
         for k in config:
             if k == 'p_s':
                 if (len(config[k]) != n_rules and
@@ -68,7 +87,7 @@ class Params(object):
                       'p_leave', 'p_slip', 'p_guess', 'p_slip_std'] or
                 (len(k) == 2 and k[0] == 'p_s')):
                 values = res.pop(k)
-                if len(probs) == 1:
+                if len(values) == 1:
                     if k == 'p_slip_std':
                         res[k, None] = values[0]
                     else:

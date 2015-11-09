@@ -9,8 +9,14 @@ import work_learn_problem as wlp
 class Simulator(object):
     """Class for synthetic data."""
     def __init__(self, params):
-        n_worker_classes = len(params['p_worker'])
-        self.model_gt = POMDPModel(n_worker_classes, params=params)
+        """Initialize.
+
+        Args:
+            params: param.Params object.
+
+        """
+        self.params = params
+        self.model_gt = None
         self.s = None
 
     def worker_available(self):
@@ -19,6 +25,10 @@ class Simulator(object):
 
     def new_worker(self):
         """Simulate obtaining a new worker and return start state."""
+        self.model_gt = POMDPModel(
+            self.params.n_classes,
+            params=self.params.get_param_dict(sample=True))
+
         start_belief = self.model_gt.get_start_belief()
         start_state = np.random.choice(range(len(start_belief)),
                                        p=start_belief)
@@ -51,16 +61,17 @@ class LiveSimulator(Simulator):
         """Initialize.
 
         Args:
-            params:     Params object.
+            params:     param.Params object.
             dataset:    Dataset name.
             repeat:     Allow replay of workers multiple times.
 
         """
-        self.params = params
+        self.params = params.get_param_dict(sample=False)
+        dataset = self.params['dataset']
         self.repeat = repeat
         self.observations = wlp.observations
         n_skills = len(params['p_r'])
-        if params['tell'] or params['exp'] or n_skills != 1:
+        if self.params['tell'] or self.params['exp'] or n_skills != 1:
             raise ValueError('Unexpected parameter settings')
         self.actions = wlp.actions_all(n_skills, tell=False, exp=False)
         if dataset == 'lin_aaai12_tag':
