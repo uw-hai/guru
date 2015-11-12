@@ -1,7 +1,6 @@
 {
     "dataset": "rajpal_icml15", 
     "cost_tell": -0.1, 
-    "utility_type": "acc", 
     "cost": -0.000001, 
     "p_lose": [
         0.0
