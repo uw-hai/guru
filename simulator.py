@@ -57,12 +57,11 @@ class Simulator(object):
 
 class LiveSimulator(Simulator):
     """Class for live data."""
-    def __init__(self, params, dataset, repeat=True):
+    def __init__(self, params, repeat=True):
         """Initialize.
 
         Args:
             params:     param.Params object.
-            dataset:    Dataset name.
             repeat:     Allow replay of workers multiple times.
 
         """
@@ -70,7 +69,7 @@ class LiveSimulator(Simulator):
         dataset = self.params['dataset']
         self.repeat = repeat
         self.observations = wlp.observations
-        n_skills = len(params['p_r'])
+        n_skills = len(self.params['p_r'])
         if self.params['tell'] or self.params['exp'] or n_skills != 1:
             raise ValueError('Unexpected parameter settings')
         self.actions = wlp.actions_all(n_skills, tell=False, exp=False)
