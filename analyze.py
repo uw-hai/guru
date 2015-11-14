@@ -199,9 +199,15 @@ class ResultPlotter(Plotter):
             self.plot_actions_by_worker(
                 os.path.join(d, 'n_actions_by_worker'))
             self.plot_reward_by_t(os.path.join(d, 'r_t'))
-            self.plot_reward_by_budget(os.path.join(d, 'r_cost_fill'),
-                                       fill=True)
-            self.plot_reward_by_budget(os.path.join(d, 'r_cost'), fill=False)
+
+            ax = self.plot_reward_by_budget(fill=True)
+            savefig(ax, os.path.join(d, 'r_cost_fill.png'))
+            plt.close()
+
+            ax = self.plot_reward_by_budget(fill=False)
+            savefig(ax, os.path.join(d, 'r_cost.png'))
+            plt.close()
+
             self.plot_n_workers_by_budget(os.path.join(d, 'n_workers_cost'))
 
         for d, q in [(outdir, [0, 1]),
@@ -405,11 +411,20 @@ class ResultPlotter(Plotter):
         #df.sort(['policy','iteration','episode']).to_csv(fname + '.csv',
         #                                                 index=False)
 
-    def plot_reward_by_budget(self, outfname, fill=True):
+    def plot_reward_by_budget(self, fill=True, action_cost=None):
+        """Returns axis object.
+
+        Args:
+            action_cost:    If None, x-axis is budget. Otherwise,
+                            x-axis is # actions taken.
+
+        """
         df = self.df
         df['r'] = df['r'].fillna(0)
         df['cum_r'] = df.groupby(['policy', 'iteration'])['r'].cumsum()
         df['cum_cost'] = -1 * df.groupby(['policy', 'iteration'])['cost'].cumsum()
+        if action_cost is not None:
+            df['cum_cost'] /= action_cost
         if not fill:
             df = df.groupby(['policy', 'iteration', 'cum_cost'],
                             as_index=False)['cum_r'].last()
@@ -431,8 +446,12 @@ class ResultPlotter(Plotter):
                               unit='iteration', value='cum_r', ci=CI)
 
         plt.ylabel('Cumulative reward')
-        plt.xlabel('Budget spent')
+        if action_cost is None:
+            plt.xlabel('Budget spent')
+        else:
+            plt.xlabel('Actions taken')
         ax.set_xlim(0, None)
+        return ax
         savefig(ax, outfname + '.png')
         plt.close()
 
