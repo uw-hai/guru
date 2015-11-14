@@ -4,9 +4,6 @@
     "cost": -0.000001,
     "exp": false,
     "tell": false,
-    "p_lose": [
-        0
-    ], 
     "p_guess": [
         0.5
     ], 
