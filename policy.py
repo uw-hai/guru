@@ -95,6 +95,7 @@ class Policy:
         # Put some useful variable abbreviations in the namespace.
         w = worker
         f = budget_frac
+        e = math.e
         if isinstance(self.epsilon, basestring):
             return eval(self.epsilon)
         else:
