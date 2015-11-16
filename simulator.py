@@ -43,13 +43,13 @@ class Simulator(object):
         Change in false positive cost plus false negative cost.
 
         """
-        s, o, (cost, r) = self.model_gt.sample_SOR(self.s, a)
+        s, o, (cost, r), other = self.model_gt.sample_SOR(self.s, a)
         # Ignore states that give a new worker from within the model.
         if self.model_gt.observations[o] == 'term':
             s = None
         self.s = s
         self.o = o
-        return s, o, (cost, r), None
+        return s, o, (cost, r), other
 
     def worker_hired(self):
         """Return whether worker is currently hired."""

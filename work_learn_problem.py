@@ -6,6 +6,7 @@ Port from WorkLearnProblem.hpp
 
 from __future__ import division
 import itertools
+import numpy as np
 
 NINF = -999
 # TODO: Change quiz_val to rule / skill.
@@ -178,11 +179,14 @@ class State:
 
     def rewards_ask(self, p_r, p_slip, p_guess, prior, utility_type,
                     penalty_fp, penalty_fn, reward_tp, reward_tn):
-        # TODO: Move to separate class?
-        """Expected rewards
+        """Return expected reward and sampled additional info.
 
         Args:
             utility_type: 'acc' or 'posterior'
+
+        Returns:
+            r:      Expected reward
+            ans:    Sampled labels.
 
         """
         r = 0
@@ -198,7 +202,17 @@ class State:
                                               penalty_fn=penalty_fn,
                                               reward_tp=reward_tp,
                                               reward_tn=reward_tn)
-        return r
+
+        # Sample label values.
+        v = []
+        probs = []
+        for a in (0, 1):
+            for o in (0, 1):
+                v.append({'gt': a, 'answer': o})
+                probs.append(self.p_joint(p_r, p_slip, p_guess, prior, a, o))
+        v_sample = np.random.choice(v, p=probs)
+
+        return r, v_sample
 
     def is_reachable(self, next_state, exp=False):
         """Return whether the state is reachable, with or without explaining."""

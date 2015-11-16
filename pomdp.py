@@ -132,7 +132,7 @@ class POMDPModel:
             for a,_ in enumerate(self.actions):
                 for s1,_ in enumerate(self.states):
                     fo.write('{}\t{}\t'.format(self.get_transition(s, a, s1),
-                                               sum(self.get_reward(s, a, s1))))
+                                               sum(self.get_reward(s, a, s1)[0])))
             fo.write('\n')
         for s,_ in enumerate(self.states):
             for a,_ in enumerate(self.actions):
@@ -176,7 +176,7 @@ class POMDPModel:
             for a,act in enumerate(self.actions):
                 for s1,st1 in enumerate(self.states):
                     fo.write('R: {} : {} : {} : * {}\n'.format(
-                        act, st, st1, sum(self.get_reward(s, a, s1))))
+                        act, st, st1, sum(self.get_reward(s, a, s1)[0])))
                 fo.write('\n')
 
     def get_start_belief(self, params=None):
@@ -330,16 +330,17 @@ class POMDPModel:
                 return dict() if exponents else 0
 
     def get_reward(self, s, a, s1, params=None):
-        """Get cost and reward
+        """Get cost, expected reward, and ameta data.
 
         Args:
             s:          State index (starting)
             a:          Action index
             s2:         State index (ending)
             params:
+            sample:     Sample reward rather than expected reward.
 
         Returns:
-            (cost, reward) pair.
+            ((cost, reward), meta)
 
         """
         if params is None:
@@ -362,24 +363,26 @@ class POMDPModel:
         st1 = self.states[s1]
 
         if not st.is_valid_action(act):
-            return (wlp.NINF, 0)
+            return ((wlp.NINF, 0), None)
         elif st.term or st1.term:
-            return (0, 0)
+            return ((0, 0), None)
         elif act.name == 'exp':
-            return (cost_exp, 0)
+            return ((cost_exp, 0), None)
         elif act.name == 'tell':
-            return (cost_tell, 0)
+            return ((cost_tell, 0), None)
         elif act.is_quiz():
-            return (cost, 0)
+            return ((cost, 0), None)
         elif act.name == 'ask':
-            return (cost, st1.rewards_ask(p_r, p_slip, p_guess, p_1,
-                                          utility_type,
-                                          penalty_fp=penalty_fp,
-                                          penalty_fn=penalty_fn,
-                                          reward_tp=reward_tp,
-                                          reward_tn=reward_tn))
+            r_expected, labels = st1.rewards_ask(p_r, p_slip, p_guess, p_1,
+                                         utility_type,
+                                         penalty_fp=penalty_fp,
+                                         penalty_fn=penalty_fn,
+                                         reward_tp=reward_tp,
+                                         reward_tn=reward_tn)
+
+            return ((cost, r_expected), labels)
         elif act.name == 'boot':
-            return (0, 0)
+            return ((0, 0), None)
         else:
             raise Exception('Unexpected action when defining rewards')
 
@@ -458,7 +461,7 @@ class POMDPModel:
             for a in xrange(A):
                 for s1 in xrange(S):
                     p_t[s][a][s1] = self.get_transition(s, a, s1, params)
-                    rewards[s][a][s1] = sum(self.get_reward(s, a, s1, params))
+                    rewards[s][a][s1] = sum(self.get_reward(s, a, s1, params)[0])
 
                 for o in xrange(O):
                     p_o[s][a][o] = self.get_observation(s, a, o, params)
@@ -474,7 +477,13 @@ class POMDPModel:
 
         state_num       int
         action_num      int
-        return          tuple(s, o, r), where r is (cost, reward)
+        Returns:
+            s_prime:    New state.
+            o_prime:    Observation.
+            r:          (cost, reward) tuple.
+            meta:       Meta data (labels).
+
+
         '''
         p_s_prime = [self.get_transition(state_num, action_num, s_num) for
                      s_num in xrange(len(self.states))]
@@ -483,8 +492,8 @@ class POMDPModel:
             self.get_observation(s_prime, action_num, observation_num) for
             observation_num in xrange(len(self.observations))]
         o_prime = np.random.choice(range(len(self.observations)), p=p_o_prime)
-        r = self.get_reward(state_num, action_num, s_prime)
-        return s_prime, o_prime, r
+        r, meta = self.get_reward(state_num, action_num, s_prime)
+        return s_prime, o_prime, r, meta
 
     def update_belief(self, prev_belief, action_num, observation_num):
         '''
