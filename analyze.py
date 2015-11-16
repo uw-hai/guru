@@ -15,7 +15,7 @@ import csv
 import ast
 import argparse
 import collections
-import itertools
+import itertools as it
 import logging
 import functools as ft
 import pandas as pd
@@ -200,11 +200,11 @@ class ResultPlotter(Plotter):
                 os.path.join(d, 'n_actions_by_worker'))
             self.plot_reward_by_t(os.path.join(d, 'r_t'))
 
-            ax = self.plot_reward_by_budget(fill=True)
+            ax, _ = self.plot_reward_by_budget(fill=True)
             savefig(ax, os.path.join(d, 'r_cost_fill.png'))
             plt.close()
 
-            ax = self.plot_reward_by_budget(fill=False)
+            ax, _ = self.plot_reward_by_budget(fill=False)
             savefig(ax, os.path.join(d, 'r_cost.png'))
             plt.close()
 
@@ -356,7 +356,7 @@ class ResultPlotter(Plotter):
         # Record significance
         policies = df['policy'].unique()
         sigs = []
-        for p1,p2 in itertools.combinations(policies, 2):
+        for p1, p2 in it.combinations(policies, 2):
             v1 = df[df.policy == p1]['a']
             v2 = df[df.policy == p2]['a']
             t, pval = ss.ttest_ind(v1, v2)
@@ -418,6 +418,11 @@ class ResultPlotter(Plotter):
             action_cost:    If None, x-axis is budget. Otherwise,
                             x-axis is # actions taken.
 
+        Returns:
+            ax:     Axis object
+            sig:    Dictionary from pair of policys to stat result for last x
+                    position.
+
         """
         df = self.df
         df['r'] = df['r'].fillna(0)
@@ -451,7 +456,21 @@ class ResultPlotter(Plotter):
         else:
             plt.xlabel('Actions taken')
         ax.set_xlim(0, None)
-        return ax
+
+        # Stat plot for end of plot.
+        if fill:
+            sig = dict()
+            max_c = df['cum_cost'].max()
+            for p1, p2 in it.combinations(df.policy.unique(), 2):
+                v1 = df[(df.policy == p1) & (df.cum_cost == max_c)]['cum_r']
+                v2 = df[(df.policy == p2) & (df.cum_cost == max_c)]['cum_r']
+                sig[p1, p2] = ss.ttest_ind(v1, v2, equal_var=True)
+        else:
+            sig = None
+
+        return ax, sig
+
+
         savefig(ax, outfname + '.png')
         plt.close()
 
@@ -685,7 +704,7 @@ class ModelPlotter(Plotter):
         c1 = list(v1)
         best_c2 = None
         best_dist = float('inf')
-        for c2 in itertools.permutations(v2):
+        for c2 in it.permutations(v2):
             vec1 = np.vstack([v1[c] for c in c1])
             vec2 = np.vstack([v2[c] for c in c2])
             dist = np.subtract(vec1, vec2)

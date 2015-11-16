@@ -1,6 +1,7 @@
 from __future__ import division
 import argparse
 import os
+import csv
 import util as ut
 import pymongo
 
@@ -172,7 +173,7 @@ class Plotter(object):
             collection_names=self.client.worklearn.names)
         if reserved:
             p.set_reserved()
-        ax = p.plot_reward_by_budget(fill=True, action_cost=0.000001)
+        ax, sig = p.plot_reward_by_budget(fill=True, action_cost=0.000001)
         h, l = ax.get_legend_handles_labels()
         d = {self.labels[label]: line for line, label in zip(h, l)}
         labels = [self.labels[p] for p in policies]
@@ -187,8 +188,19 @@ class Plotter(object):
         fname = os.path.join('aamas', experiment)
         if reserved:
             fname += '_reserved'
+
         ut.savefig(ax, '{}.png'.format(fname))
         plt.close()
+        if sig is not None:
+            with open('{}_sig.csv'.format(fname), 'w') as f:
+                dw = csv.DictWriter(f, ['p1', 'p2', 'tstat', 'pval'])
+                dw.writeheader()
+                for k in sig:
+                    p1, p2 = k
+                    tstat, pval = sig[k]
+                    dw.writerow({'p1': p1, 'p2': p2,
+                                 'tstat': tstat, 'pval': pval})
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
