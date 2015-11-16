@@ -177,7 +177,7 @@ class State:
         return p
 
     def rewards_ask(self, p_r, p_slip, p_guess, prior, utility_type,
-                    penalty_fp, penalty_fn):
+                    penalty_fp, penalty_fn, reward_tp, reward_tn):
         # TODO: Move to separate class?
         """Expected rewards
 
@@ -195,7 +195,9 @@ class State:
             # Expected reward.
             r += p_obs * reward_new_posterior(prior, posterior, utility_type,
                                               penalty_fp=penalty_fp,
-                                              penalty_fn=penalty_fn)
+                                              penalty_fn=penalty_fn,
+                                              reward_tp=reward_tp,
+                                              reward_tn=reward_tn)
         return r
 
     def is_reachable(self, next_state, exp=False):
@@ -231,7 +233,8 @@ class State:
                  self.worker_class == s.worker_class))
 
 def reward_new_posterior(
-        prior, posterior, utility_type='pen', penalty_fp=-2, penalty_fn=-2):
+        prior, posterior, utility_type='pen',
+        penalty_fp=-2, penalty_fn=-2, reward_tp=1, reward_tn=1):
     """Return reward of new posterior.
 
     Args:
@@ -240,6 +243,8 @@ def reward_new_posterior(
         utility_type:   Either 'acc' (accuracy) or 'pen' (penalty).
         penalty_fp:     False positive penalty.
         penalty_fn:     False negative penalty.
+        reward_tp:      True positive reward.
+        reward_tn:      True negative reward.
 
     Returns:
         r:  Expected reward
@@ -256,8 +261,8 @@ def reward_new_posterior(
     0.4
 
     """
-    f = lambda p: (1-p) + p * penalty_fn if p <= 0.5 else \
-                  p + (1-p) * penalty_fp
+    f = lambda p: (1-p) * reward_tn + p * penalty_fn if p <= 0.5 else \
+                  p * reward_tp + (1-p) * penalty_fp
     if utility_type == 'acc':
         # Accuracy gain.
         return max(posterior, 1-posterior) - max(prior, 1-prior)

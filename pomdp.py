@@ -68,7 +68,8 @@ class POMDPModel:
         # make params (p, ind) format.
         self.params_fixed = [
             'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
-            'p_r', 'p_1', 'utility_type', 'penalty_fp', 'penalty_fn',
+            'p_r', 'p_1', 'utility_type',
+            'penalty_fp', 'penalty_fn', 'reward_tp', 'reward_tn',
             'dataset']
         if estimate_all:
             self.params = dict(
@@ -353,6 +354,8 @@ class POMDPModel:
         utility_type = params['utility_type']
         penalty_fp = params['penalty_fp'] if 'penalty_fp' in params else None
         penalty_fn = params['penalty_fn'] if 'penalty_fn' in params else None
+        reward_tp = params['reward_tp'] if 'reward_tp' in params else None
+        reward_tn = params['reward_tn'] if 'reward_tn' in params else None
 
         st = self.states[s]
         act = self.actions[a]
@@ -372,7 +375,9 @@ class POMDPModel:
             return (cost, st1.rewards_ask(p_r, p_slip, p_guess, p_1,
                                           utility_type,
                                           penalty_fp=penalty_fp,
-                                          penalty_fn=penalty_fn))
+                                          penalty_fn=penalty_fn,
+                                          reward_tp=reward_tp,
+                                          reward_tn=reward_tn))
         elif act.name == 'boot':
             return (0, 0)
         else:

@@ -45,6 +45,7 @@ class Params(object):
           only using positive probability.
         - Bernoulli distributions can either be conditioned on p_worker, or
           not.
+        - Defaults 'reward_tp' = 'reward_'tn' = 1.
 
         Infers whether Bernoulli distributions are conditioned or use parameter
         tying from the number of parameters specified.
@@ -55,14 +56,17 @@ class Params(object):
         Returns:
             New dictionary of parameters.
         """
+        # Add reward for legacy reasons.
+        if 'penalty_fp' in config:
+            for k in ['reward_tp', 'reward_tn']:
+                if k not in config:
+                    config[k] = 1
+
         n_worker_classes = len(config['p_worker'])
         n_rules = len(config['p_r'])
 
         # Copy dictionary and split p_s by rule.
         res = dict()
-        print '---------'
-        print config
-        print '------'
         for k in config:
             if k == 'p_s':
                 if (len(config[k]) != n_rules and

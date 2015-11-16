@@ -134,31 +134,39 @@ class LiveSimulator(Simulator):
         else:
             penalty_fp = self.params['penalty_fp']
             penalty_fn = self.params['penalty_fn']
+            reward_tp = self.params['reward_tp']
+            reward_tn = self.params['reward_tn']
         # TODO: Get more information from df.
 
         # Calculate reward.
         if self.actions[a].get_type() == 'work':
             cost = self.params['cost']
             guess = round(self.params['p_1'])
-            reward_correct = 1
             if ans['gt'] == 0 and guess == 1:
                 penalty_old = penalty_fp
                 reward_old = 0
             elif ans['gt'] == 1 and guess == 0:
                 penalty_old = penalty_fn
                 reward_old = 0
+            elif ans['gt'] == 0 and guess == 0:
+                penalty_old = 0
+                reward_old = reward_tn
             else:
                 penalty_old = 0
-                reward_old = reward_correct
+                reward_old = reward_tp
+
             if ans['gt'] == 0 and ans['answer'] == 1:
                 penalty_new = penalty_fp
                 reward_new = 0
             elif ans['gt'] == 1 and ans['answer'] == 0:
                 penalty_new = penalty_fn
                 reward_new = 0
+            elif ans['gt'] == 0 and ans['answer'] == 0:
+                penalty_old = 0
+                reward_old = reward_tn
             else:
-                penalty_new = 0
-                reward_new = reward_correct
+                penalty_old = 0
+                reward_old = reward_tp
 
             if self.params['utility_type'] == 'pen':
                 r = penalty_new + reward_new

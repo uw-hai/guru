@@ -460,6 +460,8 @@ if __name__ == '__main__':
                               default='pen')
     config_group.add_argument('--penalty_fp', type=float, default=-2)
     config_group.add_argument('--penalty_fn', type=float, default=-2)
+    config_group.add_argument('--reward_tp', type=float, default=1)
+    config_group.add_argument('--reward_tn', type=float, default=1)
 
     parser.add_argument('--policies', '-p', type=str, nargs='+', required=True,
                         choices=['teach_first', 'test_and_boot',
@@ -534,7 +536,7 @@ if __name__ == '__main__':
     if args.tell:
         config_params.append('p_learn_tell')
     if args.utility_type in ['pen', 'pen_diff']:
-        config_params += ['penalty_fp', 'penalty_fn']
+        config_params += ['penalty_fp', 'penalty_fn', 'reward_tp', 'reward_tn']
     if args.dataset is None:
         config_params.append('p_slip_std')
 
