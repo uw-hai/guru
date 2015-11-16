@@ -1,3 +1,4 @@
+from __future__ import division
 import argparse
 import os
 import util as ut
@@ -145,6 +146,22 @@ class Plotter(object):
             linestyles=self.linestyles,
             reserved=True)
 
+    def make_fig5(self):
+        policies = ['zmdp-d0.990-tl60',
+                    'test_and_boot-n_test_4-n_work_16-acc_0.7-n_blocks_1-final_work',
+                    'teach_first-n_tell_0']
+        self.make_plot(
+            experiment='test_classes2-50_50_cost_0.000001_pen6_std0.1_rl',
+            policies=policies,
+            linestyles=self.linestyles,
+            reserved=False,
+            loc='lower left')
+        self.make_plot(
+            experiment='test_classes2-50_50_cost_0.000001_pen1_std0.1_rl',
+            policies=policies,
+            linestyles=self.linestyles,
+            reserved=False)
+
     def make_plot(self, policies, experiment, linestyles,
                   markerstyles=None, reserved=False, loc='upper left',
                   markevery=10):
@@ -175,7 +192,7 @@ class Plotter(object):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('fig_n', type=int, choices=[1,2,3,4])
+    parser.add_argument('fig_n', type=int, choices=[1,2,3,4,5])
     args = parser.parse_args()
 
     p = Plotter()
@@ -185,5 +202,7 @@ if __name__ == '__main__':
         p.make_fig2()
     elif args.fig_n == 3:
         p.make_fig3()
-    else:
+    elif args.fig_n == 4:
         p.make_fig4()
+    else:
+        p.make_fig5()
