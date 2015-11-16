@@ -3,6 +3,19 @@
 from research_utils.util import *
 import pandas as pd
 
+def get_penalty(accuracy, reward=1):
+    """Return penalty needed for this accuracy to have expected reward 0.
+
+    >>> round(get_penalty(0.9), 10)
+    -9.0
+    >>> round(get_penalty(0.75), 10)
+    -3.0
+    >>> round(get_penalty(0.5), 10)
+    -1.0
+
+    """
+    return accuracy * reward / (accuracy - 1)
+
 def equation_safe_filename(eq):
     if isinstance(eq, basestring):
         return eq.replace('/', 'div').replace('math.', '')
