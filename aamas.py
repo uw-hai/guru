@@ -20,16 +20,6 @@ import hcomp_data_analyze.analyze as han
 class Plotter(object):
     def __init__(self):
         self.client = self.get_client()
-        self.labels = {
-            'teach_first-n_tell_0': 'Work-only',
-            'test_and_boot-n_test_4-n_work_16-acc_0.7': 'Test-and-boot',
-            'test_and_boot-n_test_4-n_work_16-acc_0.7-n_blocks_1-final_work': 'Test-and-boot',
-            'zmdp-d0.990-tl60': 'POMDP',
-            'zmdp-d0.990-tl60-eps_1-explore_test_work-explore_p_test_and_boot-n_test_4-n_work_16-acc_0.7-n_blocks_1-final_work-HyperParamsSpacedUnknownRatioSlipLeave-cl2': 'POMDP-RL',
-            'zmdp-d0.990-tl60-eps_1-explore_test_work-explore_p_test_and_boot-n_test_4-n_work_16-acc_0.7-HyperParamsSpacedUnknownRatioSlipLeaveLose-cl2': 'POMDP-RL',
-            'zmdp-d0.990-tl60-eps_1-1div(1+e**(-1000*(f-0.5)))-explore_test_work-explore_p_test_and_boot-n_test_4-n_work_16-acc_0.7-n_blocks_1-final_work-HyperParamsSpacedUnknownRatioSlipLeave-cl2': 'POMDP-RL',
-            'zmdp-d0.990-tl60-eps_1-1div(1+e**(-1000*(f-0.5)))-explore_test_work-explore_p_test_and_boot-n_test_4-n_work_16-acc_0.7-n_blocks_1-final_work-HyperParamsSpacedUnknownRatioSlipLeave-cl2': 'POMDP-RL',
-            'zmdp-d0.990-tl60-eps_1-1div(1+e**(-1000*(f-0.5)))-explore_test_work-explore_p_test_and_boot-n_test_4-n_work_16-acc_0.7-HyperParamsSpacedUnknownRatioSlipLeaveLose-cl2': 'POMDP-RL'}
 
         self.linestyles = {
             'POMDP': '-',
@@ -164,6 +154,47 @@ class Plotter(object):
             linestyles=self.linestyles,
             reserved=False)
 
+    def make_fig6(self):
+        """New version of 50:50 learning with different eps"""
+        policies = ['zmdp-d0.990-tl60',
+                    'zmdp-d0.990-tl60-eps_1-1div(1+e**(-40*(f-0.4)))-explore_test_work-explore_p_test_and_boot-n_test_4-n_work_16-acc_0.7-n_blocks_1-final_work-HyperParamsSpacedUnknownRatioSlipLeave-cl2',
+                    'test_and_boot-n_test_4-n_work_16-acc_0.7-n_blocks_1-final_work',
+                    'teach_first-n_tell_0']
+        self.make_plot(
+            experiment='test_classes2-50_50_cost_0.000001_pen3_std0.1_rl_bud0.004',
+            policies=policies,
+            linestyles=self.linestyles,
+            markerstyles=self.markerstyles,
+            markevery=200,
+            reserved=False,
+            loc='upper left')
+        policies = ['zmdp-d0.990-tl60',
+                    'zmdp-d0.990-tl60-eps_1-1div(1+e**(-40*(f-0.4)))-explore_test_work-explore_p_test_and_boot-n_test_4-n_work_16-acc_0.7-HyperParamsSpacedUnknownRatioSlipLeaveLose-cl2',
+                    'test_and_boot-n_test_4-n_work_16-acc_0.7',
+                    'teach_first-n_tell_0']
+        self.make_plot(
+            experiment='test_classes2-50_50_lose_0.01_cost_0.000001_pen3_std0.1_rl_bud0.004',
+            policies=policies,
+            linestyles=self.linestyles,
+            markerstyles=self.markerstyles,
+            markevery=200,
+            reserved=False,
+            loc='lower left')
+
+    @staticmethod
+    def get_name(label):
+        """Policy name to nicer version."""
+        if label == 'teach_first-n_tell_0':
+            return 'Work-only'
+        elif label.startswith('test_and_boot'):
+            return 'Test-and-boot'
+        elif label.startswith('zmdp') and 'eps' in label:
+            return 'POMDP-RL'
+        elif label.startswith('zmdp'):
+            return 'POMDP'
+        else:
+            raise NotImplementedError
+
     def make_plot(self, policies, experiment, linestyles,
                   markerstyles=None, reserved=False, loc='upper left',
                   markevery=10):
@@ -177,8 +208,8 @@ class Plotter(object):
             p.set_reserved()
         ax, sig = p.plot_reward_by_budget(fill=True, action_cost=0.000001)
         h, l = ax.get_legend_handles_labels()
-        d = {self.labels[label]: line for line, label in zip(h, l)}
-        labels = [self.labels[p] for p in policies]
+        d = {self.get_name(label): line for line, label in zip(h, l)}
+        labels = [self.get_name(p) for p in policies]
         for k in d:
             if linestyles and k in linestyles:
                 d[k].set_linestyle(linestyles[k])
@@ -217,7 +248,7 @@ def make_accuracy_plots():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('fig_n', type=int, choices=[1,2,3,4,5])
+    parser.add_argument('fig_n', type=int)
     args = parser.parse_args()
 
     make_accuracy_plots()
@@ -231,5 +262,7 @@ if __name__ == '__main__':
         p.make_fig3()
     elif args.fig_n == 4:
         p.make_fig4()
-    else:
+    elif args.fig_n == 5:
         p.make_fig5()
+    else:
+        p.make_fig6()
