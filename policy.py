@@ -102,8 +102,12 @@ class Policy:
             return self.epsilon
 
     def prep_worker(self, iteration, history, budget_spent, budget_explore,
-                    reserved):
-        """Reestimate and resolve as needed."""
+                    reserved, resolve_min_worker_interval=10):
+        """Reestimate and resolve as needed.
+
+        Don't resolve more frequently than resolve_min_worker_interval.
+
+        """
         worker = history.n_workers() - 1
         t = 0
         budget_explore_frac = budget_spent / budget_explore
@@ -117,6 +121,10 @@ class Policy:
         resolve_p = (self.policy in ('appl', 'zmdp', 'aitoolbox') and
                      (self.external_policy is None or
                       (self.rl_p() and not self.use_explore_policy)))
+        if self.resolve_times:
+            if worker - max(self.resolve_times) < resolve_min_worker_interval:
+                resolve_p = False
+
         estimate_p = self.rl_p() and resolve_p
         model = self.model
         if estimate_p:
