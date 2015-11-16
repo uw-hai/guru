@@ -15,6 +15,7 @@ mpl.rc('ytick', labelsize=18)
 mpl.rc('axes', labelsize=24)
 
 import analyze as an
+import hcomp_data_analyze.analyze as han
 
 class Plotter(object):
     def __init__(self):
@@ -166,6 +167,7 @@ class Plotter(object):
     def make_plot(self, policies, experiment, linestyles,
                   markerstyles=None, reserved=False, loc='upper left',
                   markevery=10):
+        """Make a reward vs budget plot."""
         p = an.ResultPlotter.from_mongo(
             collection=self.client.worklearn.res,
             experiment=experiment,
@@ -201,11 +203,24 @@ class Plotter(object):
                     dw.writerow({'p1': p1, 'p2': p2,
                                  'tstat': tstat, 'pval': pval})
 
+def make_accuracy_plots():
+    for k in ['tag', 'wiki']:
+        d = han.Data.from_lin_aaai12(workflow=k)
+        ax = d.plot_scatter_n_accuracy()
+        ut.savefig(ax, os.path.join('aamas', 'scatter_lin_{}.png'.format(k)))
+        plt.close()
+
+    d = han.Data.from_rajpal_icml15(worker_type=None)
+    ax = d.plot_scatter_n_accuracy()
+    ut.savefig(ax, os.path.join('aamas', 'scatter_rajpal.png'))
+    plt.close()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('fig_n', type=int, choices=[1,2,3,4,5])
     args = parser.parse_args()
+
+    make_accuracy_plots()
 
     p = Plotter()
     if args.fig_n == 1:
