@@ -141,7 +141,9 @@ class HyperParams(object):
                 p[k] = [10, 10] # Pretty sure this is 0.5.
             elif t == 'p_slip':
                 p[k] = [2, 5] # Lower prob of making a mistake.
-            elif t in ['p_lose', 'p_learn_exp', 'p_learn_tell', 'p_leave',
+            elif t == 'p_lose':
+                p[k] = [1, 20] # Lower prob of losing a skill.
+            elif t in ['p_learn_exp', 'p_learn_tell', 'p_leave',
                        'p_s']:
                 p[k] = [1.00001, 1.00001]
         self.p = p
