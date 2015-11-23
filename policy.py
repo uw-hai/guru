@@ -102,7 +102,8 @@ class Policy:
             return self.epsilon
 
     def prep_worker(self, iteration, history, budget_spent, budget_explore,
-                    reserved, resolve_min_worker_interval=10):
+                    reserved,
+                    resolve_min_worker_interval=10, resolve_max_n=10):
         """Reestimate and resolve as needed.
 
         Don't resolve more frequently than resolve_min_worker_interval.
@@ -123,6 +124,8 @@ class Policy:
                       (self.rl_p() and not self.use_explore_policy)))
         if self.resolve_times:
             if worker - max(self.resolve_times) < resolve_min_worker_interval:
+                resolve_p = False
+            if len(self.resolve_times) >= resolve_max_n:
                 resolve_p = False
 
         estimate_p = self.rl_p() and resolve_p
