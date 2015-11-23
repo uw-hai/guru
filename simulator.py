@@ -162,11 +162,11 @@ class LiveSimulator(Simulator):
                 penalty_new = penalty_fn
                 reward_new = 0
             elif ans['gt'] == 0 and ans['answer'] == 0:
-                penalty_old = 0
-                reward_old = reward_tn
+                penalty_new = 0
+                reward_new = reward_tn
             else:
-                penalty_old = 0
-                reward_old = reward_tp
+                penalty_new = 0
+                reward_new = reward_tp
 
             if self.params['utility_type'] == 'pen':
                 r = penalty_new + reward_new
