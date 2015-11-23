@@ -54,9 +54,9 @@ class Plotter(object):
     def set_quantile(self, quantile=[0, 1]):
         self.df = self.filter_workers_quantile(self.df_full, *quantile)
 
-    def set_reserved(self):
+    def set_reserved(self, v=True):
         if 'reserved' in self.df_full:
-            self.df = self.df_full[self.df_full.reserved]
+            self.df = self.df_full[self.df_full.reserved == v]
 
     @classmethod
     def from_mongo(cls, collection, experiment, policies=None,
@@ -200,11 +200,11 @@ class ResultPlotter(Plotter):
                 os.path.join(d, 'n_actions_by_worker'))
             self.plot_reward_by_t(os.path.join(d, 'r_t'))
 
-            ax, _ = self.plot_reward_by_budget(fill=True)
+            ax, _, _ = self.plot_reward_by_budget(fill=True)
             savefig(ax, os.path.join(d, 'r_cost_fill.png'))
             plt.close()
 
-            ax, _ = self.plot_reward_by_budget(fill=False)
+            ax, _, _ = self.plot_reward_by_budget(fill=False)
             savefig(ax, os.path.join(d, 'r_cost.png'))
             plt.close()
 
@@ -238,6 +238,25 @@ class ResultPlotter(Plotter):
                 self.plot_observations(
                     df_worker, os.path.join(worker_dir, 'o'),
                     line=line, logx=logx)
+
+    def get_work_stats(self):
+        """Return dataframe with work statistics (accuracy, dataset size)"""
+        answers = self.df[self.df.other.notnull() & self.df.a.notnull()]
+        action_map = dict((self.get_name('action', a), a) for
+                          a in answers.a.unique())
+        if 'ask' in action_map:
+            ask_action = action_map['ask']
+            answers = answers[answers.a == ask_action]
+            df2 = self.df
+            df2['correct'] = answers['other'].map(lambda x: x['gt'] == x['answer'])
+
+            k = df2.groupby(['policy', 'iteration'])['correct'].sum()
+            k.name = 'correct'
+            n = df2.groupby(['policy', 'iteration'])['correct'].count()
+            n.name = 'n'
+            return pd.concat([k, n], axis=1).reset_index(drop=False)
+        else:
+            return None
 
     def plot_beliefs(self, df, outfname, line=False, logx=True):
         """Plot beliefs for subset of entire dataframe"""
@@ -411,7 +430,8 @@ class ResultPlotter(Plotter):
         #df.sort(['policy','iteration','episode']).to_csv(fname + '.csv',
         #                                                 index=False)
 
-    def plot_reward_by_budget(self, fill=True, action_cost=None):
+    def plot_reward_by_budget(self, fill=True, action_cost=None,
+                              reserved=False):
         """Returns axis object.
 
         Args:
@@ -420,14 +440,17 @@ class ResultPlotter(Plotter):
 
         Returns:
             ax:     Axis object
-            sig:    Dictionary from pair of policys to stat result for last x
+            sig:    Dictionary from pair of policies to stat result for last x
                     position.
+            means:  Dictionary from policy to mean value of last x position.
 
         """
         df = self.df
+        df['cum_cost'] = -1 * df.groupby(['policy', 'iteration'])['cost'].cumsum()
+        if reserved:
+            df = df[df.reserved]
         df['r'] = df['r'].fillna(0)
         df['cum_r'] = df.groupby(['policy', 'iteration'])['r'].cumsum()
-        df['cum_cost'] = -1 * df.groupby(['policy', 'iteration'])['cost'].cumsum()
         if action_cost is not None:
             df['cum_cost'] /= action_cost
         if not fill:
@@ -455,7 +478,8 @@ class ResultPlotter(Plotter):
             plt.xlabel('Budget spent')
         else:
             plt.xlabel('Actions taken')
-        ax.set_xlim(0, None)
+        if not reserved:
+            ax.set_xlim(0, None)
 
         # Stat plot for end of plot.
         if fill:
@@ -465,14 +489,15 @@ class ResultPlotter(Plotter):
                 v1 = df[(df.policy == p1) & (df.cum_cost == max_c)]['cum_r']
                 v2 = df[(df.policy == p2) & (df.cum_cost == max_c)]['cum_r']
                 sig[p1, p2] = ss.ttest_ind(v1, v2, equal_var=True)
+
+            means = dict()
+            for p in df.policy.unique():
+                means[p] = df[(df.policy == p) & (df.cum_cost == max_c)]['cum_r'].mean()
         else:
             sig = None
+            means = None
 
-        return ax, sig
-
-
-        savefig(ax, outfname + '.png')
-        plt.close()
+        return ax, sig, means
 
     def plot_n_workers_by_budget(self, outfname):
         df = self.df
