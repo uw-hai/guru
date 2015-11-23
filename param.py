@@ -142,7 +142,7 @@ class HyperParams(object):
             elif t == 'p_slip':
                 p[k] = [2, 5] # Lower prob of making a mistake.
             elif t == 'p_lose':
-                p[k] = [1, 20] # Lower prob of losing a skill.
+                p[k] = [2, 20] # Lower prob of losing a skill.
             elif t in ['p_learn_exp', 'p_learn_tell', 'p_leave',
                        'p_s']:
                 p[k] = [1.00001, 1.00001]
