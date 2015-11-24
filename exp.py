@@ -462,6 +462,9 @@ if __name__ == '__main__':
     config_group.add_argument('--penalty_fn', type=float, default=-2)
     config_group.add_argument('--reward_tp', type=float, default=1)
     config_group.add_argument('--reward_tn', type=float, default=1)
+    config_group.add_argument(
+        '--desired_accuracy', type=float,
+        help='Desired accuracy for utility_type=pen, which overrides penalty and reward settings')
 
     parser.add_argument('--policies', '-p', type=str, nargs='+', required=True,
                         choices=['teach_first', 'test_and_boot',
@@ -510,16 +513,19 @@ if __name__ == '__main__':
                  'HyperParamsUnknownRatioLeave',
                  'HyperParamsUnknownRatioSlipLeave',
                  'HyperParamsUnknownRatioSlipLeaveLose',
+                 'HyperParamsUnknownRatioLeaveLose',
 
                  'HyperParamsSpaced',
                  'HyperParamsSpacedUnknownRatio',
                  'HyperParamsSpacedUnknownRatioSlipLeave',
                  'HyperParamsSpacedUnknownRatioSlipLeaveLose',
+                 'HyperParamsSpacedUnknownRatioLeaveLose',
 
                  'HyperParamsSpacedStronger',
                  'HyperParamsSpacedStrongerUnknownRatio',
                  'HyperParamsSpacedStrongerUnknownRatioSlipLeave',
-                 'HyperParamsSpacedStrongerUnknownRatioSlipLeaveLose'],
+                 'HyperParamsSpacedStrongerUnknownRatioSlipLeaveLose',
+                 'HyperParamsSpacedStrongerUnknownRatioLeaveLose'],
         help='Hyperparams class name, in param.py')
     parser.add_argument('--thompson', dest='thompson', action='store_true',
                         help="Use Thompson sampling")
@@ -548,12 +554,29 @@ if __name__ == '__main__':
         if k not in config:
             config[k] = args_vars[k]
 
-    if args.accuracy_bins_n is not None:
+    # Overwrite reward settings for desired accuracy.
+    if config['utility_type'] == 'pen' and args.desired_accuracy is not None:
+        config['reward_tp'] = 1
+        config['reward_tn'] = 1
+        p = util.get_penalty(args.desired_accuracy, reward=1)
+        config['penalty_fp'] = p
+        config['penalty_fn'] = p
+
+    if args.accuracy_bins_n == 2 and args.desired_accuracy is not None:
+        config_policy = dict()
+        config_policy = copy.deepcopy(config)
+        config_policy['p_worker'] = [0.5, 0.5]
+        # BUG: Fixing the class accuracies at midpoints seems stupid,
+        # but let's do anyways.
+        p_slip_thresh = 1 - args.desired_accuracy
+        config_policy['p_slip'] = [
+            p_slip_thresh / 2, (p_slip_thresh + 0.5) / 2]
+    elif args.accuracy_bins_n is not None:
         n = args.accuracy_bins_n
         config_policy = dict()
         config_policy = copy.deepcopy(config)
         config_policy['p_worker'] = [1/n for i in xrange(n)]
-        config_policy['p_slip'] = util.midpoints(0.5, 1.0, n)
+        config_policy['p_slip'] = util.midpoints(0.0, 0.5, n)
     else:
         config_policy = None
 

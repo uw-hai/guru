@@ -190,6 +190,16 @@ class HyperParamsUnknownRatioSlipLeaveLose(HyperParams):
                                        'p_learn_tell',
                                        'p_s'])
 
+class HyperParamsUnknownRatioLeaveLose(HyperParams):
+    """Hyperparameters with known class properties but unknown ratio."""
+    def __init__(self, params, n_worker_classes):
+        super(HyperParamsUnknownRatioLeaveLose, self).__init__(
+            params, n_worker_classes, ['p_guess',
+                                       'p_slip',
+                                       'p_learn_exp',
+                                       'p_learn_tell',
+                                       'p_s'])
+
 
 #----------- HyperParamsSpaced --------------
 class HyperParamsSpaced(HyperParams):
@@ -242,6 +252,16 @@ class HyperParamsSpacedUnknownRatioSlipLeaveLose(HyperParamsSpaced):
                                        'p_learn_tell',
                                        'p_s'])
 
+class HyperParamsSpacedUnknownRatioLeaveLose(HyperParamsSpaced):
+    """Hyperparameters with known class properties but unknown ratio."""
+    def __init__(self, params, n_worker_classes):
+        super(HyperParamsSpacedUnknownRatioLeaveLose, self).__init__(
+            params, n_worker_classes, ['p_guess',
+                                       'p_slip',
+                                       'p_learn_exp',
+                                       'p_learn_tell',
+                                       'p_s'])
+
 
 #----------- HyperParamsSpacedStronger --------------
 class HyperParamsSpacedStronger(HyperParamsSpaced):
@@ -282,6 +302,16 @@ class HyperParamsSpacedStrongerUnknownRatioSlipLeaveLose(HyperParamsSpacedStrong
     def __init__(self, params, n_worker_classes):
         super(HyperParamsSpacedStrongerUnknownRatioSlipLeaveLose, self).__init__(
             params, n_worker_classes, ['p_guess',
+                                       'p_learn_exp',
+                                       'p_learn_tell',
+                                       'p_s'])
+
+class HyperParamsSpacedStrongerUnknownRatioLeaveLose(HyperParamsSpacedStronger):
+    """Hyperparameters with known class properties but unknown ratio."""
+    def __init__(self, params, n_worker_classes):
+        super(HyperParamsSpacedStrongerUnknownRatioLeaveLose, self).__init__(
+            params, n_worker_classes, ['p_guess',
+                                       'p_slip',
                                        'p_learn_exp',
                                        'p_learn_tell',
                                        'p_s'])
