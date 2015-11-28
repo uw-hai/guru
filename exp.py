@@ -571,6 +571,7 @@ if __name__ == '__main__':
         p_slip_thresh = 1 - args.desired_accuracy
         config_policy['p_slip'] = [
             p_slip_thresh / 2, (p_slip_thresh + 0.5) / 2]
+        config_policy['desired_accuracy'] = args.desired_accuracy
     elif args.accuracy_bins_n is not None:
         n = args.accuracy_bins_n
         config_policy = dict()

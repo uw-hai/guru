@@ -70,7 +70,7 @@ class POMDPModel:
             'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
             'p_r', 'p_1', 'utility_type',
             'penalty_fp', 'penalty_fn', 'reward_tp', 'reward_tn',
-            'dataset']
+            'dataset', 'desired_accuracy']
         if estimate_all:
             self.params = dict(
                 (k, params[k] if k in self.params_fixed else None) for

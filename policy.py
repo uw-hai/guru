@@ -34,6 +34,8 @@ class Policy:
         self.explore_policy = get_or_default(kwargs, 'explore_policy', None)
         self.thompson = bool(get_or_default(kwargs, 'thompson', False))
         self.hyperparams = get_or_default(kwargs, 'hyperparams', None)
+        self.desired_accuracy = get_or_default(params_gt, 'desired_accuracy',
+                                               None)
         if self.policy in ('appl', 'zmdp'):
             self.discount = get_or_default(kwargs, 'discount', default_discount)
             self.timeout = get_or_default(kwargs, 'timeout', None)
@@ -419,4 +421,6 @@ class Policy:
             if self.hyperparams and self.hyperparams != 'HyperParams':
                 s += '-{}'.format(self.hyperparams)
             s += '-cl{}'.format(self.model.n_worker_classes)
+            if self.desired_accuracy is not None:
+                s += '-acc{:.2f}'.format(self.desired_accuracy)
         return s
