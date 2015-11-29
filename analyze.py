@@ -200,9 +200,19 @@ class ResultPlotter(Plotter):
                 os.path.join(d, 'n_actions_by_worker'))
             self.plot_reward_by_t(os.path.join(d, 'r_t'))
 
-            ax, _, _ = self.plot_reward_by_budget(fill=True)
+            ax, sig, _ = self.plot_reward_by_budget(fill=True)
             savefig(ax, os.path.join(d, 'r_cost_fill.png'))
             plt.close()
+            with open(os.path.join(d, 'r_cost_fill_sig.csv'), 'w') as f:
+                dw = csv.DictWriter(f, fieldnames=['p1', 'p2', 't', 'pval'])
+                dw.writeheader()
+                for k in sig:
+                    p1, p2 = k
+                    t, pval = sig[k]
+                    dw.writerow({'p1': p1,
+                                 'p2': p2,
+                                 't': t,
+                                 'pval': pval})
 
             ax, _, _ = self.plot_reward_by_budget(fill=False)
             savefig(ax, os.path.join(d, 'r_cost.png'))
