@@ -190,6 +190,13 @@ class ResultPlotter(Plotter):
         util.ensure_dir(reserveddir)
 
         def f(self, d):
+            df = self.get_work_stats()
+            df['accuracy'] = df['correct'] / df['n']
+            df = df.groupby('policy')[['accuracy', 'n']].mean()
+            df.to_csv(os.path.join(d, 'work_stats.csv'))
+
+            self.plot_work_stats(basepath=os.path.join(d, 'work_stats'))
+
             print 'making', os.path.join(d, 't.png')
             ax = self.plot_iteration_runtime()
             savefig(ax, os.path.join(d, 't.png'))
@@ -224,9 +231,12 @@ class ResultPlotter(Plotter):
                      (quart123dir, [0, 0.75]),
                      (quart4dir, [0.75, 1])]:
             self.set_quantile(q)
-            f(self, d)
+            print 'saving in {}'.format(d)
+            if len(self.df) > 0:
+                f(self, d)
         self.set_reserved()
-        f(self, reserveddir)
+        if len(self.df) > 0:
+            f(self, reserveddir)
         self.restore()
         self.plot_n_workers(os.path.join(outdir, 'n_workers'))
 
@@ -249,7 +259,7 @@ class ResultPlotter(Plotter):
                     df_worker, os.path.join(worker_dir, 'o'),
                     line=line, logx=logx)
 
-    def get_work_stats(self):
+    def get_work_stats(self, agg='iteration'):
         """Return dataframe with work statistics (accuracy, dataset size)"""
         answers = self.df[self.df.other.notnull() & self.df.a.notnull()]
         action_map = dict((self.get_name('action', a), a) for
@@ -258,15 +268,52 @@ class ResultPlotter(Plotter):
             ask_action = action_map['ask']
             answers = answers[answers.a == ask_action]
             df2 = self.df
+            df2['n'] = answers['other'].map(lambda x: 1)
+            df2['n'] = df2['n'].fillna(0)
+            df2['n'] = df2['n'].astype(int)
             df2['correct'] = answers['other'].map(lambda x: x['gt'] == x['answer'])
+            df2['correct'] = df2['correct'].fillna(0)
+            df2['correct'] = df2['correct'].astype(int)
 
-            k = df2.groupby(['policy', 'iteration'])['correct'].sum()
-            k.name = 'correct'
-            n = df2.groupby(['policy', 'iteration'])['correct'].count()
-            n.name = 'n'
-            return pd.concat([k, n], axis=1).reset_index(drop=False)
+            if agg == 'iteration':
+                fields = ['policy', 'iteration']
+                k = df2.groupby(fields)['correct'].sum()
+                k.name = 'correct'
+                n = df2.groupby(fields)['n'].sum()
+                n.name = 'n'
+                return pd.concat([k, n], axis=1).reset_index(drop=False)
+            elif agg == 'budget':
+                df2['cum_cost'] = -1 * df2.groupby(['policy', 'iteration'])['cost'].cumsum()
+                k = df2.groupby(['policy', 'iteration', 'cum_cost'])['correct'].sum()
+                k.name = 'correct'
+                n = df2.groupby(['policy', 'iteration', 'cum_cost'])['n'].sum()
+                n.name = 'n'
+                return pd.concat([k, n], axis=1).reset_index(drop=False)
+            else:
+                raise NotImplementedError
         else:
             return None
+
+    def plot_work_stats(self, basepath):
+        """Make plots for # questions, # correct, and sliding accuracy.
+
+        Args:
+            basepath:    File basename.
+
+        """
+        df = self.get_work_stats(agg='budget')
+        df = df.sort('cum_cost')
+        for col in ['n', 'correct']:
+            df[col] = df[col].fillna(0)
+            df['{}_cum'.format(col)] = df.groupby(['policy', 'iteration'])[col].cumsum()
+        df['accuracy_cum'] = df['correct_cum'] / df['n_cum']
+        for col in ['n', 'correct', 'accuracy']:
+            ax, _ = util.tsplot_robust(
+                df, time='cum_cost', unit='iteration', condition='policy', value='{}_cum'.format(col))
+            plt.xlabel('Budget spent')
+            plt.ylabel('Cumulative {} (work answers)'.format(col))
+            util.savefig(ax, '{}-{}.png'.format(basepath, col))
+            plt.close()
 
     def plot_beliefs(self, df, outfname, line=False, logx=True):
         """Plot beliefs for subset of entire dataframe"""
