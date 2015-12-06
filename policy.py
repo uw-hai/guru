@@ -342,7 +342,7 @@ class Policy:
                     '-o', policy_filename]
             if self.timeout is not None:
                 args += ['--timeout', str(self.timeout)]
-            subprocess.call(args)
+            _ = subprocess.check_output(args)
             return POMDPPolicy(policy_filename,
                                file_format='policyx')
         elif self.policy == 'aitoolbox':
@@ -356,7 +356,7 @@ class Policy:
                     '--n_states', str(len(model.states)),
                     '--n_actions', str(len(model.actions)),
                     '--n_observations', str(len(model.observations))]
-            subprocess.call(args)
+            _ = subprocess.check_output(args)
             return POMDPPolicy(policy_filename,
                                file_format='aitoolbox',
                                n_states=len(model.states))
@@ -368,7 +368,7 @@ class Policy:
                     '-o', policy_filename]
             if self.timeout is not None:
                 args += ['-t', str(self.timeout)]
-            subprocess.call(args)
+            _ = subprocess.check_output(args)
             return POMDPPolicy(policy_filename,
                                file_format='zmdp',
                                n_states=len(model.states))
