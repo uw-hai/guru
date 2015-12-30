@@ -3,8 +3,8 @@
 from __future__ import division
 import csv
 import copy
-import util
-from util import get_or_default
+from . import util
+from .util import get_or_default
 import numpy as np
 from numpy import log
 import random

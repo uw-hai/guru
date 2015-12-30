@@ -13,7 +13,7 @@ import random
 import math
 import numpy as np
 import subprocess
-from pomdp import POMDPPolicy, POMDPModel
+from .pomdp import POMDPPolicy, POMDPModel
 import util
 from util import get_or_default, ensure_dir, equation_safe_filename
 import work_learn_problem as wlp
@@ -26,6 +26,7 @@ class Policy:
     """
     def __init__(self, policy_type, exp_name, n_worker_classes, params_gt,
                  **kwargs):
+        print 'Reinitializing policy'
         default_discount = 0.99
         self.policy = policy_type
         self.exp_name = exp_name

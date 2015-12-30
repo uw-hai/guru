@@ -43,7 +43,7 @@ class Action:
         If action is None, return whether the action may be the first action.
 
         """
-        return self.name != 'exp' or action.is_quiz()
+        return self.name != 'exp' or (action is not None and action.is_quiz())
 
     def __str__(self):
         s = self.name

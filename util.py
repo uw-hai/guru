@@ -1,6 +1,6 @@
 """util.py"""
 
-from research_utils.util import *
+from .research_utils.util import *
 import pandas as pd
 
 def get_penalty(accuracy, reward=1):
