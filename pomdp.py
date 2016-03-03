@@ -1,19 +1,17 @@
 """pomdp.py"""
 
 from __future__ import division
-import csv
 import copy
-from . import util
-from .util import get_or_default
+import random
+import xml.etree.ElementTree as ET
 import numpy as np
 from numpy import log
-import random
 from scipy.misc import logsumexp
 import scipy.stats as ss
-import work_learn_problem as wlp
+from . import util
+from . import work_learn_problem as wlp
 
-import elementtree.ElementTree as ee
-import zmdp_util
+from . import zmdp_util
 
 def param_to_string(p):
     """Convert a param in tuple form to a string.
@@ -763,7 +761,7 @@ class POMDPPolicy:
     def __init__(self, filename, file_format='policyx', n_states=None):
         self.file_format = file_format
         if file_format == 'policyx':
-            tree = ee.parse(filename)
+            tree = ET.parse(filename)
             root = tree.getroot()
             avec = list(root)[0]
             alphas = list(avec)

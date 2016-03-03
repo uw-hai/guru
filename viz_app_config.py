@@ -9,4 +9,4 @@ class Config(object):
     if 'STATIC_FOLDER' in os.environ:
         STATIC_FOLDER = os.environ['STATIC_FOLDER']
     else:
-        STATIC_FOLDER = 'static'
+        STATIC_FOLDER = os.path.join(os.path.dirname(__file__), 'static')

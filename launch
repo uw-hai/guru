@@ -8,6 +8,6 @@ sname=e.$cbase.$pbase
 
 cmd=${@:3}
 
-cd ~/dev/worklearn/; git pull;
+cd ~/dev/worklearn/worklearn; git pull;
 cd ~/rv/dev/worklearn/; git pull;
-ssh $1 "screen -dm -S $2; screen -S $2 -p 0 -X stuff $'cd ~/dev/worklearn/\nworkon worklearn\n$cmd\n'";
+ssh $1 "screen -dm -S $2; screen -S $2 -p 0 -X stuff $'cd ~/dev/worklearn\npyenv activate worklearn\n$cmd\n'";

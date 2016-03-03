@@ -2,9 +2,9 @@
 
 import random
 import numpy as np
-from pomdp import POMDPModel
-import hcomp_data_analyze.analyze
-import work_learn_problem as wlp
+from .pomdp import POMDPModel
+from .hcomp_data_analyze import analyze as hanalyze
+from . import work_learn_problem as wlp
 
 class Simulator(object):
     """Class for synthetic data."""
@@ -74,13 +74,13 @@ class LiveSimulator(Simulator):
             raise ValueError('Unexpected parameter settings')
         self.actions = wlp.actions_all(n_skills, tell=False, exp=False)
         if dataset == 'lin_aaai12_tag':
-            self.df = hcomp_data_analyze.analyze.Data.from_lin_aaai12(
+            self.df = hanalyze.Data.from_lin_aaai12(
                 workflow='tag').df
         elif dataset == 'lin_aaai12_wiki':
-            self.df = hcomp_data_analyze.analyze.Data.from_lin_aaai12(
+            self.df = hanalyze.Data.from_lin_aaai12(
                 workflow='wiki').df
         elif dataset == 'rajpal_icml15':
-            self.df = hcomp_data_analyze.analyze.Data.from_rajpal_icml15(
+            self.df = hanalyze.Data.from_rajpal_icml15(
                 worker_type=None).df
         else:
             raise Exception('Unexpected dataset')

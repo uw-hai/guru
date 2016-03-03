@@ -8,9 +8,9 @@
     :description: zMDP utilities (http://www.cs.cmu.edu/~trey/zmdp/)
 """
 
+import io
 import re
 import yaml
-import io
 
 def read_zmdp_policy(filename, state_count):
     """

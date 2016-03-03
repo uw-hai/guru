@@ -1,15 +1,12 @@
 import collections
+import os
 import flask
 from flask import Flask, request, render_template, send_from_directory
 from flask.ext.pymongo import PyMongo
 import pandas as pd
-import os
-import pickle
 import networkx as nx
 import numpy as np
-import json
-import util
-import analyze
+from . import analyze
 
 tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
 app = Flask(__name__, template_folder=tmpl_dir)
@@ -121,8 +118,8 @@ def viz():
     exp = request.args.get('e')
     basename = request.args.get('f')
     policy = request.args.get('p')
-    exp_filepath = os.path.join('res', exp, basename + '.txt')
-    names_filepath = os.path.join('res', exp, basename + '_names.csv')
+    exp_filepath = os.path.join(os.path.dirname(__file__), 'res', exp, basename + '.txt')
+    names_filepath = os.path.join(os.path.dirname(__file__), 'res', exp, basename + '_names.csv')
 
     # Wordtree visualization.
     tree = load_tree(f_exp=exp_filepath,

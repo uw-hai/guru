@@ -11,12 +11,13 @@ import time
 import copy
 import random
 import math
-import numpy as np
 import subprocess
+import numpy as np
 from .pomdp import POMDPPolicy, POMDPModel
-import util
-from util import get_or_default, ensure_dir, equation_safe_filename
-import work_learn_problem as wlp
+from . import util
+from .util import get_or_default, ensure_dir, equation_safe_filename
+from . import work_learn_problem as wlp
+from . import param
 
 class Policy:
     """Policy class
@@ -57,8 +58,7 @@ class Policy:
 
         if self.rl_p():
             name = kwargs['hyperparams']
-            mod = __import__('param', fromlist=[name])
-            cls = getattr(mod, name)
+            cls = getattr(param, name)
             self.model = POMDPModel(
                 n_worker_classes, params=params_gt,
                 hyperparams=cls(params_gt, n_worker_classes),
@@ -83,7 +83,7 @@ class Policy:
     def rl_p(self):
         """Policy does reinforcement learning."""
         return self.epsilon is not None or self.thompson
-    
+
     def get_epsilon_probability(self, worker, t, budget_frac):
         """Return probability specified by the given exploration function.
 
@@ -310,9 +310,9 @@ class Policy:
 
         """
         pomdp_dirpath = os.path.join(
-            'models', self.exp_name, str(iteration))
+            os.path.dirname(__file__), 'models', self.exp_name, str(iteration))
         policy_dirpath = os.path.join(
-            'policies', self.exp_name, str(iteration))
+            os.path.dirname(__file__), 'policies', self.exp_name, str(iteration))
         ensure_dir(pomdp_dirpath)
         ensure_dir(policy_dirpath)
         pomdp_fpath = os.path.join(

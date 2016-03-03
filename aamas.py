@@ -2,7 +2,6 @@ from __future__ import division
 import argparse
 import os
 import csv
-import util as ut
 import pymongo
 import scipy.stats as ss
 import pandas as pd
@@ -10,14 +9,17 @@ import pandas as pd
 import matplotlib as mpl
 mpl.use('agg')
 from matplotlib import pyplot as plt
+
+from . import util as ut
+from . import analyze as an
+from .hcomp_data_analyze import analyze as han
+
 mpl.rcParams.update({'font.size': 42})
 mpl.rc('legend', fontsize=20)
 mpl.rc('xtick', labelsize=18)
 mpl.rc('ytick', labelsize=18)
 mpl.rc('axes', labelsize=24)
 
-import analyze as an
-import hcomp_data_analyze.analyze as han
 
 class Plotter(object):
     def __init__(self):
@@ -27,6 +29,7 @@ class Plotter(object):
             'POMDP-oracle': '-',
             'POMDP-RL': '-',
             'Test-and-boot': '--',
+            'Test-and-boot-once': '--',
             'Work-only': ':'}
 
         self.markerstyles = {
@@ -48,7 +51,11 @@ class Plotter(object):
             'test_rajpal_icml15_cost_0.000001_pen3': 'live_rajpal',
             'test_lin_aaai12_tag_cost_0.000001_pen3_rl': 'live_lin_tag_rl',
             'test_lin_aaai12_wiki_cost_0.000001_pen3_rl': 'live_lin_wiki_rl',
-            'test_rajpal_icml15_cost_0.000001_pen3_rl': 'live_rajpal_rl'}
+            'test_rajpal_icml15_cost_0.000001_pen3_rl': 'live_rajpal_rl',
+            'test_lin_aaai12_tag_cost_0.000001_pen3_rl_0.85': 'live_lin_tag_rl_0.85',
+            'test_lin_aaai12_wiki_cost_0.000001_pen3_rl_0.85': 'live_lin_wiki_rl_0.85',
+            'test_rajpal_icml15_cost_0.000001_pen3_rl_0.85': 'live_rajpal_rl_0.85',
+            }
 
 
     def gather_stats(self):
@@ -56,10 +63,10 @@ class Plotter(object):
         for e in self.experiments:
             try:
                 f = e
-                if ('aaai12' in e or 'icml15' in e) and not e.endswith('rl'):
+                if ('aaai12' in e or 'icml15' in e) and not 'rl' in  e:
                     f += '_reserved'
-                df1 = pd.read_csv(os.path.join('aamas', '{}_acc.csv'.format(f)))
-                df2 = pd.read_csv(os.path.join('aamas', '{}_mean.csv'.format(f)))
+                df1 = pd.read_csv(os.path.join(os.path.dirname(__file__), 'aamas', '{}_acc.csv'.format(f)))
+                df2 = pd.read_csv(os.path.join(os.path.dirname(__file__), 'aamas', '{}_mean.csv'.format(f)))
                 df = df1.merge(df2, left_on='policy', right_on='p')
                 df['experiment_full'] = e
                 df['experiment'] = self.experiments[e]
@@ -67,7 +74,7 @@ class Plotter(object):
             except:
                 pass
         df = pd.concat(dfs, axis=0).sort(['experiment', 'policy'])
-        df.to_csv(os.path.join('aamas', 'summary.csv'), index=False,
+        df.to_csv(os.path.join(os.path.dirname(__file__), 'aamas', 'summary.csv'), index=False,
                   columns=['experiment', 'policy', 'mean', 'diff', 'n', 'correct', 'accuracy', 'n_err', 'correct_err', 'accuracy_err'])
 
     @staticmethod
@@ -216,6 +223,24 @@ class Plotter(object):
             policies=policies,
             linestyles=self.linestyles)
 
+    def make_live3(self):
+        policies = ['zmdp-d0.990-tl60-eps_1ifwlt20else0-explore_test_work-explore_p_test_and_boot-n_test_7-n_work_16-acc_0.85-n_blocks_1-final_work-HyperParamsUnknownRatioLeave-cl2-acc0.85',
+                    'test_and_boot-n_test_7-n_work_16-acc_0.85-n_blocks_1-final_work',
+                    'teach_first-n_tell_0']
+        self.make_plot(
+            experiment='test_lin_aaai12_tag_cost_0.000001_pen3_rl_0.85',
+            policies=policies,
+            linestyles=self.linestyles,
+            loc='lower left')
+        self.make_plot(
+            experiment='test_lin_aaai12_wiki_cost_0.000001_pen3_rl_0.85',
+            policies=policies,
+            linestyles=self.linestyles)
+        self.make_plot(
+            experiment='test_rajpal_icml15_cost_0.000001_pen3_rl_0.85',
+            policies=policies,
+            linestyles=self.linestyles)
+
 
     def make_vary_reward(self):
         policies = ['zmdp-d0.990-tl60',
@@ -247,6 +272,9 @@ class Plotter(object):
             return 'Test-and-boot-once'
         elif label.startswith('test_and_boot'):
             return 'Test-and-boot'
+        elif label.startswith('zmdp') and 'eps' in label and 'UnknownRatioLeave' in label:
+            #return 'POMDP-RL-binned'
+            return 'POMDP-RL'
         elif label.startswith('zmdp') and 'eps' in label:
             return 'POMDP-RL'
         elif label.startswith('zmdp'):
@@ -306,7 +334,7 @@ class Plotter(object):
                 d[k].set_markevery(markevery)
         ax.legend([d[l] for l in labels], labels, loc=loc)
         ax.set_xlabel('Number of questions asked')
-        fname = os.path.join('aamas', experiment)
+        fname = os.path.join(os.path.dirname(__file__), 'aamas', experiment)
         if reserved:
             fname += '_reserved'
 
@@ -339,12 +367,12 @@ def make_accuracy_plots():
     for k in ['tag', 'wiki']:
         d = han.Data.from_lin_aaai12(workflow=k)
         ax = d.plot_scatter_n_accuracy()
-        ut.savefig(ax, os.path.join('aamas', 'scatter_lin_{}.png'.format(k)))
+        ut.savefig(ax, os.path.join(os.path.dirname(__file__), 'aamas', 'scatter_lin_{}.png'.format(k)))
         plt.close()
 
     d = han.Data.from_rajpal_icml15(worker_type=None)
     ax = d.plot_scatter_n_accuracy()
-    ut.savefig(ax, os.path.join('aamas', 'scatter_rajpal.png'))
+    ut.savefig(ax, os.path.join(os.path.dirname(__file__), 'aamas', 'scatter_rajpal.png'))
     plt.close()
 
 if __name__ == '__main__':
@@ -352,7 +380,7 @@ if __name__ == '__main__':
     parser.add_argument('fig_n', type=int)
     args = parser.parse_args()
 
-    make_accuracy_plots()
+    #make_accuracy_plots()
 
     p = Plotter()
     p.gather_stats()
@@ -366,6 +394,8 @@ if __name__ == '__main__':
         p.make_vary_reward()
     elif args.fig_n == 5:
         p.make_live()
-    else:
+    elif args.fig_n == 6:
         p.make_live2()
+    else:
+        p.make_live3()
     p.gather_stats()

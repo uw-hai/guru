@@ -8,16 +8,14 @@ TODO: Parse model 'hyper' column, in place of alpha and beta.
 """
 
 import multiprocessing as mp
-import time
 import os
-import shutil
 import csv
 import ast
 import argparse
-import collections
 import itertools as it
 import logging
 import functools as ft
+import pymongo
 import pandas as pd
 import numpy as np
 import scipy.stats as ss
@@ -25,10 +23,8 @@ import matplotlib as mpl
 mpl.use('agg')
 from matplotlib import pyplot as plt
 import seaborn as sns
-import util
-from util import savefig, tsplot_robust
-import work_learn_problem as wlp
-import pymongo
+from . import util
+from .util import savefig, tsplot_robust
 
 CI = 95  # Confidence interval
 
@@ -910,7 +906,7 @@ def make_plots(db, experiment, outdir=None, policies=None,
 
     """
     if outdir is None:
-        outdir = os.path.join('static', 'plots', experiment)
+        outdir = os.path.join(os.path.dirname(__file__), 'static', 'plots', experiment)
     util.ensure_dir(outdir)
 
     #df = pd.concat([pd.read_csv(f) for f in infiles],
@@ -978,7 +974,7 @@ if __name__ == '__main__':
     experiments = list(client.worklearn.res.distinct('experiment'))
     if args.experiment:
         if args.dest is None:
-            args.dest = os.path.join('static', 'plots', args.experiment)
+            args.dest = os.path.join(os.path.dirname(__file__), 'static', 'plots', args.experiment)
         make_plots(
             db=client.worklearn,
             experiment=args.experiment,
@@ -990,7 +986,7 @@ if __name__ == '__main__':
             processes=args.proc)
     else:
         if args.dest is None:
-            args.dest = os.path.join('static', 'plots')
+            args.dest = os.path.join(os.path.dirname(__file__), 'static', 'plots')
         nprocesses = args.proc or util.cpu_count()
         pool = mp.Pool(processes=nprocesses,
                        initializer=util.init_worker)

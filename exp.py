@@ -2,27 +2,25 @@ from __future__ import division
 import multiprocessing as mp
 import argparse
 import itertools
-import csv
 import os
-import sys
 import time
 import json
 import logging
-import numpy as np
 import random
 import functools as ft
 import copy
-import param
-from pomdp import POMDPModel
-from policy import Policy
-from history import History
-from simulator import Simulator, LiveSimulator
-import util
-from util import get_or_default, ensure_dir, equation_safe_filename
-import analyze
+import numpy as np
 import pymongo
-import work_learn_problem as wlp
-import hcomp_data_analyze.analyze
+from . import param
+from .pomdp import POMDPModel
+from .policy import Policy
+from .history import History
+from .simulator import Simulator, LiveSimulator
+from . import util
+from .util import get_or_default, ensure_dir
+from . import analyze
+from . import work_learn_problem as wlp
+from .hcomp_data_analyze import analyze as hanalyze
 
 BOOTS_TERM = 5  # Terminate after booting this many workers in a row.
 
@@ -262,8 +260,8 @@ def run_experiment(name, mongo, config, config_policy,
         client.worklearn.authenticate(mongo['user'], mongo['pass'],
                                       mechanism='SCRAM-SHA-1')
     exp_name = name
-    models_path = os.path.join('models', exp_name)
-    policies_path = os.path.join('policies', exp_name)
+    models_path = os.path.join(os.path.dirname(__file__), 'models', exp_name)
+    policies_path = os.path.join(os.path.dirname(__file__), 'policies', exp_name)
     for d in [models_path, policies_path]:
         ensure_dir(d)
 
@@ -465,6 +463,9 @@ if __name__ == '__main__':
     config_group.add_argument(
         '--desired_accuracy', type=float,
         help='Desired accuracy for utility_type=pen, which overrides penalty and reward settings')
+    config_group.add_argument(
+        '--desired_accuracy_rewards', dest='desired_accuracy_rewards',
+        action='store_true', help='Overwrite penalty & reward')
 
     parser.add_argument('--policies', '-p', type=str, nargs='+', required=True,
                         choices=['teach_first', 'test_and_boot',
@@ -501,7 +502,7 @@ if __name__ == '__main__':
     parser.add_argument('--budget', '-b', type=float, help='Total budget')
     parser.add_argument('--budget_reserved_frac', type=float, default=0.1,
                         help='Fraction of budget reserved for exploitation.')
-    parser.add_argument('--epsilon', type=str,
+    parser.add_argument('--epsilon', type=str, nargs='*',
                         help='Epsilon to use for all policies')
     parser.add_argument('--explore_actions', type=str, nargs='+',
                         choices=['test', 'work', 'tell', 'exp', 'boot'],
@@ -555,7 +556,9 @@ if __name__ == '__main__':
             config[k] = args_vars[k]
 
     # Overwrite reward settings for desired accuracy.
-    if config['utility_type'] == 'pen' and args.desired_accuracy is not None:
+    if (config['utility_type'] == 'pen' and
+            args.desired_accuracy is not None and
+            args.desired_accuracy_rewards):
         config['reward_tp'] = 1
         config['reward_tn'] = 1
         p = util.get_penalty(args.desired_accuracy, reward=1)
@@ -565,7 +568,7 @@ if __name__ == '__main__':
     if args.accuracy_bins_n == 2 and args.desired_accuracy is not None:
         config_policy = dict()
         config_policy = copy.deepcopy(config)
-        config_policy['p_worker'] = [0.5, 0.5]
+        config_policy['p_worker'] = [0.5, 0.5]  # BUG: Why did we do this?
         # BUG: Fixing the class accuracies at midpoints seems stupid,
         # but let's do anyways.
         p_slip_thresh = 1 - args.desired_accuracy
@@ -573,11 +576,13 @@ if __name__ == '__main__':
             p_slip_thresh / 2, (p_slip_thresh + 0.5) / 2]
         config_policy['desired_accuracy'] = args.desired_accuracy
     elif args.accuracy_bins_n is not None:
+        # BUG: Why separate case?
         n = args.accuracy_bins_n
         config_policy = dict()
         config_policy = copy.deepcopy(config)
         config_policy['p_worker'] = [1/n for i in xrange(n)]
         config_policy['p_slip'] = util.midpoints(0.0, 0.5, n)
+        # BUG: Store desired accuracy in config_policy?
     else:
         config_policy = None
 
@@ -586,13 +591,13 @@ if __name__ == '__main__':
             config['dataset'] is not None and
             args.budget is None):
         if config['dataset'] == 'lin_aaai12_tag':
-            data = hcomp_data_analyze.analyze.Data.from_lin_aaai12(
+            data = hanalyze.Data.from_lin_aaai12(
                 workflow='tag')
         elif config['dataset'] == 'lin_aaai12_wiki':
-            data = hcomp_data_analyze.analyze.Data.from_lin_aaai12(
+            data = hanalyze.Data.from_lin_aaai12(
                 workflow='wiki')
         elif config['dataset'] == 'rajpal_icml15':
-            data = hcomp_data_analyze.analyze.Data.from_rajpal_icml15(
+            data = hanalyze.Data.from_rajpal_icml15(
                 worker_type=None)
         args.budget = -1 * config['cost'] * data.get_n_answers()
 
@@ -619,6 +624,10 @@ if __name__ == '__main__':
             p['horizon'] = args.aitoolbox_horizon
         policies.append(p)
 
+    try:
+        epsilon = ' '.join(args.epsilon) or None
+    except TypeError:
+        epsilon = None
     run_experiment(name=args.name,
                    mongo={
                        'host': os.environ['MONGO_HOST'],
@@ -631,7 +640,7 @@ if __name__ == '__main__':
                    iterations=args.iterations,
                    budget=args.budget,
                    budget_reserved_frac=args.budget_reserved_frac,
-                   epsilon=args.epsilon,
+                   epsilon=epsilon,
                    explore_actions=args.explore_actions,
                    explore_policy=args.explore_policy,
                    thompson=args.thompson,

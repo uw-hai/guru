@@ -1,5 +1,5 @@
 import copy
-import util
+from . import util
 
 PEAKEDNESS = 1000
 

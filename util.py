@@ -1,7 +1,7 @@
 """util.py"""
 
-from .research_utils.util import *
 import pandas as pd
+from .research_utils.util import *
 
 def get_penalty(accuracy, reward=1):
     """Return penalty needed for this accuracy to have expected reward 0.
@@ -17,8 +17,16 @@ def get_penalty(accuracy, reward=1):
     return accuracy * reward / (accuracy - 1)
 
 def equation_safe_filename(eq):
+    replace_list = [('/', 'div'),
+                    ('math.', ''),
+                    ('>', 'gt'),
+                    ('<', 'lt'),
+                    (' ', '')]
+
     if isinstance(eq, basestring):
-        return eq.replace('/', 'div').replace('math.', '')
+        for before, after in replace_list:
+            eq = eq.replace(before, after)
+        return eq
     else:
         return eq
 
