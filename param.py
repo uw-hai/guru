@@ -137,14 +137,14 @@ class HyperParams(object):
                 p[k] = [1.00001 + PEAKEDNESS * v for v in params[k]]
             elif t == 'p_worker':
                 p[k] = [1.00001 for i in xrange(n_worker_classes)]
-            elif t == 'p_guess':
-                p[k] = [10, 10] # Pretty sure this is 0.5.
+            #elif t == 'p_guess':
+            #    p[k] = [10, 10] # Pretty sure this is 0.5.
             elif t == 'p_slip':
                 p[k] = [2, 5] # Lower prob of making a mistake.
             elif t == 'p_lose':
                 p[k] = [2, 20] # Lower prob of losing a skill.
             elif t in ['p_learn_exp', 'p_learn_tell', 'p_leave',
-                       'p_s']:
+                       'p_s', 'p_guess']:
                 p[k] = [1.00001, 1.00001]
         self.p = p
 
@@ -189,6 +189,11 @@ class HyperParamsUnknownRatioSlipLeaveLose(HyperParams):
                                        'p_learn_exp',
                                        'p_learn_tell',
                                        'p_s'])
+
+class HyperParamsUnknownRatioSlipLeaveLoseLearn(HyperParams):
+    def __init__(self, params, n_worker_classes):
+        super(HyperParamsUnknownRatioSlipLeaveLoseLearn, self).__init__(
+            params, n_worker_classes, ['p_learn_tell'])
 
 class HyperParamsUnknownRatioLeaveLose(HyperParams):
     """Hyperparameters with known class properties but unknown ratio."""

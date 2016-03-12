@@ -15,7 +15,7 @@ from . import param
 from .pomdp import POMDPModel
 from .policy import Policy
 from .history import History
-from .simulator import Simulator, LiveSimulator
+from .simulator import Simulator, LiveSimulator, LivePassiveSimulator
 from . import util
 from .util import get_or_default, ensure_dir
 from . import analyze
@@ -71,7 +71,7 @@ def run_function_from_dictionary(f, d):
     return f(**d)
  
 def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
-                         budget, budget_reserved_frac):
+                         budget, budget_reserved_frac, passive):
     """
 
     Seeds random number generators based on iteration only.
@@ -85,6 +85,7 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
         budget (float):
         budget_reserved_frac (float):   Fraction of budget reserved for
                                         exploitation.
+        passive (bool):                 Passive learning.
 
     Returns:
         tuple:
@@ -112,6 +113,8 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
         simulator = LiveSimulator(params_gt)
     else:
         simulator = Simulator(params_gt)
+    if passive:
+        passive_simulator = LivePassiveSimulator(params_gt)
     results = []
     history = History()
 
@@ -124,18 +127,30 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
     while (budget_spent < budget and
            not (worker_n > BOOTS_TERM and
                 all(n == 1 for n in n_actions_by_worker[-1 * BOOTS_TERM:])) and
-           simulator.worker_available()):
+           simulator.worker_available() and
+           (not passive or passive_simulator.worker_available())):
+        # BUG: Line above means passive always stops before running another simulator.
         logger.info('{} (i:{}, w:{}, b:{:.2f}/{:.2f})'.format(
             pol, it, worker_n, budget_spent, budget))
         history.new_worker()
-        s = simulator.new_worker()
+        if passive and passive_simulator.worker_available():
+            curr_simulator = passive_simulator
+            using_passive = True
+        else:
+            curr_simulator = simulator
+            using_passive = False
+        s = curr_simulator.new_worker()
 
         if budget_spent >= budget_explore:
             reserved = True
 
         # Belief using estimated model.
+        resolve_min_worker_interval = 1 if using_passive else 10
+        resolve_max_n = None if using_passive else 10
+        logger.info('prepping worker...')
         pol.prep_worker(iteration, history, budget_spent, budget_explore,
-                        reserved)
+                        reserved, resolve_min_worker_interval, resolve_max_n)
+        logger.info('...prepped')
         belief = pol.model.get_start_belief()
         results.append({'iteration': it,
                         'worker': worker_n,
@@ -154,21 +169,31 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
         worker_first_t = t
         t += 1
 
-        while (budget_spent < budget and simulator.worker_hired()):
-            if reserved:
-                a = pol.get_best_action(it, history, belief)
-                explore = False
+        while (budget_spent < budget and curr_simulator.worker_hired()):
+            if not using_passive:
+                if reserved:
+                    a = pol.get_best_action(it, history, belief)
+                    explore = False
+                else:
+                    a, explore = pol.get_next_action(it, history, budget_spent,
+                                                     budget_explore, belief)
+                # Override policy decision and boot worker if in
+                # entered reserved portion while worker hired.
+                if not reserved and budget_spent >= budget_explore:
+                    a = pol.model.actions.index(wlp.Action('boot'))
             else:
-                a, explore = pol.get_next_action(it, history, budget_spent,
-                                                 budget_explore, belief)
-            # Override policy decision and boot worker if in
-            # entered reserved portion while worker hired.
-            if not reserved and budget_spent >= budget_explore:
-                a = pol.model.actions.index(wlp.Action('boot'))
+                explore = False
 
             # Simulate a step
-            s, o, (cost, r), other = simulator.sample_SOR(a)
+            if not using_passive:
+                s, o, (cost, r), other = simulator.sample_SOR(a)
+            else:
+                a, o, (cost, r), other = passive_simulator.sample_AOR()
+                s = None
+                # TODO: Record whether following passive or not.
             budget_spent -= cost
+            logger.info('{} (i:{}, w:{}, a:{}, o:{}, b:{:.2f}/{:.2f})'.format(
+                pol, it, worker_n, a, o, budget_spent, budget))
             history.record(a, o, explore=explore)
             belief = pol.model.update_belief(belief, a, o)
 
@@ -226,7 +251,8 @@ def run_experiment(name, mongo, config, config_policy,
                    policies, iterations, budget,
                    budget_reserved_frac,
                    epsilon=None, explore_actions=['test'], explore_policy=None,
-                   thompson=False, hyperparams='HyperParams', processes=None):
+                   thompson=False, hyperparams='HyperParams', processes=None,
+                   passive=False):
     """Run experiment using multiprocessing.
 
     Args:
@@ -253,6 +279,7 @@ def run_experiment(name, mongo, config, config_policy,
         thompson (bool):        Perform Thompson sampling.
         hyperparams (str):      Hyperparams classname.
         processes (int):        Number of processes.
+        passive (bool):         Passive learning mode.
 
     """
     client = pymongo.MongoClient(mongo['host'], mongo['port'])
@@ -340,7 +367,8 @@ def run_experiment(name, mongo, config, config_policy,
                   'policy': p,
                   'iteration': i,
                   'budget': budget,
-                  'budget_reserved_frac': budget_reserved_frac} for i, p in
+                  'budget_reserved_frac': budget_reserved_frac,
+                  'passive': passive} for i, p in
                  itertools.product(iterations,
                                    policies_exploded))
 
@@ -411,12 +439,16 @@ def run_experiment(name, mongo, config, config_policy,
             experiment=exp_name,
             processes=nprocesses)
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run an experiment')
     parser.add_argument('name', type=str, help='Experiment name')
     parser.add_argument('--config_json', type=argparse.FileType('r'))
     parser.add_argument('--proc', type=int, help='Number of processes')
     config_group = parser.add_argument_group('config')
+    config_group.add_argument(
+        '--passive', dest='passive', action='store_true',
+        help='Use passive learning mode only')
     config_group.add_argument(
         '--dataset', type=str, choices=[
         'lin_aaai12_tag', 'lin_aaai12_wiki', 'rajpal_icml15'],
@@ -514,6 +546,7 @@ if __name__ == '__main__':
                  'HyperParamsUnknownRatioLeave',
                  'HyperParamsUnknownRatioSlipLeave',
                  'HyperParamsUnknownRatioSlipLeaveLose',
+                 'HyperParamsUnknownRatioSlipLeaveLoseLearn',
                  'HyperParamsUnknownRatioLeaveLose',
 
                  'HyperParamsSpaced',
@@ -645,4 +678,5 @@ if __name__ == '__main__':
                    explore_policy=args.explore_policy,
                    thompson=args.thompson,
                    hyperparams=args.hyperparams,
-                   processes=args.proc)
+                   processes=args.proc,
+                   passive=args.passive)

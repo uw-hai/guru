@@ -128,7 +128,7 @@ class Policy:
         if self.resolve_times:
             if worker - max(self.resolve_times) < resolve_min_worker_interval:
                 resolve_p = False
-            if len(self.resolve_times) >= resolve_max_n:
+            if resolve_max_n is not None and len(self.resolve_times) >= resolve_max_n:
                 resolve_p = False
 
         estimate_p = self.rl_p() and resolve_p

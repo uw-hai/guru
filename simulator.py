@@ -8,6 +8,7 @@ from . import work_learn_problem as wlp
 
 class Simulator(object):
     """Class for synthetic data."""
+
     def __init__(self, params):
         """Initialize.
 
@@ -55,8 +56,10 @@ class Simulator(object):
         """Return whether worker is currently hired."""
         return self.s is not None
 
+
 class LiveSimulator(Simulator):
     """Class for live data."""
+
     def __init__(self, params, repeat=True):
         """Initialize.
 
@@ -70,8 +73,8 @@ class LiveSimulator(Simulator):
         self.repeat = repeat
         self.observations = wlp.observations
         n_skills = len(self.params['p_r'])
-        if self.params['tell'] or self.params['exp'] or n_skills != 1:
-            raise ValueError('Unexpected parameter settings')
+        #if self.params['tell'] or self.params['exp'] or n_skills != 1:
+        #    raise ValueError('Unexpected parameter settings')
         self.actions = wlp.actions_all(n_skills, tell=False, exp=False)
         if dataset == 'lin_aaai12_tag':
             self.df = hanalyze.Data.from_lin_aaai12(
@@ -101,8 +104,8 @@ class LiveSimulator(Simulator):
             self.init_workers()
         _, df = self.workers.pop()
         self.worker_ans = [{'o': self.observations.index('right') if
-                                 r['correct'] else
-                                 self.observations.index('wrong'),
+                            r['correct'] else
+                            self.observations.index('wrong'),
                             'answer': r['answer'],
                             'worker': r['worker'],
                             'question': r['question'],
@@ -182,6 +185,153 @@ class LiveSimulator(Simulator):
         else:
             raise Exception('Unexpected action')
         return None, self.o, (cost, r), ans
+
+    def worker_hired(self):
+        """Return whether worker is currently hired."""
+        return self.hired
+
+
+class LivePassiveSimulator(Simulator):
+    """Class for live data."""
+
+    def __init__(self, params):
+        """Initialize.
+
+        Args:
+            params:     param.Params object.
+
+        """
+        self.params = params.get_param_dict(sample=False)
+        self.observations = wlp.observations
+        n_skills = len(self.params['p_r'])
+        if self.params['tell'] or n_skills != 1:
+            print self.params['tell']
+            print n_skills
+            raise ValueError('Unexpected parameter settings')
+        self.actions = wlp.actions_all(n_skills, tell=False, exp=True)
+        self.df = hanalyze.TeachData.from_bragg_teach().df
+        self.df = self.df[self.df.final]
+        self.df = self.df.sort('time', ascending=False)
+        self.hired = False
+        self.init_workers()
+
+    def init_workers(self):
+        self.workers = list(self.df.groupby('worker'))
+        random.shuffle(self.workers)
+
+    def worker_available(self):
+        """Return whether new worker is available."""
+        return len(self.workers) > 0
+
+    def new_worker(self):
+        """Simulate obtaining a new worker and return start state."""
+        _, df = self.workers.pop()
+        quiz_index = self.actions.index(wlp.Action('ask', 0))
+        exp_index = self.actions.index(wlp.Action('exp'))
+        self.worker_actions = [
+            quiz_index if r['action'] == 'ask' else exp_index for
+            _, r in df.iterrows()]
+        def get_observation_index(row):
+            if r['action'] == 'exp':
+                return self.observations.index('null')
+            elif r['answertype'] == 'term':
+                return self.observations.index('term')
+            elif r['answertype'] == 'label' and r['correct']:
+                return self.observations.index('right')
+            elif r['answertype'] == 'label' and not r['correct']:
+                return self.observations.index('wrong')
+            else:
+                raise Exception('Unexpected row {}'.format(r))
+        self.worker_ans = [{'o': get_observation_index(r),
+                            'answer': r['answer'],
+                            'worker': r['worker'],
+                            'question': r['question'],
+                            'gt': r['gt']} for _, r in df.iterrows()]
+        # Ensure every sequence of actions ends with a term observation.
+        if self.worker_ans[0]['o'] != self.observations.index('term'):
+            self.worker_ans = [{'o': self.observations.index('term'),
+                                'answer': None,
+                                'worker': self.worker_ans[-1]['worker']}] + self.worker_ans
+            self.worker_actions = [self.actions.index(wlp.Action('boot'))] + self.worker_actions
+        self.hired = True
+
+        print 'Init worker with actions {}, observations {}'.format(
+            [str(self.actions[a]) for a in self.worker_actions],
+            [str(self.observations[o['o']]) for o in self.worker_ans])
+        return None
+
+    def sample_AOR(self):
+        """Return (action, observation, (cost, reward), other).
+
+        Change in false positive cost plus false negative cost.
+
+        """
+        ans = self.worker_ans.pop()
+        a = self.worker_actions.pop()
+        self.o = ans['o']
+        if len(self.worker_ans) == 0:
+            self.hired = False
+
+        ### Duplicate code.
+        if self.params['utility_type'] == 'acc':
+            # BUG: In order to define this, think we need to set
+            # reward_correct = 0.5 and penalty = -0.5, but need to verify.
+            raise ValueError('Accuracy gain undefined for live data')
+        else:
+            penalty_fp = self.params['penalty_fp']
+            penalty_fn = self.params['penalty_fn']
+            reward_tp = self.params['reward_tp']
+            reward_tn = self.params['reward_tn']
+        # TODO: Get more information from df.
+
+        # Calculate reward.
+        if self.actions[a].get_type() == 'work':
+            cost = self.params['cost']
+            guess = round(self.params['p_1'])
+            if ans['gt'] == 0 and guess == 1:
+                penalty_old = penalty_fp
+                reward_old = 0
+            elif ans['gt'] == 1 and guess == 0:
+                penalty_old = penalty_fn
+                reward_old = 0
+            elif ans['gt'] == 0 and guess == 0:
+                penalty_old = 0
+                reward_old = reward_tn
+            else:
+                penalty_old = 0
+                reward_old = reward_tp
+
+            if ans['gt'] == 0 and ans['answer'] == 1:
+                penalty_new = penalty_fp
+                reward_new = 0
+            elif ans['gt'] == 1 and ans['answer'] == 0:
+                penalty_new = penalty_fn
+                reward_new = 0
+            elif ans['gt'] == 0 and ans['answer'] == 0:
+                penalty_new = 0
+                reward_new = reward_tn
+            else:
+                penalty_new = 0
+                reward_new = reward_tp
+
+            if self.params['utility_type'] == 'pen':
+                r = penalty_new + reward_new
+            elif self.params['utility_type'] == 'pen_diff':
+                r = (penalty_new + reward_new) - (penalty_old + reward_old)
+            else:
+                raise ValueError('Accuracy gain undefined for live data')
+
+            self.o = self.observations.index('null')
+        elif self.actions[a].get_type() == 'test':
+            cost = self.params['cost']
+            r = 0
+        elif self.actions[a].get_type() in ['exp', 'boot']:
+            #cost = self.params['cost']
+            cost = 0
+            r = 0
+        else:
+            raise Exception('Unexpected action {}'.format(self.actions[a]))
+        return a, self.o, (cost, r), ans
 
     def worker_hired(self):
         """Return whether worker is currently hired."""
