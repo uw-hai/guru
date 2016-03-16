@@ -486,7 +486,7 @@ if __name__ == '__main__':
     config_group.add_argument('--p_1', type=float, default=0.5)
     config_group.add_argument('--p_s', type=float, nargs='+', default=[0.2])
     config_group.add_argument('--utility_type', type=str,
-                              choices=['acc', 'pen', 'pen_diff'],
+                              choices=['acc', 'pen', 'pen_diff', 'pen_nonboolean'],
                               default='pen')
     config_group.add_argument('--penalty_fp', type=float, default=-2)
     config_group.add_argument('--penalty_fn', type=float, default=-2)
@@ -494,7 +494,7 @@ if __name__ == '__main__':
     config_group.add_argument('--reward_tn', type=float, default=1)
     config_group.add_argument(
         '--desired_accuracy', type=float,
-        help='Desired accuracy for utility_type=pen, which overrides penalty and reward settings')
+        help='Desired accuracy for utility_types "pen" and "pen_nonboolean", which overrides penalty and reward settings')
     config_group.add_argument(
         '--desired_accuracy_rewards', dest='desired_accuracy_rewards',
         action='store_true', help='Overwrite penalty & reward')
@@ -509,7 +509,7 @@ if __name__ == '__main__':
                         help='Number of accuracy bins (classes) to use for the policy model.')
     parser.add_argument('--teach_first_n', type=int, nargs='+')
     parser.add_argument('--teach_first_type', type=str,
-                        choices=['tell', 'exp'], default='tell')
+                        choices=['tell', 'exp'], default='exp')
     parser.add_argument('--test_and_boot_n_test', type=int, nargs='+')
     parser.add_argument('--test_and_boot_n_work', type=int, nargs='+')
     parser.add_argument('--test_and_boot_accuracy', type=float, nargs='+')
@@ -575,7 +575,7 @@ if __name__ == '__main__':
         config_params.append('p_learn_exp')
     if args.tell:
         config_params.append('p_learn_tell')
-    if args.utility_type in ['pen', 'pen_diff']:
+    if args.utility_type in ['pen', 'pen_diff', 'pen_nonboolean']:
         config_params += ['penalty_fp', 'penalty_fn', 'reward_tp', 'reward_tn']
     if args.dataset is None:
         config_params.append('p_slip_std')
@@ -589,7 +589,7 @@ if __name__ == '__main__':
             config[k] = args_vars[k]
 
     # Overwrite reward settings for desired accuracy.
-    if (config['utility_type'] == 'pen' and
+    if (config['utility_type'] in ['pen', 'pen_nonboolean'] and
             args.desired_accuracy is not None and
             args.desired_accuracy_rewards):
         config['reward_tp'] = 1

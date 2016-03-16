@@ -10,7 +10,10 @@ import numpy as np
 
 NINF = -999
 # TODO: Change quiz_val to rule / skill.
+
+
 class Action:
+
     def __init__(self, name, quiz_val=None):
         self.name = name
         self.quiz_val = quiz_val
@@ -54,6 +57,7 @@ class Action:
     def __eq__(self, a):
         return self.name == a.name and self.quiz_val == a.quiz_val
 
+
 def actions_all(n_skills, tell=False, exp=False):
     """Return all actions
 
@@ -75,6 +79,7 @@ def actions_all(n_skills, tell=False, exp=False):
 #observations = ['yes', 'no', 'wrong', 'right', 'term']
 observations = ['wrong', 'right', 'null', 'term']
 
+
 def states_all(n_skills, n_worker_classes):
     skill_values = list(itertools.product((True, False), repeat=n_skills))
     quiz_values = [None] + range(n_skills)
@@ -84,7 +89,9 @@ def states_all(n_skills, n_worker_classes):
         itertools.product(skill_values, quiz_values, worker_class_values)]
     return [State(term=True)] + states_except_term
 
+
 class State:
+
     def __init__(self, term=None, skills=[], quiz_val=None, worker_class=None):
         self.term = term
         self.skills = skills
@@ -125,11 +132,11 @@ class State:
         return len(self.skills_lost(next_state))
 
     def skills_learned(self, next_state):
-        return [i for i,(x,y) in
+        return [i for i, (x, y) in
                 enumerate(zip(self.skills, next_state.skills)) if not x and y]
 
     def skills_lost(self, next_state):
-        return [i for i,(x,y) in
+        return [i for i, (x, y) in
                 enumerate(zip(self.skills, next_state.skills)) if x and not y]
 
     def has_same_skills(self, next_state):
@@ -140,7 +147,7 @@ class State:
         if self.term:
             raise Exception('Unexpected terminal state')
         p_has_skills = 1
-        for i,p in enumerate(rule_probabilities):
+        for i, p in enumerate(rule_probabilities):
             if not self.has_skill(i):
                 p_has_skills *= 1 - p
         return p_has_skills
@@ -178,39 +185,79 @@ class State:
         return p
 
     def rewards_ask(self, p_r, p_slip, p_guess, prior, utility_type,
-                    penalty_fp, penalty_fn, reward_tp, reward_tn):
+                    penalty_fp, penalty_fn, reward_tp, reward_tn, sample):
         """Return expected reward and sampled additional info.
 
         Args:
-            utility_type: 'acc' or 'posterior'
+            utility_type (str): Utility type
+            sample (bool): Sample instead of expected reward.
 
         Returns:
             r:      Expected reward
             ans:    Sampled labels.
 
         """
-        r = 0
-        for o in (0,1):
-            p_obs = 0
-            for a in (0, 1):
-                # Sum out variable for true answer.
-                p_obs += self.p_joint(p_r, p_slip, p_guess, prior, a, o)
-            posterior = self.p_joint(p_r, p_slip, p_guess, prior, 1, o) / p_obs 
-            # Expected reward.
-            r += p_obs * reward_new_posterior(prior, posterior, utility_type,
-                                              penalty_fp=penalty_fp,
-                                              penalty_fn=penalty_fn,
-                                              reward_tp=reward_tp,
-                                              reward_tn=reward_tn)
+        if utility_type == 'pen_nonboolean' and reward_tp != reward_tn or penalty_fp != penalty_fn:
+            raise Exception(
+                "Rewards differ for boolean outcomes, but using nonboolean reward function")
 
         # Sample label values.
-        v = []
-        probs = []
-        for a in (0, 1):
-            for o in (0, 1):
-                v.append({'gt': a, 'answer': o})
-                probs.append(self.p_joint(p_r, p_slip, p_guess, prior, a, o))
-        v_sample = np.random.choice(v, p=probs)
+        if sample:
+            v = []
+            probs = []
+            for a in (0, 1):
+                for o in (0, 1):
+                    v.append({'gt': a, 'answer': o})
+                    probs.append(self.p_joint(
+                        p_r, p_slip, p_guess, prior, a, o))
+            v_sample = np.random.choice(v, p=probs)
+            if utility_type == 'pen_nonboolean':
+                if v_sample['gt'] and not v_sample['answer']:
+                    r = penalty_fn
+                elif v_sample['gt'] and v_sample['answer']:
+                    r = reward_tp
+                elif not v_sample['gt'] and v_sample['answer']:
+                    r = penalty_fp
+                else:
+                    r = reward_tn
+            else:
+                p_obs = 0
+                o = v_sample['answer']
+                for a in (0, 1):
+                    # Sum out variable for true answer.
+                    p_obs += self.p_joint(p_r, p_slip, p_guess, prior, a, o)
+                posterior = self.p_joint(
+                    p_r, p_slip, p_guess, prior, 1, o) / p_obs
+                r = reward_new_posterior(prior, posterior, utility_type,
+                                         penalty_fp=penalty_fp,
+                                         penalty_fn=penalty_fn,
+                                         reward_tp=reward_tp,
+                                         reward_tn=reward_tn)
+        else:
+            v_sample = None
+            # Expected reward
+            r = 0
+            if utility_type == 'pen_nonboolean':
+                for o in (0, 1):
+                    for a in (0, 1):
+                        reward = reward_tp if a == o else penalty_fp
+                        r += self.p_joint(p_r, p_slip, p_guess,
+                                          prior, a, o) * reward
+            else:
+                for o in (0, 1):
+                    p_obs = 0
+                    for a in (0, 1):
+                        # Sum out variable for true answer.
+                        p_obs += self.p_joint(p_r, p_slip,
+                                              p_guess, prior, a, o)
+                    posterior = self.p_joint(
+                        p_r, p_slip, p_guess, prior, 1, o) / p_obs
+                    reward = reward_new_posterior(prior, posterior, utility_type,
+                                                  penalty_fp=penalty_fp,
+                                                  penalty_fn=penalty_fn,
+                                                  reward_tp=reward_tp,
+                                                  reward_tn=reward_tn)
+                    r += p_obs * reward
 
         return r, v_sample
 
@@ -246,6 +293,7 @@ class State:
                  self.quiz_val == s.quiz_val and
                  self.worker_class == s.worker_class))
 
+
 def reward_new_posterior(
         prior, posterior, utility_type='pen',
         penalty_fp=-2, penalty_fn=-2, reward_tp=1, reward_tn=1):
@@ -275,11 +323,11 @@ def reward_new_posterior(
     0.4
 
     """
-    f = lambda p: (1-p) * reward_tn + p * penalty_fn if p <= 0.5 else \
-                  p * reward_tp + (1-p) * penalty_fp
+    f = lambda p: (1 - p) * reward_tn + p * penalty_fn if p <= 0.5 else \
+        p * reward_tp + (1 - p) * penalty_fp
     if utility_type == 'acc':
         # Accuracy gain.
-        return max(posterior, 1-posterior) - max(prior, 1-prior)
+        return max(posterior, 1 - posterior) - max(prior, 1 - prior)
     elif utility_type == 'pen':
         return f(posterior)
     elif utility_type == 'pen_diff':

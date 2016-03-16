@@ -327,7 +327,7 @@ class POMDPModel:
             else:
                 return dict() if exponents else 0
 
-    def get_reward(self, s, a, s1, params=None):
+    def get_reward(self, s, a, s1, params=None, sample=False):
         """Get cost, expected reward, and ameta data.
 
         Args:
@@ -371,14 +371,15 @@ class POMDPModel:
         elif act.is_quiz():
             return ((cost, 0), None)
         elif act.name == 'ask':
-            r_expected, labels = st1.rewards_ask(p_r, p_slip, p_guess, p_1,
-                                         utility_type,
-                                         penalty_fp=penalty_fp,
-                                         penalty_fn=penalty_fn,
-                                         reward_tp=reward_tp,
-                                         reward_tn=reward_tn)
+            reward, labels = st1.rewards_ask(p_r, p_slip, p_guess, p_1,
+                                             utility_type,
+                                             penalty_fp=penalty_fp,
+                                             penalty_fn=penalty_fn,
+                                             reward_tp=reward_tp,
+                                             reward_tn=reward_tn,
+                                             sample=sample)
 
-            return ((cost, r_expected), labels)
+            return ((cost, reward), labels)
         elif act.name == 'boot':
             return ((0, 0), None)
         else:
@@ -490,7 +491,7 @@ class POMDPModel:
             self.get_observation(s_prime, action_num, observation_num) for
             observation_num in xrange(len(self.observations))]
         o_prime = np.random.choice(range(len(self.observations)), p=p_o_prime)
-        r, meta = self.get_reward(state_num, action_num, s_prime)
+        r, meta = self.get_reward(state_num, action_num, s_prime, sample=True)
         return s_prime, o_prime, r, meta
 
     def update_belief(self, prev_belief, action_num, observation_num):
