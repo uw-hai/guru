@@ -2,19 +2,24 @@ import collections
 import os
 import flask
 from flask import Flask, request, render_template, send_from_directory
-from flask.ext.pymongo import PyMongo
+#from flask.ext.pymongo import PyMongo
+import pymongo
 import pandas as pd
 import networkx as nx
 import numpy as np
-from . import analyze
 
-tmpl_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
+tmpl_dir = os.path.join(os.path.dirname(
+    os.path.abspath(__file__)), 'templates')
 app = Flask(__name__, template_folder=tmpl_dir)
 app.config.from_object(os.environ['APP_SETTINGS'])
-mongo = PyMongo(app)
+#mongo = PyMongo(app)
+mongo = pymongo.MongoClient(app.config['MONGO_HOST'], app.config['MONGO_PORT'])
+mongo.worklearn.authenticate(
+    app.config['MONGO_USER'], app.config['MONGO_PASS'])
 
 
 PLOTDIR = os.path.join(app.config['STATIC_FOLDER'], 'plots')
+
 
 def belief_to_str(states, belief, threshold=0):
     """Return belief string.
@@ -33,8 +38,9 @@ def belief_to_str(states, belief, threshold=0):
         (s, b) for (s, b) in zip(states, (float(b) for b in belief)) if
         float(b) > threshold))
     return ', '.join('{} ({:0.3f})'.format(k, state_to_belief[k]) for k in
-           sorted(state_to_belief, key=lambda x: state_to_belief[x],
-                  reverse=True))
+                     sorted(state_to_belief, key=lambda x: state_to_belief[x],
+                            reverse=True))
+
 
 def load_tree(f_exp, f_names, policy):
     """Read an experiment output file and load a tree of execution traces"""
@@ -108,18 +114,22 @@ def load_tree(f_exp, f_names, policy):
             G.add_edge(tuple(seq[:-1]), tuple(seq))
     return G
 
+
 @app.route("/")
 def index():
     """Return list of experiment"""
-    return '\n'.join(mongo.db.res.distinct('experiment'))
+    return '\n'.join(mongo.worklearn.res.distinct('experiment'))
+
 
 @app.route("/viz")
 def viz():
     exp = request.args.get('e')
     basename = request.args.get('f')
     policy = request.args.get('p')
-    exp_filepath = os.path.join(os.path.dirname(__file__), 'res', exp, basename + '.txt')
-    names_filepath = os.path.join(os.path.dirname(__file__), 'res', exp, basename + '_names.csv')
+    exp_filepath = os.path.join(os.path.dirname(
+        __file__), 'res', exp, basename + '.txt')
+    names_filepath = os.path.join(os.path.dirname(
+        __file__), 'res', exp, basename + '_names.csv')
 
     # Wordtree visualization.
     tree = load_tree(f_exp=exp_filepath,
@@ -165,6 +175,7 @@ def viz():
         policy=policy, edges=edges, edges_treemap=edges_treemap,
         edges_treemap_other=edges_treemap_other)
 
+
 @app.route('/status')
 def status():
     # BUG: Slow.
@@ -172,22 +183,24 @@ def status():
     if e:
         experiments = [e]
     else:
-        experiments = mongo.db.res.distinct('experiment')
+        experiments = mongo.worklearn.res.distinct('experiment')
     d = dict()
     for e in experiments:
         d[e] = dict()
-        policies = mongo.db.res.find({'experiment': e}).distinct('policy')
+        policies = mongo.worklearn.res.find(
+            {'experiment': e}).distinct('policy')
         for p in policies:
-            iters = mongo.db.res.find(
+            iters = mongo.worklearn.res.find(
                 {'experiment': e, 'policy': p}).distinct('iteration')
             d[e][p] = len(iters)
     return render_template('status.html', iterations=d)
+
 
 @app.route('/iterations')
 def iterations():
     e = request.args.get('e')
     p = request.args.get('p')
-    return ' '.join(str(x) for x in mongo.db.res.find(
+    return ' '.join(str(x) for x in mongo.worklearn.res.find(
         {'experiment': e, 'policy': p}).distinct('iteration'))
 
 
@@ -205,16 +218,19 @@ def plots():
         d[e] = plots
     return render_template('plots.html', files=d)
 
+
 @app.route('/make_plots')
 def make_plots():
     e = request.args.get('e')
     if e:
         experiments = [e]
     else:
-        experiments = mongo.db.res.distinct('experiment')
+        experiments = mongo.worklearn.res.distinct('experiment')
     for e in experiments:
+        from . import analyze
         analyze.make_plots(
-            db=mongo.db, experiment=e, outdir=os.path.join(PLOTDIR, e))
+            db=mongo.worklearn, experiment=e, outdir=os.path.join(PLOTDIR, e))
+
 
 @app.route('/traces')
 def traces():
@@ -227,25 +243,25 @@ def traces():
         return 'choose an iteration i'
     if not p:
         return 'choose a policy p'
-    res = list(mongo.db.res.find(
+    res = list(mongo.worklearn.res.find(
         {'experiment': e, 'policy': p, 'iteration': int(i)},
         {'_id': False}).sort(
-            't', flask.ext.pymongo.ASCENDING))
-    model = list(mongo.db.model.find(
+            't', pymongo.ASCENDING))
+    model = list(mongo.worklearn.model.find(
         {'experiment': e, 'policy': p, 'iteration': int(i)},
-        {'_id': False}).sort('worker', flask.ext.pymongo.ASCENDING))
+        {'_id': False}).sort('worker', pymongo.ASCENDING))
     model_by_worker = collections.defaultdict(dict)
     for r in model:
         model_by_worker[r['worker']][r['param']] = r['v']
     for w in model_by_worker:
         model_by_worker[w] = ['{}: {}'.format(k, v) for
-            k, v in sorted(model_by_worker[w].iteritems())]
-    st_dict = dict((x['i'], x['s']) for x in mongo.db.names.find(
+                              k, v in sorted(model_by_worker[w].iteritems())]
+    st_dict = dict((x['i'], x['s']) for x in mongo.worklearn.names.find(
         {'experiment': e, 'type': 'state'}, {'_id': False}))
     st = [st_dict[x] for x in sorted(st_dict)]
-    obs_dict = dict(list((x['i'], x['s']) for x in mongo.db.names.find(
+    obs_dict = dict(list((x['i'], x['s']) for x in mongo.worklearn.names.find(
         {'experiment': e, 'type': 'observation'}, {'_id': False})))
-    action_dict = dict(list((x['i'], x['s']) for x in mongo.db.names.find(
+    action_dict = dict(list((x['i'], x['s']) for x in mongo.worklearn.names.find(
         {'experiment': e, 'type': 'action'}, {'_id': False})))
     res_by_worker = collections.defaultdict(list)
     for r in res:
