@@ -1,3 +1,6 @@
+*.env*
+.python-version
+*.DS_Store*
 *.pyc
 *.swp
 build/
