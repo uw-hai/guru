@@ -6,6 +6,26 @@ PEAKEDNESS = 1000
 WEAK_PRIOR_MAG = 3.5
 WEAK_BETA_MAG = WEAK_PRIOR_MAG * 2
 
+HYPERPARAMS = ['HyperParams',
+               'HyperParamsUnknownRatio',
+               'HyperParamsUnknownRatioLeave',
+               'HyperParamsUnknownRatioSlipLeave',
+               'HyperParamsUnknownRatioSlipLeaveLose',
+               'HyperParamsUnknownRatioSlipLeaveLoseLearn',
+               'HyperParamsUnknownRatioLeaveLose',
+
+               'HyperParamsSpaced',
+               'HyperParamsSpacedUnknownRatio',
+               'HyperParamsSpacedUnknownRatioSlipLeave',
+               'HyperParamsSpacedUnknownRatioSlipLeaveLose',
+               'HyperParamsSpacedUnknownRatioLeaveLose',
+
+               'HyperParamsSpacedStronger',
+               'HyperParamsSpacedStrongerUnknownRatio',
+               'HyperParamsSpacedStrongerUnknownRatioSlipLeave',
+               'HyperParamsSpacedStrongerUnknownRatioSlipLeaveLose',
+               'HyperParamsSpacedStrongerUnknownRatioLeaveLose']
+
 class Params(object):
     """Class for configuration params."""
     def __init__(self, config):
@@ -81,7 +101,7 @@ class Params(object):
                 # length 1 or |classes|.
                 if (isinstance(config[k], list) and len(config[k]) > 1 and
                     len(config[k]) != n_worker_classes):
-                    raise Exception('Config input of unexpected size')
+                    raise Exception('Config input {} of unexpected size'.format(k))
                 res[k] = config[k]
 
         # Split out classes.

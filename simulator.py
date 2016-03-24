@@ -255,9 +255,9 @@ class LivePassiveSimulator(Simulator):
             self.worker_actions = [self.actions.index(wlp.Action('boot'))] + self.worker_actions
         self.hired = True
 
-        print 'Init worker with actions {}, observations {}'.format(
-            [str(self.actions[a]) for a in self.worker_actions],
-            [str(self.observations[o['o']]) for o in self.worker_ans])
+        #print 'Init worker with actions {}, observations {}'.format(
+        #    [str(self.actions[a]) for a in self.worker_actions],
+        #    [str(self.observations[o['o']]) for o in self.worker_ans])
         return None
 
     def sample_AOR(self):

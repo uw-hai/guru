@@ -13,6 +13,7 @@ from . import work_learn_problem as wlp
 
 from . import zmdp_util
 
+
 def param_to_string(p):
     """Convert a param in tuple form to a string.
 
@@ -38,6 +39,7 @@ def param_to_string(p):
 
 class POMDPModel:
     """POMDP model"""
+
     def __init__(self, n_worker_classes, params, hyperparams=None,
                  estimate_all=False):
         """Initialize.
@@ -126,15 +128,15 @@ class POMDPModel:
 
     def write_txt(self, fo):
         """Write model to file as needed for AI-Toolbox."""
-        for s,_ in enumerate(self.states):
-            for a,_ in enumerate(self.actions):
-                for s1,_ in enumerate(self.states):
+        for s, _ in enumerate(self.states):
+            for a, _ in enumerate(self.actions):
+                for s1, _ in enumerate(self.states):
                     fo.write('{}\t{}\t'.format(self.get_transition(s, a, s1),
                                                sum(self.get_reward(s, a, s1)[0])))
             fo.write('\n')
-        for s,_ in enumerate(self.states):
-            for a,_ in enumerate(self.actions):
-                for o,_ in enumerate(self.observations):
+        for s, _ in enumerate(self.states):
+            for a, _ in enumerate(self.actions):
+                for o, _ in enumerate(self.observations):
                     fo.write('{}\t'.format(self.get_observation(s, a, o)))
             fo.write('\n')
 
@@ -147,32 +149,33 @@ class POMDPModel:
         fo.write('discount: {}\n'.format(discount))
         fo.write('values: reward\n')
         fo.write('states: {}\n'.format(' '.join(str(s) for s in self.states)))
-        fo.write('actions: {}\n'.format(' '.join(str(a) for a in self.actions)))
+        fo.write('actions: {}\n'.format(' '.join(str(a) for
+                                                 a in self.actions)))
         fo.write('observations: {}\n'.format(' '.join(self.observations)))
 
         fo.write('start: {}\n'.format(' '.join(
             str(x) for x in self.get_start_belief())))
 
         fo.write('\n\n### Transitions\n')
-        for s,st in enumerate(self.states):
-            for a,act in enumerate(self.actions):
-                for s1,st1 in enumerate(self.states):
+        for s, st in enumerate(self.states):
+            for a, act in enumerate(self.actions):
+                for s1, st1 in enumerate(self.states):
                     fo.write('T: {} : {} : {} {}\n'.format(
                         act, st, st1, self.get_transition(s, a, s1)))
                 fo.write('\n')
 
         fo.write('\n\n### Observations\n')
-        for s,st in enumerate(self.states):
-            for a,act in enumerate(self.actions):
-                for o,obs in enumerate(self.observations):
+        for s, st in enumerate(self.states):
+            for a, act in enumerate(self.actions):
+                for o, obs in enumerate(self.observations):
                     fo.write('O: {} : {} : {} {}\n'.format(
                         act, st, obs, self.get_observation(s, a, o)))
                 fo.write('\n')
 
         fo.write('\n\n### Rewards\n')
-        for s,st in enumerate(self.states):
-            for a,act in enumerate(self.actions):
-                for s1,st1 in enumerate(self.states):
+        for s, st in enumerate(self.states):
+            for a, act in enumerate(self.actions):
+                for s1, st1 in enumerate(self.states):
                     fo.write('R: {} : {} : {} : * {}\n'.format(
                         act, st, st1, sum(self.get_reward(s, a, s1)[0])))
                 fo.write('\n')
@@ -240,7 +243,7 @@ class POMDPModel:
             return dict() if exponents else 1
         elif st.term:
             return dict() if exponents else 0
-        
+
         if act.name == 'boot':
             # Booting takes to a new start state. (Changed 8/26/2015)
             # NOTE: No longer takes to terminal state.
@@ -262,7 +265,7 @@ class POMDPModel:
                 if exponents:
                     return {p_lose: [n_lost, n_lost_not], p_leave: [0, 1]}
                 prob = params[p_lose][0] ** n_lost * \
-                       params[p_lose][1] ** n_lost_not
+                    params[p_lose][1] ** n_lost_not
                 return prob * params[p_leave][1]
         elif act.name == 'exp' and st.is_quiz():
             p_learn_exp = self.get_param_version(s, 'p_learn_exp')
@@ -277,10 +280,10 @@ class POMDPModel:
                     return dict() if exponents else 1
                 elif not st1.has_skill(st.quiz_val):
                     return {p_learn_exp: [0, 1]} if exponents else \
-                           params[p_learn_exp][1]
+                        params[p_learn_exp][1]
                 else:
                     return {p_learn_exp: [1, 0]} if exponents else \
-                           params[p_learn_exp][0]
+                        params[p_learn_exp][0]
         elif act.name == 'tell':
             p_learn_tell = self.get_param_version(s, 'p_learn_tell')
             # Could learn skill (no chance of losing taught skill).
@@ -301,26 +304,26 @@ class POMDPModel:
                 if st.has_skill(act.quiz_val):
                     return {p_lose: [n_lost, n_lost_not],
                             p_leave: [0, 1]} if exponents else \
-                           params[p_lose][0] ** n_lost * \
-                           params[p_lose][1] ** n_lost_not * \
-                           params[p_leave][1]
+                        params[p_lose][0] ** n_lost * \
+                        params[p_lose][1] ** n_lost_not * \
+                        params[p_leave][1]
                 elif not st1.has_skill(act.quiz_val):
                     # Missed opportunity.
                     return {p_lose: [n_lost, n_lost_not],
                             p_learn_tell: [0, 1],
                             p_leave: [0, 1]} if exponents else \
-                           params[p_lose][0] ** n_lost * \
-                           params[p_lose][1] ** n_lost_not * \
-                           params[p_learn_tell][1] * \
-                           params[p_leave][1]
+                        params[p_lose][0] ** n_lost * \
+                        params[p_lose][1] ** n_lost_not * \
+                        params[p_learn_tell][1] * \
+                        params[p_leave][1]
                 else:
                     return {p_lose: [n_lost, n_lost_not],
                             p_learn_tell: [1, 0],
                             p_leave: [0, 1]} if exponents else \
-                           params[p_lose][0] ** n_lost * \
-                           params[p_lose][1] ** n_lost_not * \
-                           params[p_learn_tell][0] * \
-                           params[p_leave][1]
+                        params[p_lose][0] ** n_lost * \
+                        params[p_lose][1] ** n_lost_not * \
+                        params[p_learn_tell][0] * \
+                        params[p_leave][1]
         else:
             if s == s1:
                 return dict() if exponents else 1
@@ -415,7 +418,7 @@ class POMDPModel:
             # Assume teaching actions ask questions that require only the
             # skill being taught.
             p_r_gold = [int(i == st.quiz_val) for i in xrange(self.n_skills)]
-            
+
             has_skills = st.p_has_skills(p_r_gold) == 1
             if has_skills:
                 if obs == 'right':
@@ -427,10 +430,10 @@ class POMDPModel:
             else:
                 if obs == 'right':
                     return {p_guess: [1, 0]} if exponents else \
-                           params[p_guess][0]
+                        params[p_guess][0]
                 elif obs == 'wrong':
                     return {p_guess: [0, 1]} if exponents else \
-                           params[p_guess][1]
+                        params[p_guess][1]
                 else:
                     return dict() if exponents else 0
         else:
@@ -438,7 +441,6 @@ class POMDPModel:
                 return dict() if exponents else 1
             else:
                 return dict() if exponents else 0
- 
 
     def make_tables(self, params):
         """Create model tables from parameters
@@ -460,15 +462,16 @@ class POMDPModel:
             for a in xrange(A):
                 for s1 in xrange(S):
                     p_t[s][a][s1] = self.get_transition(s, a, s1, params)
-                    rewards[s][a][s1] = sum(self.get_reward(s, a, s1, params)[0])
+                    rewards[s][a][s1] = sum(
+                        self.get_reward(s, a, s1, params)[0])
 
                 for o in xrange(O):
                     p_o[s][a][o] = self.get_observation(s, a, o, params)
 
         # Initial beliefs
         p_i = self.get_start_belief(params)
-        
-        return p_t, p_o, p_i, rewards 
+
+        return p_t, p_o, p_i, rewards
 
     def sample_SOR(self, state_num, action_num):
         '''
@@ -519,7 +522,7 @@ class POMDPModel:
         b_new = []
         total = sum(b_new_nonnormalized)
         for b_s in b_new_nonnormalized:
-            b_new.append(b_s/total)
+            b_new.append(b_s / total)
         return np.array(b_new)
 
     def expected_sufficient_statistics(self, log_marginals,
@@ -549,11 +552,11 @@ class POMDPModel:
             for t in xrange(T):
                 for s in xrange(S):
                     a, o, _ = history.history[worker][t]
-                    ess_o[s][a][o] += m_norm[t+1][s]
-            ess_i += m_norm[0,:]
+                    ess_o[s][a][o] += m_norm[t + 1][s]
+            ess_i += m_norm[0, :]
 
         for worker, pm in enumerate(log_pairwise_marginals):
-            pm_norm = np.exp(pm - logsumexp(pm, axis=(1,2), keepdims=True))
+            pm_norm = np.exp(pm - logsumexp(pm, axis=(1, 2), keepdims=True))
             T = history.n_t(worker)
             for t in xrange(T):
                 a, o, _ = history.history[worker][t]
@@ -561,7 +564,6 @@ class POMDPModel:
                     for s1 in xrange(S):
                         ess_t[s][a][s1] += pm_norm[t][s][s1]
         return ess_t, ess_o, ess_i
-
 
     def get_unnormalized_marginals(self, params, history):
         """Estimate unnormalized marginals from provided model parameters
@@ -589,8 +591,8 @@ class POMDPModel:
                 continue
 
             # Forward-backward init.
-            alpha = np.zeros((T+1, S))
-            beta = np.zeros((T+1, S))
+            alpha = np.zeros((T + 1, S))
+            beta = np.zeros((T + 1, S))
             for s in xrange(S):
                 p_i = self.get_start_probability(s, params)
                 alpha[0][s] = log(p_i)
@@ -605,7 +607,7 @@ class POMDPModel:
                         p_t = self.get_transition(s0, a, s1, params)
                         p_o = self.get_observation(s1, a, o, params)
                         v.append(alpha[t][s0] + log(p_t) + log(p_o))
-                    alpha[t+1][s1] = logsumexp(v)
+                    alpha[t + 1][s1] = logsumexp(v)
 
             # Backward.
             for t in reversed(xrange(T)):
@@ -615,7 +617,7 @@ class POMDPModel:
                     for s1 in xrange(S):
                         p_t = self.get_transition(s0, a, s1, params)
                         p_o = self.get_observation(s1, a, o, params)
-                        v.append(beta[t+1][s1] + log(p_t) + log(p_o))
+                        v.append(beta[t + 1][s1] + log(p_t) + log(p_o))
                     beta[t][s0] = logsumexp(v)
 
             log_marginals.append(alpha + beta)
@@ -629,11 +631,11 @@ class POMDPModel:
                         p_t = self.get_transition(s, a, s1, params)
                         p_o = self.get_observation(s1, a, o, params)
                         pm[t][s][s1] = alpha[t][s] + log(p_t) + log(p_o) + \
-                                beta[t+1][s1] # BUG: should this be s1 or s
+                            beta[t + 1][s1]  # BUG: should this be s1 or s
             log_pairwise_marginals.append(pm)
 
             # Update likelihood
-            ll += logsumexp(alpha[T,:])
+            ll += logsumexp(alpha[T, :])
 
         return log_marginals, log_pairwise_marginals, ll
 
@@ -647,7 +649,7 @@ class POMDPModel:
         # Add param likelihood.
         for p in params:
             ll += log(ss.dirichlet.pdf(params[p], self.hyperparams.p[p]))
- 
+
         return ess_t, ess_o, ess_i, ll
 
     def estimate_M(self, ess_t, ess_o, ess_i):
@@ -709,10 +711,14 @@ class POMDPModel:
         """Estimate parameters from history.
 
         Args:
-            history:            History object.
-            last_params:        Initialize from last parameter values.
-            random_restarts:    Number of random initializations to perform.
-            ll_max_improv:      Threshold of % log-likelihood improvement.
+            history: History object.
+            last_params: Initialize from last parameter values.
+            random_restarts: Number of random initializations to perform.
+            ll_max_improv: Threshold of % log-likelihood improvement.
+
+        Returns:
+            ll_best: Final log likelihood
+            params_best: Final parameters
 
         """
         params_best = None
@@ -737,12 +743,14 @@ class POMDPModel:
 
         self.params.update(params_best)
         self.hparams = hparams_best
+        return ll_best, params_best
 
     def thompson_sample(self):
         """Reset self.params by sampling from self.hparams"""
         d = self.hparams
         for p in d:
             self.params[p] = np.random.dirichlet(d[p])
+
 
 class POMDPPolicy:
     '''
@@ -759,6 +767,7 @@ class POMDPPolicy:
         pMatrix        The policy matrix, constructed from all of the
                        alpha vectors.
     '''
+
     def __init__(self, filename, file_format='policyx', n_states=None):
         self.file_format = file_format
         if file_format == 'policyx':
@@ -805,7 +814,7 @@ class POMDPPolicy:
 
     def zmdp_filter(self, belief, alpha):
         """Return true iff this alpha vector applies to this belief"""
-        return not any(b > 0 and a is None for b,a in zip(belief, alpha))
+        return not any(b > 0 and a is None for b, a in zip(belief, alpha))
 
     def zmdp_convert(self, alpha):
         """Return new array with Nones replaced with 0's"""
@@ -822,12 +831,11 @@ class POMDPPolicy:
         best_action = self.action_nums[res.argmax()]
         return (best_action, highest_expected_reward)
         """
-        raise NotImplementedError # Untested.
+        raise NotImplementedError  # Untested.
         res = self.get_action_rewards(belief)
         max_reward = max(res.itervalues())
         best_action = random.choice([a for a in res if res[a] == max_reward])
         return (best_action, max_reward)
-
 
     def get_action_rewards(self, belief):
         '''
@@ -836,12 +844,12 @@ class POMDPPolicy:
         '''
         if self.file_format == 'zmdp':
             alpha_indices_relevant = [
-                i for i,alpha in enumerate(self.pMatrix) if
+                i for i, alpha in enumerate(self.pMatrix) if
                 self.zmdp_filter(belief, alpha)]
             alphas = []
             actions = []
             for i in alpha_indices_relevant:
-                alphas.append(self.zmdp_convert(self.pMatrix[i,:]))
+                alphas.append(self.zmdp_convert(self.pMatrix[i, :]))
                 actions.append(self.action_nums[i])
             alphas = np.array(alphas)
         else:
@@ -849,9 +857,102 @@ class POMDPPolicy:
             actions = self.action_nums
         res = alphas.dot(belief)
         d = dict()
-        for a,r in zip(actions, res):
+        for a, r in zip(actions, res):
             if a not in d:
                 d[a] = r
             else:
                 d[a] = max(d[a], r)
         return d
+
+
+def main_estimate(tup):
+    """Helper function for main."""
+    i, history, model = tup
+    import numpy as np
+    import random
+    np.random.seed(i)
+    random.seed(i)
+    ll, params = model.estimate(history, last_params=False, random_restarts=1,
+                                ll_max_improv=0.001)
+    return ll, params
+
+
+def main():
+    """Run passive simulator and estimate parameters."""
+    import argparse
+    import itertools
+    import multiprocessing
+    import json
+    import os
+    from .history import History
+    from .exp import add_config_argparse_group
+    from . import simulator
+    from . import param
+    parser = argparse.ArgumentParser()
+    parser.add_argument('name', type=str, help='Experiment name')
+    parser.add_argument('--config_json', type=argparse.FileType('r'))
+    parser.add_argument('--n_restarts', type=int, default=50)
+    add_config_argparse_group(parser)
+
+    parser.add_argument(
+        '--hyperparams', type=str, default='HyperParams',
+        choices=param.HYPERPARAMS, help='Hyperparams class name, in param.py')
+    args = parser.parse_args()
+    args_vars = vars(args)
+
+    config_params = [
+        'p_worker', 'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
+        'p_lose', 'p_leave',
+        'p_slip', 'p_slip_std', 'p_guess', 'p_r', 'p_1', 'p_s',
+        'utility_type', 'dataset']
+    if args.exp:
+        config_params.append('p_learn_exp')
+    if args.tell:
+        config_params.append('p_learn_tell')
+    if args.utility_type in ['pen', 'pen_diff', 'pen_nonboolean']:
+        config_params += ['penalty_fp', 'penalty_fn', 'reward_tp', 'reward_tn']
+
+    if args.config_json is not None:
+        config = json.load(args.config_json)
+    else:
+        config = dict()
+    for k in config_params:
+        if k not in config:
+            config[k] = args_vars[k]
+
+    params = param.Params.from_cmd(config)
+
+    n_worker_classes = params.n_classes
+    passive_simulator = simulator.LivePassiveSimulator(params)
+    history = History()
+    while passive_simulator.worker_available():
+        passive_simulator.new_worker()
+        history.new_worker()
+        while passive_simulator.worker_hired():
+            a, o, _, _ = passive_simulator.sample_AOR()
+            history.record(a, o)
+
+    params_dict = params.get_param_dict(sample=False)
+
+    hyperparams_cls = getattr(param, args.hyperparams)
+    model = POMDPModel(
+        n_worker_classes=n_worker_classes, params=params_dict,
+        hyperparams=hyperparams_cls(params_dict, n_worker_classes),
+        estimate_all=True)
+    pool = multiprocessing.Pool(initializer=util.init_worker)
+    import functools as ft
+    f = ft.partial(util.run_functor, main_estimate)
+    res = pool.map(f, zip(xrange(args.n_restarts),
+                          itertools.repeat(history), itertools.repeat(model)))
+    ll, params = zip(*res)
+    import pandas as pd
+    params = [dict((k, d[k][0]) for k in d) for d in params]
+    for i, likelihood in enumerate(ll):
+        params[i]['ll'] = likelihood
+    df = pd.DataFrame(params)
+    df.to_csv(os.path.join(os.path.dirname(
+        __file__), '{}.csv'.format(args.name)))
+
+
+if __name__ == '__main__':
+    main()

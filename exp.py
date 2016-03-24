@@ -440,11 +440,16 @@ def run_experiment(name, mongo, config, config_policy,
             processes=nprocesses)
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Run an experiment')
-    parser.add_argument('name', type=str, help='Experiment name')
-    parser.add_argument('--config_json', type=argparse.FileType('r'))
-    parser.add_argument('--proc', type=int, help='Number of processes')
+def add_config_argparse_group(parser):
+    """Add config argument group to parser.
+
+    Args:
+        parser: ArgParse parser.
+
+    Returns:
+        config_group
+
+    """
     config_group = parser.add_argument_group('config')
     config_group.add_argument(
         '--passive', dest='passive', action='store_true',
@@ -482,7 +487,7 @@ if __name__ == '__main__':
         help='Standard deviation for simulations')
     config_group.add_argument('--p_guess', type=float, nargs='+',
                               default=[0.5])
-    config_group.add_argument('--p_r', type=float, nargs='+', default=[0.5])
+    config_group.add_argument('--p_r', type=float, nargs='+', default=[1])
     config_group.add_argument('--p_1', type=float, default=0.5)
     config_group.add_argument('--p_s', type=float, nargs='+', default=[0.2])
     config_group.add_argument('--utility_type', type=str,
@@ -498,7 +503,16 @@ if __name__ == '__main__':
     config_group.add_argument(
         '--desired_accuracy_rewards', dest='desired_accuracy_rewards',
         action='store_true', help='Overwrite penalty & reward')
+    return config_group
 
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Run an experiment')
+    parser.add_argument('name', type=str, help='Experiment name')
+    parser.add_argument('--config_json', type=argparse.FileType('r'))
+    parser.add_argument('--proc', type=int, help='Number of processes')
+    add_config_argparse_group(parser)
     parser.add_argument('--policies', '-p', type=str, nargs='+', required=True,
                         choices=['teach_first', 'test_and_boot',
                                  'zmdp', 'appl', 'aitoolbox'])
@@ -541,26 +555,7 @@ if __name__ == '__main__':
                         default=['test', 'work'])
     parser.add_argument(
         '--hyperparams', type=str, default='HyperParams',
-        choices=['HyperParams',
-                 'HyperParamsUnknownRatio',
-                 'HyperParamsUnknownRatioLeave',
-                 'HyperParamsUnknownRatioSlipLeave',
-                 'HyperParamsUnknownRatioSlipLeaveLose',
-                 'HyperParamsUnknownRatioSlipLeaveLoseLearn',
-                 'HyperParamsUnknownRatioLeaveLose',
-
-                 'HyperParamsSpaced',
-                 'HyperParamsSpacedUnknownRatio',
-                 'HyperParamsSpacedUnknownRatioSlipLeave',
-                 'HyperParamsSpacedUnknownRatioSlipLeaveLose',
-                 'HyperParamsSpacedUnknownRatioLeaveLose',
-
-                 'HyperParamsSpacedStronger',
-                 'HyperParamsSpacedStrongerUnknownRatio',
-                 'HyperParamsSpacedStrongerUnknownRatioSlipLeave',
-                 'HyperParamsSpacedStrongerUnknownRatioSlipLeaveLose',
-                 'HyperParamsSpacedStrongerUnknownRatioLeaveLose'],
-        help='Hyperparams class name, in param.py')
+        choices=param.HYPERPARAMS, help='Hyperparams class name, in param.py')
     parser.add_argument('--thompson', dest='thompson', action='store_true',
                         help="Use Thompson sampling")
     args = parser.parse_args()
