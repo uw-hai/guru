@@ -514,19 +514,19 @@ if __name__ == '__main__':
     parser.add_argument('--proc', type=int, help='Number of processes')
     add_config_argparse_group(parser)
     parser.add_argument('--policies', '-p', type=str, nargs='+', required=True,
-                        choices=['teach_first', 'test_and_boot',
+                        choices=['work_only', 'test_and_boot',
                                  'zmdp', 'appl', 'aitoolbox'])
     parser.add_argument('--explore_policy', type=str,
-                        choices=['teach_first', 'test_and_boot'],
+                        choices=['test_and_boot'],
                         help='Use one of the baseline policies as the exploration policy')
     parser.add_argument('--accuracy_bins_n', type=int,
                         help='Number of accuracy bins (classes) to use for the policy model.')
-    parser.add_argument('--teach_first_n', type=int, nargs='+')
-    parser.add_argument('--teach_first_type', type=str,
-                        choices=['tell', 'exp'], default='exp')
+    parser.add_argument('--teach_type', type=str, choices=['tell', 'exp'])
+    parser.add_argument('--test_and_boot_n_teach', type=int, nargs='+')
     parser.add_argument('--test_and_boot_n_test', type=int, nargs='+')
     parser.add_argument('--test_and_boot_n_work', type=int, nargs='+')
     parser.add_argument('--test_and_boot_accuracy', type=float, nargs='+')
+    parser.add_argument('--test_and_boot_accuracy_window', type=float, nargs='+')
     parser.add_argument('--test_and_boot_n_blocks', type=int,
                         help='Number of test-work blocks')
     parser.add_argument('--test_and_boot_final_action', type=str,
@@ -632,13 +632,13 @@ if __name__ == '__main__':
     policies = []
     for p_type in args.policies:
         p = {'type': p_type}
-        if p_type == 'teach_first':
-            p['n'] = args.teach_first_n
-            p['teach_type'] = args.teach_first_type
-        elif p_type == 'test_and_boot':
+        if p_type == 'test_and_boot':
             p['n_test'] = args.test_and_boot_n_test
+            p['n_teach'] = args.test_and_boot_n_teach
+            p['teach_type'] = args.teach_type
             p['n_work'] = args.test_and_boot_n_work
             p['accuracy'] = args.test_and_boot_accuracy
+            p['accuracy_window'] = args.test_and_boot_accuracy_window
             p['n_blocks'] = args.test_and_boot_n_blocks
             p['final_action'] = args.test_and_boot_final_action
         elif p_type == 'zmdp':

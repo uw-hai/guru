@@ -15,7 +15,7 @@ import subprocess
 import numpy as np
 from .pomdp import POMDPPolicy, POMDPModel
 from . import util
-from .util import get_or_default, ensure_dir, equation_safe_filename
+from .util import ensure_dir, equation_safe_filename
 from . import work_learn_problem as wlp
 from . import param
 
@@ -31,30 +31,12 @@ class Policy:
         default_discount = 0.99
         self.policy = policy_type
         self.exp_name = exp_name
-        self.epsilon = get_or_default(kwargs, 'epsilon', None)
-        self.explore_actions = get_or_default(kwargs, 'explore_actions', None)
-        self.explore_policy = get_or_default(kwargs, 'explore_policy', None)
-        self.thompson = bool(get_or_default(kwargs, 'thompson', False))
-        self.hyperparams = get_or_default(kwargs, 'hyperparams', None)
-        self.desired_accuracy = get_or_default(params_gt, 'desired_accuracy',
-                                               None)
-        if self.policy in ('appl', 'zmdp'):
-            self.discount = get_or_default(kwargs, 'discount', default_discount)
-            self.timeout = get_or_default(kwargs, 'timeout', None)
-        elif self.policy == 'aitoolbox':
-            self.discount = get_or_default(kwargs, 'discount', default_discount)
-            self.horizon = kwargs['horizon']
-        elif self.policy == 'teach_first':
-            self.n = kwargs['n']
-            self.teach_type = kwargs['teach_type']
-        elif self.policy == 'test_and_boot':
-            self.n_test = kwargs['n_test']
-            self.n_work = kwargs['n_work']
-            self.accuracy = kwargs['accuracy']
-            self.n_blocks = get_or_default(kwargs, 'n_blocks', None)
-            self.final_action = get_or_default(kwargs, 'final_action', 'work')
-        else:
-            raise NotImplementedError
+        self.epsilon = kwargs.get('epsilon', None)
+        self.explore_actions = kwargs.get('explore_actions', None)
+        self.explore_policy = kwargs.get('explore_policy', None)
+        self.thompson = bool(kwargs.get('thompson', False))
+        self.hyperparams = kwargs.get('hyperparams', None)
+        self.desired_accuracy = params_gt.get('desired_accuracy', None)
 
         if self.rl_p():
             name = kwargs['hyperparams']
@@ -72,6 +54,26 @@ class Policy:
                     **self.explore_policy)
         else:
             self.model = POMDPModel(n_worker_classes, params=params_gt)
+
+        if self.policy in ('appl', 'zmdp'):
+            self.discount = kwargs.get('discount', default_discount)
+            self.timeout = kwargs.get('timeout', None)
+        elif self.policy == 'aitoolbox':
+            self.discount = kwargs.get('discount', default_discount)
+            self.horizon = kwargs['horizon']
+        elif self.policy == 'test_and_boot':
+            self.teach_type = kwargs.get('teach_type', None)
+            self.n_teach = kwargs.get('n_teach', 0)
+            self.n_blocks = kwargs.get('n_blocks', None)
+            if self.n_blocks != 0:
+                self.n_test = kwargs['n_test']
+                self.n_work = kwargs['n_work']
+                self.accuracy = kwargs['accuracy']
+                self.accuracy_window = kwargs.get(
+                    'accuracy_window', self.n_test * self.model.n_skills)
+            self.final_action = kwargs.get('final_action', 'work')
+        elif self.policy != 'work_only':
+            raise NotImplementedError
 
         self.params_estimated = dict()
         self.hparams_estimated = dict()
@@ -200,45 +202,45 @@ class Policy:
             current_actions, current_observations, _ = zip(*current_AO)
         n_skills = model.n_skills
         n_actions = len(current_actions)
-        if self.policy == 'teach_first':
-            # Make sure to teach each skill at least n times.
-            # Select skills in random order, but teach each skill as a batch.
-            if self.teach_type == 'exp':
-                teach_actions = [i for i, a in enumerate(model.actions) if
-                                 a.is_quiz()]
-                teach_counts = collections.defaultdict(int)
-                for i in xrange(len(current_actions) - 1):
-                    a1 = model.actions[current_actions[i]]
-                    a2 = model.actions[current_actions[i + 1]]
-                    if a1.is_quiz() and a2.name == 'exp':
-                        teach_counts[current_actions[i]] += 1
-            elif self.teach_type == 'tell':
-                teach_actions = [i for i, a in enumerate(model.actions) if
-                                 a.name == 'tell']
-                teach_counts = collections.Counter(
-                    [a for a in current_actions if a in teach_actions])
-            teach_actions_remaining = [a for a in teach_actions if
-                                       teach_counts[a] < self.n]
-            teach_actions_in_progress = [a for a in teach_actions_remaining if
-                                         teach_counts[a] > 0]
-            if n_actions == 0:
-                if teach_actions_remaining:
-                    return random.choice(teach_actions_remaining)
-                else:
-                    return a_ask
-            else:
-                last_action = current_actions[-1]
-                if (self.teach_type == 'exp' and
-                        last_action in teach_actions_remaining):
-                    return model.actions.index(wlp.Action('exp'))
-                else:
-                    if len(teach_actions_in_progress) > 0:
-                        return random.choice(teach_actions_in_progress)
-                    elif len(teach_actions_remaining) > 0:
+        if self.policy == 'work_only':
+            return a_ask
+        elif self.policy == 'test_and_boot':
+            if self.teach_type is not None:
+                # Make sure to teach each skill at least n times.
+                # Select skills in random order, but teach each skill as a batch.
+                if self.teach_type == 'exp':
+                    teach_actions = [i for i, a in enumerate(model.actions) if
+                                     a.is_quiz()]
+                    teach_counts = collections.defaultdict(int)
+                    for i in xrange(len(current_actions) - 1):
+                        a1 = model.actions[current_actions[i]]
+                        a2 = model.actions[current_actions[i + 1]]
+                        if a1.is_quiz() and a2.name == 'exp':
+                            teach_counts[current_actions[i]] += 1
+                elif self.teach_type == 'tell':
+                    teach_actions = [i for i, a in enumerate(model.actions) if
+                                     a.name == 'tell']
+                    teach_counts = collections.Counter(
+                        [a for a in current_actions if a in teach_actions])
+                teach_actions_remaining = [a for a in teach_actions if
+                                           teach_counts[a] < self.n_teach]
+                teach_actions_in_progress = [a for a in teach_actions_remaining if
+                                             teach_counts[a] > 0]
+                if n_actions == 0:
+                    if teach_actions_remaining:
                         return random.choice(teach_actions_remaining)
                     else:
                         return a_ask
-        elif self.policy == 'test_and_boot':
+                else:
+                    last_action = current_actions[-1]
+                    if (self.teach_type == 'exp' and
+                            last_action in teach_actions_remaining):
+                        return model.actions.index(wlp.Action('exp'))
+                    elif len(teach_actions_in_progress) > 0:
+                        return random.choice(teach_actions_in_progress)
+                    elif len(teach_actions_remaining) > 0:
+                        return random.choice(teach_actions_remaining)
+            # Test & work  phase.
             if self.final_action == 'work':
                 a_final = a_ask
             elif self.final_action == 'boot':
@@ -248,11 +250,13 @@ class Policy:
             n_work_actions = len([a for a in current_actions if
                                   a == a_ask])
             # If all blocks done, take final action.
-            block_length = model.n_skills * self.n_test + self.n_work
-            n_blocks_completed = len(current_actions) / block_length
-            if (self.n_blocks is not None and
-                    n_blocks_completed >= self.n_blocks):
-                return a_final
+            if self.n_blocks is not None:
+                if self.n_blocks == 0:
+                    return a_final
+                block_length = model.n_skills * self.n_test + self.n_work
+                n_blocks_completed = len(current_actions) / block_length
+                if n_blocks_completed >= self.n_blocks:
+                    return a_final
             last_action_block = util.last_true(
                 current_actions, lambda a: model.actions[a].is_quiz())
             test_counts = collections.Counter(last_action_block)
@@ -264,7 +268,7 @@ class Policy:
                 if len(test_actions_remaining) == 0:
                     # Testing done. Check accuracy.
                     test_answers = current_observations[
-                        -1 * len(last_action_block):]
+                        -1 * self.accuracy_window:]
                     assert all(model.observations[i] in ['wrong', 'right'] for
                                i in test_answers)
                     accuracy = sum([model.observations[i] == 'right' for
@@ -399,15 +403,19 @@ class Policy:
         elif self.policy == 'aitoolbox':
             s = 'ait' + '-d{:.3f}'.format(self.discount)
             s += '-h{}'.format(self.horizon)
-        elif self.policy == 'teach_first':
-            s = self.policy + '-n_{}_{}'.format(self.teach_type, self.n)
         elif self.policy == 'test_and_boot':
-            s = self.policy + '-n_test_{}-n_work_{}-acc_{}'.format(
-                    self.n_test, self.n_work, self.accuracy)
+            s = self.policy
+            if self.n_teach > 0:
+                s += '-n_teach_{}_{}'.format(self.teach_type, self.n_teach)
+            if self.n_blocks != 0:
+                s += '-n_test_{}-n_work_{}-acc_{}_last_{}'.format(
+                    self.n_test, self.n_work,
+                    self.accuracy, self.accuracy_window)
             if self.n_blocks is not None:
                 s += '-n_blocks_{}-final_{}'.format(
-                        self.n_blocks, self.final_action)
-
+                    self.n_blocks, self.final_action)
+        elif self.policy == 'work_only':
+            s = self.policy
         else:
             raise NotImplementedError
 
