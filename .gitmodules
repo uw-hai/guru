@@ -1,6 +1,6 @@
 [submodule "research_utils"]
 	path = research_utils
-	url = git@github.com:jbragg/research-utils.git
+	url = git@github.com:uwcrowdlab/gears.git
 [submodule "hcomp_data_analyze"]
 	path = hcomp_data_analyze
-	url = git@bitbucket.org:turingmusician/hcomp-data-analyze.git
+	url = git@github.com:uwcrowdlab/crowd-data.git
