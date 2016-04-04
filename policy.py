@@ -25,12 +25,11 @@ class Policy:
     Assumes policy files for appl policies live in relative folder 'policies'
 
     """
-    def __init__(self, policy_type, exp_name, n_worker_classes, params_gt,
+    def __init__(self, policy_type, n_worker_classes, params_gt,
                  **kwargs):
         print 'Reinitializing policy'
         default_discount = 0.99
         self.policy = policy_type
-        self.exp_name = exp_name
         self.epsilon = kwargs.get('epsilon', None)
         self.explore_actions = kwargs.get('explore_actions', None)
         self.explore_policy = kwargs.get('explore_policy', None)
@@ -48,7 +47,6 @@ class Policy:
             if self.explore_policy is not None:
                 self.explore_policy = Policy(
                     policy_type=self.explore_policy['type'],
-                    exp_name=exp_name,
                     n_worker_classes=n_worker_classes,
                     params_gt=params_gt,
                     **self.explore_policy)
@@ -106,29 +104,48 @@ class Policy:
         else:
             return self.epsilon
 
-    def prep_worker(self, iteration, history, budget_spent, budget_explore,
-                    reserved,
-                    resolve_min_worker_interval=10, resolve_max_n=10):
-        """Reestimate and resolve as needed.
-
-        Don't resolve more frequently than resolve_min_worker_interval.
-
-        """
-        worker = history.n_workers() - 1
-        t = 0
-        budget_explore_frac = budget_spent / budget_explore
+    def set_use_explore_policy(self, worker_n, budget_spent=None, budget_explore=None, t=None, reserved=False):
+        """Set whether the policy should explore."""
+        if budget_spent is None or budget_explore is None:
+            budget_explore_frac = None
+        elif budget_explore == 0:
+            budget_explore_frac = 1
+        else:
+            budget_explore_frac = budget_spent / budget_explore
         self.use_explore_policy = (
             not reserved and
             self.epsilon is not None and
             self.explore_policy is not None and
             np.random.random() <= self.get_epsilon_probability(
-                worker, t, budget_explore_frac))
+                worker_n, t, budget_explore_frac))
+
+    def prep_worker(self, model_filepath, policy_filepath, history,
+                    budget_spent, budget_explore, reserved,
+                    resolve_min_worker_interval=10, resolve_max_n=10):
+        """Reestimate and resolve as needed.
+
+        Don't resolve more frequently than resolve_min_worker_interval.
+
+        Args:
+            history: history.History object. Do not call
+                history.History.new_worker() before running this function or
+                the worker count will be incorrect.
+
+        """
+        worker = history.n_workers()
+        t = 0
+        self.set_use_explore_policy(
+            worker_n=worker,
+            budget_spent=budget_spent,
+            budget_explore=budget_explore,
+            t=t,
+            reserved=reserved)
 
         resolve_p = (self.policy in ('appl', 'zmdp', 'aitoolbox') and
                      (self.external_policy is None or
                       (self.rl_p() and not self.use_explore_policy)))
         if self.resolve_times:
-            if worker - max(self.resolve_times) < resolve_min_worker_interval:
+            if resolve_min_worker_interval is not None and worker - max(self.resolve_times) < resolve_min_worker_interval:
                 resolve_p = False
             if resolve_max_n is not None and len(self.resolve_times) >= resolve_max_n:
                 resolve_p = False
@@ -147,14 +164,15 @@ class Policy:
             self.hparams_estimated[worker] = copy.deepcopy(model.hparams)
         if resolve_p:
             utime1, stime1, cutime1, cstime1, _ = os.times()
-            self.external_policy = self.get_external_policy(iteration, worker)
+            self.external_policy = self.run_solver(
+                model_filepath=model_filepath, policy_filepath=policy_filepath)
             utime2, stime2, cutime2, cstime2, _ = os.times()
             # All solvers are run as subprocesses, so count elapsed
             # child process time.
             self.resolve_times[worker] = cutime2 - cutime1 + \
                                          cstime2 - cstime1
 
-    def get_next_action(self, iteration, history,
+    def get_next_action(self, history,
                         budget_spent, budget_explore, belief=None):
         """Return next action and whether or policy is exploring."""
         valid_actions = self.get_valid_actions(history)
@@ -171,19 +189,18 @@ class Policy:
             return np.random.choice(valid_explore_actions), True
         elif self.use_explore_policy:
             next_a, _ = self.explore_policy.get_next_action(
-                iteration, history, budget_spent, budget_explore, belief)
+                history, budget_spent, budget_explore, belief)
             return next_a, True
         else:
-            return self.get_best_action(iteration, history, belief), False
+            return self.get_best_action(history, belief), False
 
 
-    def get_best_action(self, iteration, history, belief=None):
+    def get_best_action(self, history, belief=None):
         """Get best action according to policy.
 
         If policy requires an external_policy, assumes it already exists.
 
         Args:
-            iteration (int):            Current iteration.
             history (History object):   Defined in history.py.
 
         Returns: Action index.
@@ -300,39 +317,12 @@ class Policy:
         else:
             raise NotImplementedError
 
-    def get_external_policy(self, iteration, worker):
-        """Compute external policy and store in unique locations.
-        
-        Store POMDP files as
-        'models/exp_name/iteration/policy_name-worker.pomdp'.
-
-        Store learned policy files as
-        'policies/exp_name/iteration/policy_name-worker.policy'.
-
-        Returns:
-            policy (POMDPPolicy)
-
-        """
-        pomdp_dirpath = os.path.join(
-            os.path.dirname(__file__), 'models', self.exp_name, str(iteration))
-        policy_dirpath = os.path.join(
-            os.path.dirname(__file__), 'policies', self.exp_name, str(iteration))
-        ensure_dir(pomdp_dirpath)
-        ensure_dir(policy_dirpath)
-        pomdp_fpath = os.path.join(
-            pomdp_dirpath, '{}-{:06d}.pomdp'.format(self, worker))
-        policy_fpath = os.path.join(
-            policy_dirpath, '{}-{:06d}.policy'.format(self, worker))
-
-        return self.run_solver(model_filename=pomdp_fpath,
-                               policy_filename=policy_fpath)
-
-    def run_solver(self, model_filename, policy_filename):
+    def run_solver(self, model_filepath, policy_filepath):
         """Run POMDP solver.
         
         Args:
-            model_filename (str):       Path for input to POMDP solver.
-            policy_filename (str):      Path for computed policy.
+            model_filepath (str):       Path for input to POMDP solver.
+            policy_filepath (str):      Path for computed policy.
 
         Returns:
             policy (POMDPPolicy)
@@ -340,41 +330,41 @@ class Policy:
         """
         model = self.model
         if self.policy == 'appl':
-            with open(model_filename, 'w') as f:
+            with open(model_filepath, 'w') as f:
                 model.write_pomdp(f, discount=self.discount)
             args = ['pomdpsol-appl',
-                    model_filename,
-                    '-o', policy_filename]
+                    model_filepath,
+                    '-o', policy_filepath]
             if self.timeout is not None:
                 args += ['--timeout', str(self.timeout)]
             _ = subprocess.check_output(args)
-            return POMDPPolicy(policy_filename,
+            return POMDPPolicy(policy_filepath,
                                file_format='policyx')
         elif self.policy == 'aitoolbox':
-            with open(model_filename, 'w') as f:
+            with open(model_filepath, 'w') as f:
                 model.write_txt(f)
             args = ['pomdpsol-aitoolbox',
-                    '--input', model_filename,
-                    '--output', policy_filename,
+                    '--input', model_filepath,
+                    '--output', policy_filepath,
                     '--discount', str(self.discount),
                     '--horizon', str(self.horizon),
                     '--n_states', str(len(model.states)),
                     '--n_actions', str(len(model.actions)),
                     '--n_observations', str(len(model.observations))]
             _ = subprocess.check_output(args)
-            return POMDPPolicy(policy_filename,
+            return POMDPPolicy(policy_filepath,
                                file_format='aitoolbox',
                                n_states=len(model.states))
         elif self.policy == 'zmdp':
-            with open(model_filename, 'w') as f:
+            with open(model_filepath, 'w') as f:
                 model.write_pomdp(f, discount=self.discount)
             args = ['pomdpsol-zmdp',
-                    'solve', model_filename,
-                    '-o', policy_filename]
+                    'solve', model_filepath,
+                    '-o', policy_filepath]
             if self.timeout is not None:
                 args += ['-t', str(self.timeout)]
             _ = subprocess.check_output(args)
-            return POMDPPolicy(policy_filename,
+            return POMDPPolicy(policy_filepath,
                                file_format='zmdp',
                                n_states=len(model.states))
 
@@ -422,9 +412,10 @@ class Policy:
         if self.rl_p():
             if self.epsilon is not None:
                 s += '-eps_{}'.format(equation_safe_filename(self.epsilon))
-                s += '-explore_{}'.format('_'.join(self.explore_actions))
                 if self.explore_policy is not None:
                     s += '-explore_p_{}'.format(self.explore_policy)
+                else:
+                    s += '-explore_{}'.format('_'.join(self.explore_actions))
             if self.thompson:
                 s += '-thomp'
             if self.hyperparams and self.hyperparams != 'HyperParams':

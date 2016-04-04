@@ -17,7 +17,7 @@ from .policy import Policy
 from .history import History
 from .simulator import Simulator, LiveSimulator, LivePassiveSimulator
 from . import util
-from .util import get_or_default, ensure_dir
+from .util import ensure_dir
 from . import analyze
 from . import work_learn_problem as wlp
 from .hcomp_data_analyze import analyze as hanalyze
@@ -27,15 +27,18 @@ BOOTS_TERM = 5  # Terminate after booting this many workers in a row.
 logger = mp.log_to_stderr()
 logger.setLevel(logging.INFO)
 
+
 def parseNumList(string):
     import re
     m = re.match(r'(\d+)(?:-(\d+))?$', string)
     # ^ (or use .split('-'). anyway you like.)
     if not m:
-        raise argparse.ArgumentTypeError("'" + string + "' is not a range of number. Expected forms like '0-5' or '2'.")
+        raise argparse.ArgumentTypeError(
+            "'" + string + "' is not a range of number. Expected forms like '0-5' or '2'.")
     start = m.group(1)
     end = m.group(2) or start
-    return list(range(int(start,10), int(end,10)+1))
+    return list(range(int(start, 10), int(end, 10) + 1))
+
 
 def get_start_belief(fp):
     """DEPRECATED"""
@@ -45,8 +48,10 @@ def get_start_belief(fp):
             return start_belief
     return None
 
+
 def belief_to_str(lst):
     return ' '.join(str(x) for x in lst)
+
 
 def params_to_rows(params, hparams=None,
                    iteration=None, worker=None, policy=None):
@@ -65,11 +70,13 @@ def params_to_rows(params, hparams=None,
         rows.append(row)
     return rows
 
+
 def run_function_from_dictionary(f, d):
     """Helper for Pool.map(), which can only use functions that take a single
     argument"""
     return f(**d)
- 
+
+
 def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
                          budget, budget_reserved_frac, passive):
     """
@@ -103,7 +110,7 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
         params_policy = params_gt
     n_worker_classes = params_policy.n_classes
 
-    pol = Policy(policy_type=policy['type'], exp_name=exp_name,
+    pol = Policy(policy_type=policy['type'],
                  n_worker_classes=n_worker_classes,
                  params_gt=params_policy.get_param_dict(sample=False),
                  **policy)
@@ -129,10 +136,10 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
                 all(n == 1 for n in n_actions_by_worker[-1 * BOOTS_TERM:])) and
            simulator.worker_available() and
            (not passive or passive_simulator.worker_available())):
-        # BUG: Line above means passive always stops before running another simulator.
+        # BUG: Line above means passive always stops before running another
+        # simulator.
         logger.info('{} (i:{}, w:{}, b:{:.2f}/{:.2f})'.format(
             pol, it, worker_n, budget_spent, budget))
-        history.new_worker()
         if passive and passive_simulator.worker_available():
             curr_simulator = passive_simulator
             using_passive = True
@@ -148,8 +155,21 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
         resolve_min_worker_interval = 1 if using_passive else 10
         resolve_max_n = None if using_passive else 10
         logger.info('prepping worker...')
-        pol.prep_worker(iteration, history, budget_spent, budget_explore,
-                        reserved, resolve_min_worker_interval, resolve_max_n)
+
+        # Prep for worker.
+        pomdp_dirpath = os.path.join(
+            os.path.dirname(__file__), 'models', exp_name, str(it))
+        policy_dirpath = os.path.join(
+            os.path.dirname(__file__), 'policies', exp_name, str(it))
+        pomdp_fpath = os.path.join(
+            pomdp_dirpath, '{}-{:06d}.pomdp'.format(str(pol), worker_n))
+        policy_fpath = os.path.join(
+            policy_dirpath, '{}-{:06d}.policy'.format(str(pol), worker_n))
+        pol.prep_worker(
+            model_filepath=pomdp_fpath, policy_filepath=policy_fpath,
+            history, budget_spent, budget_explore,
+            reserved, resolve_min_worker_interval, resolve_max_n)
+        history.new_worker()
         logger.info('...prepped')
         belief = pol.model.get_start_belief()
         results.append({'iteration': it,
@@ -175,7 +195,7 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
                     a = pol.get_best_action(it, history, belief)
                     explore = False
                 else:
-                    a, explore = pol.get_next_action(it, history, budget_spent,
+                    a, explore = pol.get_next_action(history, budget_spent,
                                                      budget_explore, belief)
                 # Override policy decision and boot worker if in
                 # entered reserved portion while worker hired.
@@ -247,6 +267,7 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
 
     return results, models, timings
 
+
 def run_experiment(name, mongo, config, config_policy,
                    policies, iterations, budget,
                    budget_reserved_frac,
@@ -288,7 +309,8 @@ def run_experiment(name, mongo, config, config_policy,
                                       mechanism='SCRAM-SHA-1')
     exp_name = name
     models_path = os.path.join(os.path.dirname(__file__), 'models', exp_name)
-    policies_path = os.path.join(os.path.dirname(__file__), 'policies', exp_name)
+    policies_path = os.path.join(
+        os.path.dirname(__file__), 'policies', exp_name)
     for d in [models_path, policies_path]:
         ensure_dir(d)
 
@@ -332,6 +354,7 @@ def run_experiment(name, mongo, config, config_policy,
     # Explode policies.
     policies_exploded = []
     allowed_list_parameters = ['explore_actions']
+
     def flatten_single(p):
         for k in p:
             if (k not in allowed_list_parameters and
@@ -353,7 +376,8 @@ def run_experiment(name, mongo, config, config_policy,
                 p_prime[k] = v
                 policies_exploded.append(p_prime)
         else:
-            raise Exception('Policies must contain only a single list parameter')
+            raise Exception(
+                'Policies must contain only a single list parameter')
 
     # Make folders (errors when too many folders are made in subprocesses).
     for i in iterations:
@@ -456,7 +480,7 @@ def add_config_argparse_group(parser):
         help='Use passive learning mode only')
     config_group.add_argument(
         '--dataset', type=str, choices=[
-        'lin_aaai12_tag', 'lin_aaai12_wiki', 'rajpal_icml15'],
+            'lin_aaai12_tag', 'lin_aaai12_wiki', 'rajpal_icml15'],
         help='Dataset to use.')
     config_group.add_argument(
         '--p_worker', type=float, nargs='+', default=[1.0],
@@ -491,7 +515,8 @@ def add_config_argparse_group(parser):
     config_group.add_argument('--p_1', type=float, default=0.5)
     config_group.add_argument('--p_s', type=float, nargs='+', default=[0.2])
     config_group.add_argument('--utility_type', type=str,
-                              choices=['acc', 'pen', 'pen_diff', 'pen_nonboolean'],
+                              choices=['acc', 'pen',
+                                       'pen_diff', 'pen_nonboolean'],
                               default='pen')
     config_group.add_argument('--penalty_fp', type=float, default=-2)
     config_group.add_argument('--penalty_fn', type=float, default=-2)
@@ -504,7 +529,6 @@ def add_config_argparse_group(parser):
         '--desired_accuracy_rewards', dest='desired_accuracy_rewards',
         action='store_true', help='Overwrite penalty & reward')
     return config_group
-
 
 
 if __name__ == '__main__':
@@ -526,7 +550,8 @@ if __name__ == '__main__':
     parser.add_argument('--test_and_boot_n_test', type=int, nargs='+')
     parser.add_argument('--test_and_boot_n_work', type=int, nargs='+')
     parser.add_argument('--test_and_boot_accuracy', type=float, nargs='+')
-    parser.add_argument('--test_and_boot_accuracy_window', type=float, nargs='+')
+    parser.add_argument('--test_and_boot_accuracy_window',
+                        type=float, nargs='+')
     parser.add_argument('--test_and_boot_n_blocks', type=int,
                         help='Number of test-work blocks')
     parser.add_argument('--test_and_boot_final_action', type=str,
@@ -608,7 +633,7 @@ if __name__ == '__main__':
         n = args.accuracy_bins_n
         config_policy = dict()
         config_policy = copy.deepcopy(config)
-        config_policy['p_worker'] = [1/n for i in xrange(n)]
+        config_policy['p_worker'] = [1 / n for i in xrange(n)]
         config_policy['p_slip'] = util.midpoints(0.0, 0.5, n)
         # BUG: Store desired accuracy in config_policy?
     else:
@@ -660,18 +685,18 @@ if __name__ == '__main__':
                    mongo={
                        'host': os.environ['MONGO_HOST'],
                        'port': int(os.environ['MONGO_PORT']),
-                       'user': get_or_default(os.environ, 'MONGO_USER', None),
-                       'pass': get_or_default(os.environ, 'MONGO_PASS', None)},
-                   config=config,
-                   config_policy=config_policy,
-                   policies=policies,
-                   iterations=args.iterations,
-                   budget=args.budget,
-                   budget_reserved_frac=args.budget_reserved_frac,
-                   epsilon=epsilon,
-                   explore_actions=args.explore_actions,
-                   explore_policy=args.explore_policy,
-                   thompson=args.thompson,
-                   hyperparams=args.hyperparams,
-                   processes=args.proc,
-                   passive=args.passive)
+                       'user': os.environ.get('MONGO_USER', None),
+                       'pass': os.environ.get('MONGO_PASS', None),
+                       config=config,
+                       config_policy=config_policy,
+                       policies=policies,
+                       iterations=args.iterations,
+                       budget=args.budget,
+                       budget_reserved_frac=args.budget_reserved_frac,
+                       epsilon=epsilon,
+                       explore_actions=args.explore_actions,
+                       explore_policy=args.explore_policy,
+                       thompson=args.thompson,
+                       hyperparams=args.hyperparams,
+                       processes=args.proc,
+                       passive=args.passive)
