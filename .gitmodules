@@ -1,6 +1,8 @@
 [submodule "research_utils"]
 	path = research_utils
 	url = git@github.com:uwcrowdlab/gears.git
+	branch = master
 [submodule "hcomp_data_analyze"]
 	path = hcomp_data_analyze
 	url = git@github.com:uwcrowdlab/crowd-data.git
+	branch = master
