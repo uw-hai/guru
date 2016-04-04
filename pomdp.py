@@ -269,21 +269,27 @@ class POMDPModel:
                 return prob * params[p_leave][1]
         elif act.name == 'exp' and st.is_quiz():
             p_learn_exp = self.get_param_version(s, 'p_learn_exp')
-            # Could learn skill. No chance of leaving or losing skills.
+            # Could learn skill. No chance of losing skills.
             # This is to make the ask-exp teaching sequence comparable to the
             # tell teaching action.
-            if (st1.term or st1.is_quiz() or
+            # UPDATE: Worker might leave.
+            if st1.term:
+                return {p_leave: [1, 0]} if exponents else params[p_leave][0]
+            elif (st1.is_quiz() or
                     st.n_skills_lost(st1) > 0 or st.n_skills_learned(st1) > 1):
                 return dict() if exponents else 0
             else:
                 if st.has_skill(st.quiz_val):
-                    return dict() if exponents else 1
+                    return {p_leave: [0, 1]} if exponents else \
+                        params[p_leave][1]
                 elif not st1.has_skill(st.quiz_val):
-                    return {p_learn_exp: [0, 1]} if exponents else \
-                        params[p_learn_exp][1]
+                    return {p_learn_exp: [0, 1],
+                            p_leave: [0, 1]} if exponents else \
+                        params[p_learn_exp][1] * params[p_leave][1]
                 else:
-                    return {p_learn_exp: [1, 0]} if exponents else \
-                        params[p_learn_exp][0]
+                    return {p_learn_exp: [1, 0],
+                            p_leave: [0, 1]} if exponents else \
+                        params[p_learn_exp][0] * params[p_leave][1]
         elif act.name == 'tell':
             p_learn_tell = self.get_param_version(s, 'p_learn_tell')
             # Could learn skill (no chance of losing taught skill).
