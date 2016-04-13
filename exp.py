@@ -166,9 +166,14 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
         policy_fpath = os.path.join(
             policy_dirpath, '{}-{:06d}.policy'.format(str(pol), worker_n))
         pol.prep_worker(
-            model_filepath=pomdp_fpath, policy_filepath=policy_fpath,
-            history, budget_spent, budget_explore,
-            reserved, resolve_min_worker_interval, resolve_max_n)
+            model_filepath=pomdp_fpath,
+            policy_filepath=policy_fpath,
+            history=history,
+            budget_spent=budget_spent,
+            budget_explore=budget_explore,
+            reserved=reserved,
+            resolve_min_worker_interval=resolve_min_worker_interval,
+            resolve_max_n=resolve_max_n)
         history.new_worker()
         logger.info('...prepped')
         belief = pol.model.get_start_belief()
@@ -686,7 +691,7 @@ if __name__ == '__main__':
                        'host': os.environ['MONGO_HOST'],
                        'port': int(os.environ['MONGO_PORT']),
                        'user': os.environ.get('MONGO_USER', None),
-                       'pass': os.environ.get('MONGO_PASS', None),
+                       'pass': os.environ.get('MONGO_PASS', None)},
                        config=config,
                        config_policy=config_policy,
                        policies=policies,
