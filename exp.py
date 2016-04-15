@@ -197,7 +197,7 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
         while (budget_spent < budget and curr_simulator.worker_hired()):
             if not using_passive:
                 if reserved:
-                    a = pol.get_best_action(it, history, belief)
+                    a = pol.get_best_action(history=history, belief=belief)
                     explore = False
                 else:
                     a, explore = pol.get_next_action(history, budget_spent,
