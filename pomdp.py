@@ -957,8 +957,8 @@ def main():
     for i, likelihood in enumerate(ll):
         params[i]['ll'] = likelihood
     df = pd.DataFrame(params)
-    df.to_csv(os.path.join(os.path.dirname(
-        __file__), '{}.csv'.format(args.name)))
+    df.sort_values(by='ll', ascending=False).to_csv(
+        os.path.join(os.path.dirname(__file__), '{}.csv'.format(args.name)))
 
 
 if __name__ == '__main__':
