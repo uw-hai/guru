@@ -15,7 +15,7 @@ from . import param
 from .pomdp import POMDPModel
 from .policy import Policy
 from .history import History
-from .simulator import Simulator, LiveSimulator, LivePassiveSimulator
+from .simulator import Simulator, LiveSimulator
 from . import util
 from .util import ensure_dir
 from . import analyze
@@ -116,12 +116,16 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
                  **policy)
 
     # Begin experiment
+    # TODO: Don't make assumptions about random workers / actions.
     if 'dataset' in params_gt.params and params_gt.params['dataset']:
-        simulator = LiveSimulator(params_gt)
+        simulator = LiveSimulator(
+            params_gt, repeat=True, random_workers=True, random_actions=True)
     else:
         simulator = Simulator(params_gt)
     if passive:
-        passive_simulator = LivePassiveSimulator(params_gt)
+        passive_simulator = LiveSimulator(
+            params_gt, repeat=False,
+            random_workers=False, random_actions=False)
     results = []
     history = History()
 
@@ -211,9 +215,9 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
 
             # Simulate a step
             if not using_passive:
-                s, o, (cost, r), other = simulator.sample_SOR(a)
+                a, s, o, (cost, r), other = simulator.sample_SOR(a=a)
             else:
-                a, o, (cost, r), other = passive_simulator.sample_AOR()
+                a, s, o, (cost, r), other = passive_simulator.sample_SOR(a=None)
                 s = None
                 # TODO: Record whether following passive or not.
             budget_spent -= cost

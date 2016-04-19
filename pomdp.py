@@ -929,13 +929,14 @@ def main():
     params = param.Params.from_cmd(config)
 
     n_worker_classes = params.n_classes
-    passive_simulator = simulator.LivePassiveSimulator(params)
+    passive_simulator = simulator.LiveSimulator(params, repeat=False,
+        random_workers=False, random_actions=False)
     history = History()
     while passive_simulator.worker_available():
         passive_simulator.new_worker()
         history.new_worker()
         while passive_simulator.worker_hired():
-            a, o, _, _ = passive_simulator.sample_AOR()
+            a, _, o, _, _ = passive_simulator.sample_SOR(a=None)
             history.record(a, o)
 
     params_dict = params.get_param_dict(sample=False)
