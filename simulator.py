@@ -1,6 +1,7 @@
 """simulator.py"""
 
 import random
+import pandas as pd
 import numpy as np
 from .pomdp import POMDPModel
 from .hcomp_data_analyze import analyze as hanalyze
@@ -173,7 +174,7 @@ class LiveSimulator(Simulator):
                 else:
                     d['o'] = self.observations.index('wrong')
             elif row['action'] == 'ask':
-                if row['actiontype'] is not None or self.convert_work_to_quiz:
+                if pd.notnull(row['actiontype']) or self.convert_work_to_quiz:
                     d['a'] = quiz_index
                     if row['correct']:
                         d['o'] = self.observations.index('right')
@@ -252,7 +253,10 @@ class LiveSimulator(Simulator):
         # TODO: Get more information from df.
 
         # Calculate reward.
-        if self.actions[a].get_type() == 'work':
+        if self.observations[self.o] == 'term':
+            cost = 0
+            r = 0
+        elif self.actions[a].get_type() == 'work':
             cost = self.params['cost']
             guess = round(self.params['p_1'])
             if ans['gt'] == 0 and guess == 1:
