@@ -121,15 +121,18 @@ class Policy:
 
     def prep_worker(self, model_filepath, policy_filepath, history,
                     budget_spent, budget_explore, reserved,
+                    resolve_random_restarts=1,
                     resolve_min_worker_interval=10, resolve_max_n=10):
         """Reestimate and resolve as needed.
 
         Don't resolve more frequently than resolve_min_worker_interval.
 
         Args:
-            history: history.History object. Do not call
-                history.History.new_worker() before running this function or
-                the worker count will be incorrect.
+            history (.history.History): History of workers.
+                IMPORTANT: Do not call .history.History.new_worker() before
+                running this function or the worker count will be incorrect.
+            resolve_random_restarts (int): Number of random restarts to use
+                when re-estimating model.
 
         """
         worker = history.n_workers()
@@ -154,8 +157,9 @@ class Policy:
         model = self.model
         if estimate_p:
             start = time.clock()
-            model.estimate(history,
-                           last_params=(len(self.params_estimated) > 0))
+            model.estimate(history=history,
+                           last_params=(len(self.params_estimated) > 0),
+                           random_restarts=resolve_random_restarts)
             if self.thompson:
                 model.thompson_sample()
             self.estimate_times[worker] = time.clock() - start

@@ -12,6 +12,7 @@ HYPERPARAMS = ['HyperParams',
                'HyperParamsUnknownRatioSlipLeave',
                'HyperParamsUnknownRatioSlipLeaveLose',
                'HyperParamsUnknownRatioSlipLeaveLoseLearnExp',
+               'HyperParamsUnknownRatioSlipLeaveLoseLearn',
                'HyperParamsUnknownRatioLeaveLose',
 
                'HyperParamsSpaced',
@@ -213,6 +214,11 @@ class HyperParamsUnknownRatioSlipLeaveLose(HyperParams):
 class HyperParamsUnknownRatioSlipLeaveLoseLearnExp(HyperParams):
     def __init__(self, params, n_worker_classes):
         super(HyperParamsUnknownRatioSlipLeaveLoseLearnExp, self).__init__(
+            params, n_worker_classes, ['p_learn_tell'])
+
+class HyperParamsUnknownRatioSlipLeaveLoseLearn(HyperParams):
+    def __init__(self, params, n_worker_classes):
+        super(HyperParamsUnknownRatioSlipLeaveLoseLearn, self).__init__(
             params, n_worker_classes, ['p_learn_tell'])
 
 class HyperParamsUnknownRatioLeaveLose(HyperParams):
