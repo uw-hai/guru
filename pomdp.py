@@ -898,6 +898,7 @@ def main():
     parser.add_argument('name', type=str, help='Experiment name')
     parser.add_argument('--config_json', type=argparse.FileType('r'))
     parser.add_argument('--n_restarts', type=int, default=50)
+    parser.add_argument('--convert_work_to_quiz', action='store_true')
     add_config_argparse_group(parser)
 
     parser.add_argument(
@@ -930,7 +931,8 @@ def main():
 
     n_worker_classes = params.n_classes
     passive_simulator = simulator.LiveSimulator(params, repeat=False,
-        random_workers=False, random_actions=False)
+        random_workers=False, random_actions=False,
+        convert_work_to_quiz=args.convert_work_to_quiz)
     history = History()
     while passive_simulator.worker_available():
         passive_simulator.new_worker()
