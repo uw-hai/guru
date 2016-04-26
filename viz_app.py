@@ -14,8 +14,8 @@ app = Flask(__name__, template_folder=tmpl_dir)
 app.config.from_object(os.environ['APP_SETTINGS'])
 #mongo = PyMongo(app)
 mongo = pymongo.MongoClient(app.config['MONGO_HOST'], app.config['MONGO_PORT'])
-mongo.worklearn.authenticate(
-    app.config['MONGO_USER'], app.config['MONGO_PASS'])
+if app.config['MONGO_USER']:
+    mongo.admin.authenticate(app.config['MONGO_USER'], app.config['MONGO_PASS'])
 
 
 PLOTDIR = os.path.join(app.config['STATIC_FOLDER'], 'plots')

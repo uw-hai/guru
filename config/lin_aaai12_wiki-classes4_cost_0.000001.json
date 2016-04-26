@@ -6,7 +6,7 @@
     "p_guess": [
         0.5
     ], 
-    "p_1": 0.5, 
+    "p_1": [0.5], 
     "dataset": "lin_aaai12_wiki", 
     "p_s": [
         1.0

@@ -1,5 +1,5 @@
 import unittest
-import work_learn_problem as wlp
+from .. import work_learn_problem as wlp
 
 class TestGenerateStates(unittest.TestCase):
     def setUp(self):

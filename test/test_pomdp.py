@@ -1,6 +1,6 @@
 import unittest
 
-import pomdp
+from .. import pomdp
 #import worklearn
 #from worklearn import pomdp
 

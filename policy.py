@@ -290,6 +290,7 @@ class Policy:
                     # Testing done. Check accuracy.
                     test_answers = current_observations[
                         -1 * self.accuracy_window:]
+                    # TODO: Change to checking not in 'term', 'null', etc?
                     assert all(model.observations[i] in ['wrong', 'right'] for
                                i in test_answers)
                     accuracy = sum([model.observations[i] == 'right' for

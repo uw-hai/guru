@@ -5,6 +5,7 @@ Port from WorkLearnProblem.hpp
 """
 
 from __future__ import division
+import collections
 import itertools
 import numpy as np
 
@@ -32,7 +33,7 @@ class Action:
 
     def uses_gold(self):
         """Return whether an action uses a gold question.
-        
+
         Does not count explain actions as using gold, since they use the
         same gold question as the preceding ask.
 
@@ -58,17 +59,24 @@ class Action:
         return self.name == a.name and self.quiz_val == a.quiz_val
 
 
-def actions_all(n_skills, tell=False, exp=False):
+def actions_all(n_skills, n_question_types=1, tell=False, exp=False):
     """Return all actions
 
     Args:
-        n_skills (int):   Number of skills.
-        tell (bool):      Include tell actions.
-        exp (bool):       Include explain action.
+        n_skills (int): Number of skills.
+        n_question_types (int): Number of question types. If more than one
+            question type, create a single quiz / teach action.
+        tell (bool): Include tell actions.
+        exp (bool): Include explain action.
+
+    Returns:
+        [work_learn_problem.Action]: List of actions.
 
     """
-    actions = [Action('boot'), Action('ask', None)] + \
-              [Action('ask', i) for i in xrange(n_skills)]
+    actions = [Action('boot'), Action('ask', None)]
+    if n_question_types > 1:
+        n_skills = 1
+    actions += [Action('ask', i) for i in xrange(n_skills)]
     if exp:
         actions.append(Action('exp'))
     if tell:
@@ -77,10 +85,36 @@ def actions_all(n_skills, tell=False, exp=False):
 
 # New observations ['yes', 'no'] for ask.
 #observations = ['yes', 'no', 'wrong', 'right', 'term']
-observations = ['wrong', 'right', 'null', 'term']
+#observations = ['wrong', 'right', 'null', 'term']
+def observations(n_question_types=1):
+    """Return observation set.
+
+    Args:
+        n_question_types (int): Number of question types.
+
+    Returns:
+        observations ([str]): Observation strings. Strings are either 'null',
+            'term', or a string like 'rwr' which indicates "right", "wrong',
+            and "right" answers to question types 1, 2, and 3, respectively.
+
+    """
+    out = ['null', 'term']
+    out += [''.join(x) for x in
+            itertools.product(['r', 'w'], repeat=n_question_types)]
+    return out
 
 
 def states_all(n_skills, n_worker_classes):
+    """Enumerate states.
+
+    Args:
+        n_skills (int): Number of skills.
+        n_worker_classes (int): Number of worker classes.
+
+    Returns:
+        states ([work_learn_problem.State]): List of states.
+
+    """
     skill_values = list(itertools.product((True, False), repeat=n_skills))
     quiz_values = [None] + range(n_skills)
     worker_class_values = range(n_worker_classes)
@@ -92,7 +126,19 @@ def states_all(n_skills, n_worker_classes):
 
 class State:
 
-    def __init__(self, term=None, skills=[], quiz_val=None, worker_class=None):
+    def __init__(self, term=False, skills=None, quiz_val=None,
+                 worker_class=None):
+        """Init.
+
+        Args:
+            term (bool): Is a terminal state.
+            skills ([bool]): List indicating whether worker has each skill.
+            quiz_val (Optional[int])): Quiz action last taken (or None).
+            worker_class (int): Worker class.
+
+        """
+        if skills is None:
+            skills = []
         self.term = term
         self.skills = skills
         self.quiz_val = quiz_val
@@ -163,9 +209,8 @@ class State:
     def p_joint(self, rule_probabilities, p_slip, p_guess,
                 prior, answer, observation):
         # TODO: Move to separate class?
-        """Probability of answering correctly"""
         """Joint probability of latent answer and observation
-        
+
         Args:
             answer: 0 or 1
             observation: 0 or 1
@@ -184,82 +229,112 @@ class State:
             p *= 1 - p_right
         return p
 
-    def rewards_ask(self, p_r, p_slip, p_guess, prior, utility_type,
+    def rewards_ask(self, p_r, p_slip, p_guess, priors, utility_type,
                     penalty_fp, penalty_fn, reward_tp, reward_tn, sample):
         """Return expected reward and sampled additional info.
 
         Args:
-            utility_type (str): Utility type
+            p_r ([float]): Probability each rule is needed for a question.
+            p_slip ([float]): Probability of answering incorrectly if a rule
+                is known, one value for each question type.
+            p_guess ([float]): Probability of guessing correctly, one value
+                for each question type.
+            priors ([float]): Prior probability true answer is "1" for each
+                question type.
+            utility_type (str): Utility type.
+            penalty_fp (float): False positive penalty.
+            penalty_fn (float): False negative penalty.
+            reward_tp (float): True positive reward.
+            reward_tn (float): True negative reward.
             sample (bool): Sample instead of expected reward.
 
         Returns:
-            r:      Expected reward
-            ans:    Sampled labels.
+            rewards ([float]): Reward (expected reward if sample is False)
+                for each question type.
+            v_sample ([dict]): Dictionary (or None if sample is False) for
+                each question type.
 
         """
         if utility_type == 'pen_nonboolean' and reward_tp != reward_tn or penalty_fp != penalty_fn:
             raise Exception(
                 "Rewards differ for boolean outcomes, but using nonboolean reward function")
 
-        # Sample label values.
-        if sample:
-            v = []
-            probs = []
-            for a in (0, 1):
-                for o in (0, 1):
-                    v.append({'gt': a, 'answer': o})
-                    probs.append(self.p_joint(
-                        p_r, p_slip, p_guess, prior, a, o))
-            v_sample = np.random.choice(v, p=probs)
-            if utility_type == 'pen_nonboolean':
-                if v_sample['gt'] and not v_sample['answer']:
-                    r = penalty_fn
-                elif v_sample['gt'] and v_sample['answer']:
-                    r = reward_tp
-                elif not v_sample['gt'] and v_sample['answer']:
-                    r = penalty_fp
-                else:
-                    r = reward_tn
-            else:
-                p_obs = 0
-                o = v_sample['answer']
-                for a in (0, 1):
-                    # Sum out variable for true answer.
-                    p_obs += self.p_joint(p_r, p_slip, p_guess, prior, a, o)
-                posterior = self.p_joint(
-                    p_r, p_slip, p_guess, prior, 1, o) / p_obs
-                r = reward_new_posterior(prior, posterior, utility_type,
-                                         penalty_fp=penalty_fp,
-                                         penalty_fn=penalty_fn,
-                                         reward_tp=reward_tp,
-                                         reward_tn=reward_tn)
+        metadata = collections.defaultdict(list)
+        n_question_types = len(priors)
+        n_rules = len(p_r)
+        # If len(priors) > 1, then p_r is all 0 except for question type index.
+        if n_question_types == 1:
+            p_r_question_types = [p_r]
         else:
-            v_sample = None
-            # Expected reward
-            r = 0
-            if utility_type == 'pen_nonboolean':
-                for o in (0, 1):
-                    for a in (0, 1):
-                        reward = reward_tp if a == o else penalty_fp
-                        r += self.p_joint(p_r, p_slip, p_guess,
-                                          prior, a, o) * reward
-            else:
-                for o in (0, 1):
+            p_r_question_types = p_r * np.eye(n_rules)
+        p_slips = p_slip
+        p_guesses = p_guess
+        for prior, p_slip, p_guess, p_r in zip(
+                priors, p_slips, p_guesses, p_r_question_types):
+            if sample:  # Sample label values.
+                v = []
+                probs = []
+                for a in (0, 1):
+                    for o in (0, 1):
+                        v.append({'gt': a, 'answer': o})
+                        probs.append(self.p_joint(
+                            p_r, p_slip, p_guess, prior, a, o))
+                v_sample = np.random.choice(v, p=probs)
+                if utility_type == 'pen_nonboolean':
+                    if v_sample['gt'] and not v_sample['answer']:
+                        r = penalty_fn
+                    elif v_sample['gt'] and v_sample['answer']:
+                        r = reward_tp
+                    elif not v_sample['gt'] and v_sample['answer']:
+                        r = penalty_fp
+                    else:
+                        r = reward_tn
+                    # Doesn't make sense to sample boolean labels for
+                    # a non-boolean question.
+                    v_sample = None
+                else:
                     p_obs = 0
+                    o = v_sample['answer']
                     for a in (0, 1):
                         # Sum out variable for true answer.
-                        p_obs += self.p_joint(p_r, p_slip,
-                                              p_guess, prior, a, o)
+                        p_obs += self.p_joint(p_r, p_slip, p_guess, prior, a, o)
                     posterior = self.p_joint(
                         p_r, p_slip, p_guess, prior, 1, o) / p_obs
-                    reward = reward_new_posterior(prior, posterior, utility_type,
-                                                  penalty_fp=penalty_fp,
-                                                  penalty_fn=penalty_fn,
-                                                  reward_tp=reward_tp,
-                                                  reward_tn=reward_tn)
-                    r += p_obs * reward
-
-        return r, v_sample
+                    r = reward_new_posterior(prior, posterior, utility_type,
+                                             penalty_fp=penalty_fp,
+                                             penalty_fn=penalty_fn,
+                                             reward_tp=reward_tp,
+                                             reward_tn=reward_tn)
+            else:  # Expected reward.
+                v_sample = None
+                r = 0
+                if utility_type == 'pen_nonboolean':
+                    for o in (0, 1):
+                        for a in (0, 1):
+                            reward = reward_tp if a == o else penalty_fp
+                            r += self.p_joint(p_r, p_slip, p_guess,
+                                              prior, a, o) * reward
+                else:
+                    for o in (0, 1):
+                        p_obs = 0
+                        for a in (0, 1):
+                            # Sum out variable for true answer.
+                            p_obs += self.p_joint(p_r, p_slip,
+                                                  p_guess, prior, a, o)
+                        posterior = self.p_joint(
+                            p_r, p_slip, p_guess, prior, 1, o) / p_obs
+                        reward = reward_new_posterior(prior, posterior,
+                                                      utility_type,
+                                                      penalty_fp=penalty_fp,
+                                                      penalty_fn=penalty_fn,
+                                                      reward_tp=reward_tp,
+                                                      reward_tn=reward_tn)
+                        r += p_obs * reward
+            metadata['rewards'].append(r)
+            if v_sample is not None:
+                metadata['gt'].append(v_sample['gt'])
+                metadata['answer'].append(v_sample['answer'])
+        return sum(metadata['rewards']), metadata
 
     def is_reachable(self, next_state, exp=False):
         """Return whether the state is reachable, with or without explaining."""

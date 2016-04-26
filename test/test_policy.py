@@ -1,15 +1,15 @@
 import unittest
 import json
-import policy
-import pomdp
 import os
+from .. import pomdp
+from .. import policy
 
 
 def get_external_policy(exp_name, params, policy_params):
     p = policy.Policy(exp_name=exp_name, **policy_params)
     external_policy = p.run_solver(
-        model_filename='test/tmp/{}.pomdp'.format(exp_name),
-        policy_filename='test/tmp/{}.policy'.format(exp_name),
+        model_filename=os.path.join(os.path.dirname(__file__), 'tmp', '{}.pomdp'.format(exp_name)),
+        policy_filename=os.path.join(os.path.dirname(__file__), 'tmp', '{}.policy'.format(exp_name)),
         params=params)
     return external_policy
 
@@ -31,7 +31,7 @@ class TestAITPolicy(unittest.TestCase):
         with open('test/data/2sk-acc-p_s0.2.json', 'r') as f:
             params = json.load(f)
         model = pomdp.POMDPModel(**params)
-        p = get_external_policy('2sk-acc-p_s0.2', params, 
+        p = get_external_policy('2sk-acc-p_s0.2', params,
                                 {'policy_type': 'aitoolbox', 'horizon': 50})
         for b in beliefs:
             for s,v in zip(model.states, b):
@@ -54,7 +54,7 @@ class TestAITPolicy(unittest.TestCase):
         model = pomdp.POMDPModel(**params)
         print [str(s) for s in model.states]
         print [str(s) for s in model.actions]
-        p = get_external_policy('1sk-acc-p_s0.2', params, 
+        p = get_external_policy('1sk-acc-p_s0.2', params,
                                 {'policy_type': 'aitoolbox', 'horizon': 50})
         for b in beliefs1sk:
             for s,v in zip(model.states, b):

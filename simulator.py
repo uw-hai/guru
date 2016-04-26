@@ -1,6 +1,7 @@
 """simulator.py"""
 
 import random
+import collections
 import pandas as pd
 import numpy as np
 from .pomdp import POMDPModel
@@ -103,17 +104,22 @@ class LiveSimulator(Simulator):
         self.params = params.get_param_dict(sample=False)
         dataset = self.params['dataset']
         self.repeat = repeat
-        self.observations = wlp.observations
         n_skills = len(self.params['p_r'])
+        n_question_types = len(self.params['p_1'])
+        self.observations = wlp.observations(n_question_types=n_question_types)
 
-        if n_skills != 1:
-            raise ValueError('Unexpected parameter settings')
         if dataset in ['lin_aaai12_tag', 'lin_aaai12_wiki', 'rajpal_icml15']:
-            self.actions = wlp.actions_all(n_skills, tell=False, exp=False)
+            self.actions = wlp.actions_all(
+                n_skills=n_skills, n_question_types=n_question_types,
+                tell=False, exp=False)
             if self.params['tell'] or self.params['exp']:
                 raise ValueError('Unexpected parameter settings')
+            if n_skills != 1:
+                raise ValueError('Unexpected parameter settings')
         elif dataset.startswith('bragg_teach'):
-            self.actions = wlp.actions_all(n_skills, tell=False, exp=True)
+            self.actions = wlp.actions_all(
+                n_skills=n_skills, n_question_types=n_question_types,
+                tell=False, exp=True)
             if self.params['tell'] or not self.params['exp']:
                 raise ValueError('Unexpected parameter settings')
 
@@ -167,22 +173,28 @@ class LiveSimulator(Simulator):
         def normalize_row(row):
             """Normalize row from dataframe."""
             d = dict()
-            if 'action' not in row:
+            # TODO: If row['answer'] is not a list and equals
+            # row['gt'] then 'r'
+            # Otherwise, check each position of row['answer'] and
+            # row['gt'] and make a string like 'rrrw'
+            if ('action' not in row or row['action'] == 'ask' and (
+                    pd.notnull(row['actiontype']) or
+                    self.convert_work_to_quiz)):
                 d['a'] = quiz_index
-                if row['correct']:
-                    d['o'] = self.observations.index('right')
+                if isinstance(row['answer'], collections.Mapping):
+                    o_str = ''.join(
+                        'r' if row['answer'][k] == row['gt'][k] else 'w' for
+                        k in sorted(row['answer']))
+                elif isinstance(row['answer'], collections.Iterable):
+                    o_str = ''.join(
+                        'r' if v1 == v2 else 'w' for
+                        v1, v2 in zip(row['answer'], row['gt']))
                 else:
-                    d['o'] = self.observations.index('wrong')
+                    o_str = 'r' if row['answer'] == row['gt'] else 'w'
+                d['o'] = self.observations.index(o_str)
             elif row['action'] == 'ask':
-                if pd.notnull(row['actiontype']) or self.convert_work_to_quiz:
-                    d['a'] = quiz_index
-                    if row['correct']:
-                        d['o'] = self.observations.index('right')
-                    else:
-                        d['o'] = self.observations.index('wrong')
-                else:
-                    d['a'] = work_index
-                    d['o'] = self.observations.index('null')
+                d['a'] = work_index
+                d['o'] = self.observations.index('null')
             elif row['action'] == 'exp':
                 d['a'] = exp_index
                 d['o'] = self.observations.index('null')
@@ -222,7 +234,7 @@ class LiveSimulator(Simulator):
                 regardless. Also raised if accuracy gain reward is requested
                 for live data.
 
-            Exception: Unexpected 0-length wo
+            Exception: Unexpected 0-length worker.
 
         """
         if not self.hired:

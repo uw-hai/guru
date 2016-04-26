@@ -66,7 +66,7 @@ class Params(object):
           only using positive probability.
         - Bernoulli distributions can either be conditioned on p_worker, or
           not.
-        - Defaults 'reward_tp' = 'reward_'tn' = 1.
+        - Defaults 'reward_tp' = 'reward_tn' = 1.
 
         Infers whether Bernoulli distributions are conditioned or use parameter
         tying from the number of parameters specified.
@@ -76,6 +76,7 @@ class Params(object):
 
         Returns:
             New dictionary of parameters.
+
         """
         # Add reward for legacy reasons.
         if 'penalty_fp' in config:
@@ -85,18 +86,31 @@ class Params(object):
 
         n_worker_classes = len(config['p_worker'])
         n_rules = len(config['p_r'])
+        n_question_types = len(config['p_1'])
+        if n_question_types > 1 and n_question_types != n_rules:
+            raise Exception('Must have one rule per question type if more than one question type')
 
         # Copy dictionary and split p_s by rule.
         res = dict()
         for k in config:
-            if k == 'p_s':
+            if k in ['p_s', 'p_learn_exp', 'p_learn_tell', 'p_lose']:
                 if (len(config[k]) != n_rules and
                     len(config[k]) != n_rules * n_worker_classes):
-                    raise Exception('Config input of unexpected size')
+                    raise Exception('Config input of unexpected size for parameter {}'.format(k))
                 for i, v in enumerate(config[k]):
                     if i < n_rules:
                         res[k, i] = []
                     res[k, i % n_rules].append(v)
+            elif k in ['p_slip', 'p_guess']:
+                if (len(config[k]) != n_question_types and
+                    len(config[k]) != n_question_types * n_worker_classes):
+                    raise Exception('Config input of unexpected size for parameter {}'.format(k))
+                for i, v in enumerate(config[k]):
+                    if i < n_question_types:
+                        res[k, i] = []
+                    res[k, i % n_question_types].append(v)
+            elif k in ['p_r', 'p_1']:
+                res[k] = config[k]
             else:
                 # All other parameters with list values must either be
                 # length 1 or |classes|.
@@ -108,9 +122,8 @@ class Params(object):
         # Split out classes.
         # Make berunoulli probabilities full probabilities.
         for k in res.keys():
-            if (k in ['p_learn_exp', 'p_learn_tell', 'p_lose',
-                      'p_leave', 'p_slip', 'p_guess', 'p_slip_std'] or
-                (len(k) == 2 and k[0] == 'p_s')):
+            if (k in ['p_leave', 'p_slip_std'] or
+                (len(k) == 2 and k[0] in ['p_s', 'p_learn_exp', 'p_learn_tell', 'p_lose', 'p_slip', 'p_guess'])):
                 values = res.pop(k)
                 if len(values) == 1:
                     if k == 'p_slip_std':

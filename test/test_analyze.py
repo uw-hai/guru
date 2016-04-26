@@ -1,21 +1,22 @@
 import unittest
 import os
 import pandas as pd
-import analyze
-import util
 import pymongo
 import getpass
-
-MONGO_HOST = 'rv-n11.cs.washington.edu'
-MONGO_PORT = 27017
-MONGO_USER = 'worklearn_reader'
+from .. import analyze
+from .. import util
 
 TEST_EXPERIMENT = 'classes2-20_80'
 
 class AuthenticatedTestCase(unittest.TestCase):
-    pwd = getpass.getpass()
-    client = pymongo.MongoClient(MONGO_HOST, MONGO_PORT)
-    client.admin.authenticate(MONGO_USER, pwd)
+    mongo={'host': os.environ['MONGO_HOST'],
+           'port': int(os.environ['MONGO_PORT']),
+           'user': os.environ.get('MONGO_USER', None),
+           'pass': os.environ.get('MONGO_PASS', None)}
+    client = pymongo.MongoClient(mongo['host'], mongo['port'])
+    if mongo['user']:
+        client.worklearn.authenticate(mongo['user'], mongo['pass'],
+                                      mechanism='SCRAM-SHA-1')
 
 class PlotterTestCase(AuthenticatedTestCase):
     def setUp(self):
@@ -51,7 +52,7 @@ class ResultPlotterTestCase(AuthenticatedTestCase):
     def test_make_plots(self):
         self.plotter.make_plots(self.path, line=False, logx=True,
                                 worker_interval=5)
- 
+
 class ModelPlotterTestCase(AuthenticatedTestCase):
     def setUp(self):
         self.plotter = analyze.ModelPlotter.from_mongo(

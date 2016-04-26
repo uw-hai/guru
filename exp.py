@@ -504,25 +504,34 @@ def add_config_argparse_group(parser):
                               help="Cost of 'exp(lain)' actions.")
     config_group.add_argument('--cost_tell', type=float, default=-0.1,
                               help="Cost of 'tell' actions.")
-    config_group.add_argument('--p_learn_exp', type=float, nargs='+',
-                              default=[0.4])
-    config_group.add_argument('--p_learn_tell', type=float, nargs='+',
-                              default=[0.4])
-    config_group.add_argument('--p_lose', type=float, nargs='+',
-                              default=[0])
+    config_group.add_argument(
+        '--p_learn_exp', type=float, nargs='+', default=[0.4],
+        help='Probability of learning a rule from an explain action. Index changes by rule, then worker class (or just rule if shared across worker classes).')
+    config_group.add_argument(
+        '--p_learn_tell', type=float, nargs='+', default=[0.4],
+        help='Probability of learning a rule from a tell action. Index changes by rule, then worker class (or just rule if shared across worker classes).')
+    config_group.add_argument(
+        '--p_lose', type=float, nargs='+', default=[0],
+        help='Probability of losing knowledge of a rule. Index changes by rule, then worker class (or just rule if shared across worker classes).')
     config_group.add_argument('--p_leave', type=float, nargs='+',
                               default=[0.01])
-    config_group.add_argument('--p_slip', type=float, nargs='+',
-                              default=[0.1])
     config_group.add_argument(
-        '--p_slip_std', type=float, nargs='+',
-        default=[0],
+        '--p_slip', type=float, nargs='+', default=[0.1],
+        help='Probability of "slipping" (answering incorrectly) when rules are known. Index changes by question type, then worker class (or just question type if shared across worker classes).')
+    config_group.add_argument(
+        '--p_slip_std', type=float, nargs='+', default=[0],
         help='Standard deviation for simulations')
-    config_group.add_argument('--p_guess', type=float, nargs='+',
-                              default=[0.5])
-    config_group.add_argument('--p_r', type=float, nargs='+', default=[1])
-    config_group.add_argument('--p_1', type=float, default=0.5)
-    config_group.add_argument('--p_s', type=float, nargs='+', default=[0.2])
+    config_group.add_argument(
+        '--p_guess', type=float, nargs='+', default=[0.5],
+        help='Probability of guessing correctly when rules are not known. Index changes by question type, then worker class (or just question type if shared across worker classes).')
+    config_group.add_argument(
+        '--p_r', type=float, nargs='+', default=[1],
+        help='Prior probability rule needed to answer question.')
+    config_group.add_argument('--p_1', type=float, nargs='+', default=[0.5],
+        help='Prior probability "1" is correct answer (for boolean questions). One value for each question type.')
+    config_group.add_argument(
+        '--p_s', type=float, nargs='+', default=[0.2],
+        help='Probability worker initially knows a rule. Index changes by rule, then worker class (or just rule if shared across worker classes).')
     config_group.add_argument('--utility_type', type=str,
                               choices=['acc', 'pen',
                                        'pen_diff', 'pen_nonboolean'],
@@ -580,7 +589,7 @@ if __name__ == '__main__':
     parser.add_argument('--iterations', '-i', type=parseNumList,
                         default=range(100), help='Iterations')
     parser.add_argument('--budget', '-b', type=float, help='Total budget')
-    parser.add_argument('--budget_reserved_frac', type=float, default=0.1,
+    parser.add_argument('--budget_reserved_frac', type=float, default=0.0,
                         help='Fraction of budget reserved for exploitation.')
     parser.add_argument('--epsilon', type=str, nargs='*',
                         help='Epsilon to use for all policies')
@@ -696,16 +705,16 @@ if __name__ == '__main__':
                        'port': int(os.environ['MONGO_PORT']),
                        'user': os.environ.get('MONGO_USER', None),
                        'pass': os.environ.get('MONGO_PASS', None)},
-                       config=config,
-                       config_policy=config_policy,
-                       policies=policies,
-                       iterations=args.iterations,
-                       budget=args.budget,
-                       budget_reserved_frac=args.budget_reserved_frac,
-                       epsilon=epsilon,
-                       explore_actions=args.explore_actions,
-                       explore_policy=args.explore_policy,
-                       thompson=args.thompson,
-                       hyperparams=args.hyperparams,
-                       processes=args.proc,
-                       passive=args.passive)
+                   config=config,
+                   config_policy=config_policy,
+                   policies=policies,
+                   iterations=args.iterations,
+                   budget=args.budget,
+                   budget_reserved_frac=args.budget_reserved_frac,
+                   epsilon=epsilon,
+                   explore_actions=args.explore_actions,
+                   explore_policy=args.explore_policy,
+                   thompson=args.thompson,
+                   hyperparams=args.hyperparams,
+                   processes=args.proc,
+                   passive=args.passive)

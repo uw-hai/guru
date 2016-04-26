@@ -886,12 +886,15 @@ def run_function_from_dictionary(f, d):
     return f(**d)
 
 def make_plots_h(**kwargs):
-    client = pymongo.MongoClient(os.environ['MONGO_HOST'],
-                                 int(os.environ['MONGO_PORT'])) 
-    client.admin.authenticate(os.environ['MONGO_USER'],
-                              os.environ['MONGO_PASS'])
-    return make_plots(db=client.worklearn, **kwargs)
- 
+    client = pymongo.MongoClient(mongo_config['host'],
+                                 mongo_config['port'])
+    if mongo_config['user']:
+        client.admin.authenticate(mongo_config['user'],
+                                  mongo_config['pass'])
+    kwargs_no_mongo_config = dict(
+        (k, kwargs[k]) for k in kwargs if k != 'mongo_config')
+    return make_plots(db=client.worklearn, **kwargs_no_mongo_config)
+
 
 def make_plots(db, experiment, outdir=None, policies=None,
                line=False, log=True, worker_interval=5,
@@ -966,10 +969,14 @@ if __name__ == '__main__':
                         help='Interval between plots for worker plots')
     args = parser.parse_args()
 
-    client = pymongo.MongoClient(os.environ['MONGO_HOST'],
-                                 int(os.environ['MONGO_PORT'])) 
-    client.admin.authenticate(os.environ['MONGO_USER'],
-                              os.environ['MONGO_PASS'])
+    mongo_config = {
+        'host': os.environ['MONGO_HOST'],
+        'port': int(os.environ['MONGO_PORT']),
+        'user': os.environ.get('MONGO_USER', None),
+        'pass': os.environ.get('MONGO_PASS', None)}
+    client = pymongo.MongoClient(mongo_config['host'], mongo_config['port'])
+    if mongo_config['user']:
+        client.admin.authenticate(mongo_config['user'], mongo_config['pass'])
 
     experiments = list(client.worklearn.res.distinct('experiment'))
     if args.experiment:
@@ -1000,6 +1007,7 @@ if __name__ == '__main__':
                  'policies': None,
                  'line': args.line,
                  'log': args.log,
+                 'mongo_config': mongo_config,
                  'worker_interval': args.worker_interval} for e in experiments]
         try:
             pool.map(f, args)
@@ -1010,4 +1018,4 @@ if __name__ == '__main__':
             pool.terminate()
         finally:
             pass
-     
+

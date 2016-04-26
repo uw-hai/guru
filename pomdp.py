@@ -59,11 +59,15 @@ class POMDPModel:
 
         """
         self.n_skills = len(params['p_r'])
+        self.n_question_types = len(params['p_1'])
         self.n_worker_classes = n_worker_classes
-        self.actions = wlp.actions_all(self.n_skills,
+        self.actions = wlp.actions_all(n_skills=self.n_skills,
+                                       n_question_types=self.n_question_types,
                                        tell=params['tell'], exp=params['exp'])
-        self.states = wlp.states_all(self.n_skills, self.n_worker_classes)
-        self.observations = wlp.observations
+        self.states = wlp.states_all(
+            n_skills=self.n_skills, n_worker_classes=self.n_worker_classes)
+        self.observations = wlp.observations(
+            n_question_types=self.n_question_types)
         # TODO: Change this to a list of estimated params, and
         # make params (p, ind) format.
         self.params_fixed = [
@@ -236,7 +240,6 @@ class POMDPModel:
         st1 = self.states[s1]
 
         p_leave = self.get_param_version(s, 'p_leave')
-        p_lose = self.get_param_version(s, 'p_lose')
 
         # Once in terminal state, stay in terminal state.
         if st.term and st1.term:
@@ -259,77 +262,92 @@ class POMDPModel:
             elif not st1.quiz_val == act.quiz_val or st.n_skills_learned(st1):
                 return dict() if exponents else 0
             else:
-                n_known = st.n_skills_known()
-                n_lost = st.n_skills_lost(st1)
-                n_lost_not = n_known - n_lost
+                loseable_skills_lost = [
+                    i for i in xrange(self.n_skills) if
+                    st.has_skill(i) and not st1.has_skill(i)]
+                loseable_skills_not_lost = [
+                    i for i in xrange(self.n_skills) if
+                    st.has_skill(i) and st1.has_skill(i)]
                 if exponents:
-                    return {p_lose: [n_lost, n_lost_not], p_leave: [0, 1]}
-                prob = params[p_lose][0] ** n_lost * \
-                    params[p_lose][1] ** n_lost_not
-                return prob * params[p_leave][1]
-        elif act.name == 'exp' and st.is_quiz():
-            p_learn_exp = self.get_param_version(s, 'p_learn_exp')
-            # Could learn skill. No chance of losing skills.
-            # This is to make the ask-exp teaching sequence comparable to the
-            # tell teaching action.
-            # UPDATE: Worker might leave.
-            if st1.term:
-                return {p_leave: [1, 0]} if exponents else params[p_leave][0]
-            elif (st1.is_quiz() or
-                    st.n_skills_lost(st1) > 0 or st.n_skills_learned(st1) > 1):
-                return dict() if exponents else 0
-            else:
-                if st.has_skill(st.quiz_val):
-                    return {p_leave: [0, 1]} if exponents else \
-                        params[p_leave][1]
-                elif not st1.has_skill(st.quiz_val):
-                    return {p_learn_exp: [0, 1],
-                            p_leave: [0, 1]} if exponents else \
-                        params[p_learn_exp][1] * params[p_leave][1]
+                    return_val = {p_leave: [0, 1]}
                 else:
-                    return {p_learn_exp: [1, 0],
-                            p_leave: [0, 1]} if exponents else \
-                        params[p_learn_exp][0] * params[p_leave][1]
-        elif act.name == 'tell':
-            p_learn_tell = self.get_param_version(s, 'p_learn_tell')
+                    return_val = params[p_leave][1]
+                for sk in loseable_skills_lost:
+                    p_lose = self.get_param_version(s, ('p_lose', sk))
+                    if exponents:
+                        return_val[p_lose] = [1, 0]
+                    else:
+                        return_val *= params[p_lose][0]
+                for sk in loseable_skills_not_lost:
+                    p_lose = self.get_param_version(s, ('p_lose', sk))
+                    if exponents:
+                        return_val[p_lose] = [0, 1]
+                    else:
+                        return_val *= params[p_lose][1]
+                return return_val
+        elif act.name == 'exp' and st.is_quiz() or act.name == 'tell':
             # Could learn skill (no chance of losing taught skill).
             # Might lose each other skill independently.
+            # For multiple question types, assume teaching actions teach
+            # all rules.
+            if self.n_question_types > 1:
+                skills_taught = range(self.n_skills)
+                skills_not_taught = []
+            else:
+                skills_taught = [act.quiz_val]
+                skills_not_taught = [
+                    x for x in xrange(self.n_skills) if x != act.quiz_val]
             if st1.term:
                 return {p_leave: [1, 0]} if exponents else params[p_leave][0]
-            elif (st1.is_quiz() or (st.has_skill(act.quiz_val) and
-                                    not st1.has_skill(act.quiz_val)) or
-                  st.skills_learned(st1) not in [[act.quiz_val], []]):
+            elif (st1.is_quiz() or (
+                    any(st.has_skill(x) and not st1.has_skill(x) for
+                        x in skills_taught) or
+                    any(x not in skills_taught for
+                        x in st.skills_learned(st1)))):
                 return dict() if exponents else 0
             else:
-                n_known = st.n_skills_known()
-                n_lost = st.n_skills_lost(st1)
-                n_lost_not = n_known - n_lost
-                if st.has_skill(act.quiz_val):
-                    # Can't lose the quiz skill.
-                    n_lost_not -= 1
-                if st.has_skill(act.quiz_val):
-                    return {p_lose: [n_lost, n_lost_not],
-                            p_leave: [0, 1]} if exponents else \
-                        params[p_lose][0] ** n_lost * \
-                        params[p_lose][1] ** n_lost_not * \
-                        params[p_leave][1]
-                elif not st1.has_skill(act.quiz_val):
-                    # Missed opportunity.
-                    return {p_lose: [n_lost, n_lost_not],
-                            p_learn_tell: [0, 1],
-                            p_leave: [0, 1]} if exponents else \
-                        params[p_lose][0] ** n_lost * \
-                        params[p_lose][1] ** n_lost_not * \
-                        params[p_learn_tell][1] * \
-                        params[p_leave][1]
+                p_learn_str = 'p_learn_{}'.format(act.name)
+                learnable_skills_learned = [
+                    i for i in skills_taught if
+                    not st.has_skill(i) and st1.has_skill(i)]
+                learnable_skills_not_learned = [
+                    i for i in skills_taught if
+                    not st.has_skill(i) and not st1.has_skill(i)]
+                loseable_skills_lost = [
+                    i for i in skills_not_taught if
+                    st.has_skill(i) and not st1.has_skill(i)]
+                loseable_skills_not_lost = [
+                    i for i in skills_not_taught if
+                    st.has_skill(i) and st1.has_skill(i)]
+                if exponents:
+                    return_val = {p_leave: [0, 1]}
                 else:
-                    return {p_lose: [n_lost, n_lost_not],
-                            p_learn_tell: [1, 0],
-                            p_leave: [0, 1]} if exponents else \
-                        params[p_lose][0] ** n_lost * \
-                        params[p_lose][1] ** n_lost_not * \
-                        params[p_learn_tell][0] * \
-                        params[p_leave][1]
+                    return_val = params[p_leave][1]
+                for sk in learnable_skills_learned:
+                    p_learn = self.get_param_version(s, (p_learn_str, sk))
+                    if exponents:
+                        return_val[p_learn] = [1, 0]
+                    else:
+                        return_val *= params[p_learn][0]
+                for sk in learnable_skills_not_learned:
+                    p_learn = self.get_param_version(s, (p_learn_str, sk))
+                    if exponents:
+                        return_val[p_learn] = [0, 1]
+                    else:
+                        return_val *= params[p_learn][1]
+                for sk in loseable_skills_lost:
+                    p_lose = self.get_param_version(s, ('p_lose', sk))
+                    if exponents:
+                        return_val[p_lose] = [1, 0]
+                    else:
+                        return_val *= params[p_lose][0]
+                for sk in loseable_skills_not_lost:
+                    p_lose = self.get_param_version(s, ('p_lose', sk))
+                    if exponents:
+                        return_val[p_lose] = [0, 1]
+                    else:
+                        return_val *= params[p_lose][1]
+                return return_val
         else:
             if s == s1:
                 return dict() if exponents else 1
@@ -353,8 +371,13 @@ class POMDPModel:
         if params is None:
             params = self.params
         p_r = params['p_r']
-        p_slip = params[self.get_param_version(s1, 'p_slip')][0]
-        p_guess = params[self.get_param_version(s1, 'p_guess')][0]
+        p_slip_question_types = []
+        p_guess_question_types = []
+        for i in xrange(self.n_question_types):
+            p_slip_question_types.append(
+                params[self.get_param_version(s1, ('p_slip', i))][0])
+            p_guess_question_types.append(
+                params[self.get_param_version(s1, ('p_guess', i))][0])
         p_1 = params['p_1']
         cost = params['cost']
         cost_exp = params['cost_exp']
@@ -380,15 +403,18 @@ class POMDPModel:
         elif act.is_quiz():
             return ((cost, 0), None)
         elif act.name == 'ask':
-            reward, labels = st1.rewards_ask(p_r, p_slip, p_guess, p_1,
-                                             utility_type,
-                                             penalty_fp=penalty_fp,
-                                             penalty_fn=penalty_fn,
-                                             reward_tp=reward_tp,
-                                             reward_tn=reward_tn,
-                                             sample=sample)
-
-            return ((cost, reward), labels)
+            reward, meta = st1.rewards_ask(
+                p_r=p_r,
+                p_slip=p_slip_question_types,
+                p_guess=p_guess_question_types,
+                priors=p_1,
+                utility_type=utility_type,
+                penalty_fp=penalty_fp,
+                penalty_fn=penalty_fn,
+                reward_tp=reward_tp,
+                reward_tn=reward_tn,
+                sample=sample)
+            return ((cost, reward), meta)
         elif act.name == 'boot':
             return ((0, 0), None)
         else:
@@ -411,8 +437,13 @@ class POMDPModel:
         st = self.states[s]
         obs = self.observations[o]
 
-        p_guess = self.get_param_version(s, 'p_guess')
-        p_slip = self.get_param_version(s, 'p_slip')
+        p_slip_keys = []
+        p_guess_keys = []
+        for i in xrange(self.n_question_types):
+            p_slip_keys.append(
+                self.get_param_version(s, ('p_slip', i)))
+            p_guess_keys.append(
+                self.get_param_version(s, ('p_guess', i)))
 
         if st.term or act.name == 'boot':
             # Always know when we enter terminal state or boot.
@@ -420,28 +451,43 @@ class POMDPModel:
                 return dict() if exponents else 1
             else:
                 return dict() if exponents else 0
+        elif act.is_quiz() and obs in ['term', 'null']:
+            return dict() if exponents else 0
         elif act.is_quiz():
-            # Assume teaching actions ask questions that require only the
-            # skill being taught.
-            p_r_gold = [int(i == st.quiz_val) for i in xrange(self.n_skills)]
-
-            has_skills = st.p_has_skills(p_r_gold) == 1
-            if has_skills:
-                if obs == 'right':
-                    return {p_slip: [0, 1]} if exponents else params[p_slip][1]
-                elif obs == 'wrong':
-                    return {p_slip: [1, 0]} if exponents else params[p_slip][0]
-                else:
-                    return dict() if exponents else 0
+            # Assume teaching actions ask questions that require only a
+            # single skill.
+            if self.n_question_types == 1:
+                p_r_gold_question_types = [[int(i == st.quiz_val) for i in xrange(self.n_skills)]]
             else:
-                if obs == 'right':
-                    return {p_guess: [1, 0]} if exponents else \
-                        params[p_guess][0]
-                elif obs == 'wrong':
-                    return {p_guess: [0, 1]} if exponents else \
-                        params[p_guess][1]
+                p_r_gold_question_types = np.eye(self.n_question_types)
+            return_val = dict() if exponents else 1
+            for p_r_gold, obs_char, p_slip, p_guess in zip(
+                    p_r_gold_question_types, obs, p_slip_keys, p_guess_keys):
+                has_skills = st.p_has_skills(p_r_gold) == 1
+                if has_skills and obs == 'r':
+                    # TODO: Try to add to existing value in case
+                    # multiple question types use same p_slip / p_guess in
+                    # the future.
+                    if exponents:
+                        return_val[p_slip] = [0, 1]
+                    else:
+                        return_val *= params[p_slip][1]
+                elif has_skills:
+                    if exponents:
+                        return_val[p_slip] = [1, 0]
+                    else:
+                        return_val *= params[p_slip][0]
+                elif obs == 'r':
+                    if exponents:
+                        return_val[p_guess] = [1, 0]
+                    else:
+                        return_val *= params[p_guess][0]
                 else:
-                    return dict() if exponents else 0
+                    if exponents:
+                        return_val[p_guess] = [0, 1]
+                    else:
+                        return_val *= params[p_guess][1]
+            return return_val
         else:
             if obs == 'null':
                 return dict() if exponents else 1
@@ -450,7 +496,7 @@ class POMDPModel:
 
     def make_tables(self, params):
         """Create model tables from parameters
-        
+
         Returns:
             p_t (|S|.|A|.|S| array):        Transition probabilties
             p_o (|S|.|A|.|O| array):        Observation probabilities
