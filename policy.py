@@ -67,8 +67,11 @@ class Policy:
                 self.n_test = kwargs['n_test']
                 self.n_work = kwargs['n_work']
                 self.accuracy = kwargs['accuracy']
-                self.accuracy_window = kwargs.get(
-                    'accuracy_window', self.n_test * self.model.n_skills)
+                n_test_actions = len(
+                    [a for a in self.model.actions if a.is_quiz()])
+                self.accuracy_window = kwargs.get('accuracy_window', None)
+                if self.accuracy_window is None:
+                    self.accuracy_window = self.n_test * n_test_actions
             self.final_action = kwargs.get('final_action', 'work')
         elif self.policy != 'work_only':
             raise NotImplementedError
@@ -204,6 +207,11 @@ class Policy:
 
         If policy requires an external_policy, assumes it already exists.
 
+        self.n_blocks should be None unless teaching actions disabled.
+
+        Accuracy for test_and_boot policy is averaged across question
+        types.
+
         Args:
             history (History object):   Defined in history.py.
 
@@ -221,7 +229,6 @@ class Policy:
             current_observations = []
         else:
             current_actions, current_observations, _ = zip(*current_AO)
-        n_skills = model.n_skills
         n_actions = len(current_actions)
         if self.policy == 'work_only':
             return a_ask
@@ -271,10 +278,12 @@ class Policy:
             n_work_actions = len([a for a in current_actions if
                                   a == a_ask])
             # If all blocks done, take final action.
+            test_actions = [i for i, a in enumerate(model.actions) if
+                            a.is_quiz()]
             if self.n_blocks is not None:
                 if self.n_blocks == 0:
                     return a_final
-                block_length = model.n_skills * self.n_test + self.n_work
+                block_length = len(test_actions) * self.n_test + self.n_work
                 n_blocks_completed = len(current_actions) / block_length
                 if n_blocks_completed >= self.n_blocks:
                     return a_final
@@ -282,19 +291,17 @@ class Policy:
                 current_actions, lambda a: model.actions[a].is_quiz())
             test_counts = collections.Counter(last_action_block)
             if self.n_work == 0 or n_work_actions % self.n_work == 0:
-                test_actions = [i for i, a in enumerate(model.actions) if
-                                a.is_quiz()]
                 test_actions_remaining = [a for a in test_actions if
                                           test_counts[a] < self.n_test]
                 if len(test_actions_remaining) == 0:
                     # Testing done. Check accuracy.
                     test_answers = current_observations[
                         -1 * self.accuracy_window:]
-                    # TODO: Change to checking not in 'term', 'null', etc?
-                    assert all(model.observations[i] in ['wrong', 'right'] for
-                               i in test_answers)
-                    accuracy = sum([model.observations[i] == 'right' for
-                                    i in test_answers]) / len(test_answers)
+                    assert not any(model.observations[i] in ['term', 'null'] for
+                        i in test_answers)
+                    concat_answers = ''.join(model.observations[i] for
+                                             i in test_answers)
+                    accuracy = sum(v == 'r' for v in concat_answers) / len(concat_answers)
                     if accuracy >= self.accuracy:
                         return a_ask
                     else:

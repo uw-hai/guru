@@ -489,7 +489,8 @@ def add_config_argparse_group(parser):
         help='Use passive learning mode only')
     config_group.add_argument(
         '--dataset', type=str, choices=[
-            'lin_aaai12_tag', 'lin_aaai12_wiki', 'rajpal_icml15'],
+            'lin_aaai12_tag', 'lin_aaai12_wiki', 'rajpal_icml15',
+            'bragg_teach_pilot_3_20', 'bragg_teach_rl_v2'],
         help='Dataset to use.')
     config_group.add_argument(
         '--p_worker', type=float, nargs='+', default=[1.0],
@@ -577,7 +578,7 @@ if __name__ == '__main__':
                         help='Action to take after n test-work blocks')
     parser.add_argument('--zmdp_discount', type=float, nargs='+',
                         default=[0.99])
-    parser.add_argument('--zmdp_timeout', type=int, nargs='+', default=[60])
+    parser.add_argument('--zmdp_timeout', type=int, nargs='+', default=[600])
     parser.add_argument('--appl_discount', type=float, nargs='+',
                         default=[0.99])
     parser.add_argument('--appl_timeout', type=int, nargs='+',

@@ -2,6 +2,7 @@
 
 from __future__ import division
 import copy
+import logging
 import random
 import xml.etree.ElementTree as ET
 import numpy as np
@@ -65,7 +66,9 @@ class POMDPModel:
                                        n_question_types=self.n_question_types,
                                        tell=params['tell'], exp=params['exp'])
         self.states = wlp.states_all(
-            n_skills=self.n_skills, n_worker_classes=self.n_worker_classes)
+            n_skills=self.n_skills,
+            n_worker_classes=self.n_worker_classes,
+            n_question_types=self.n_question_types)
         self.observations = wlp.observations(
             n_question_types=self.n_question_types)
         # TODO: Change this to a list of estimated params, and
@@ -163,17 +166,28 @@ class POMDPModel:
         fo.write('\n\n### Transitions\n')
         for s, st in enumerate(self.states):
             for a, act in enumerate(self.actions):
+                prob_sum = 0
                 for s1, st1 in enumerate(self.states):
+                    prob = self.get_transition(s, a, s1)
                     fo.write('T: {} : {} : {} {}\n'.format(
-                        act, st, st1, self.get_transition(s, a, s1)))
+                        act, st, st1, prob))
+                    prob_sum += prob
+                if not np.isclose(1.0, prob_sum):
+                    raise Exception("Transitions sum to {} for s:{}, a:{}".format(prob_sum, st, act))
                 fo.write('\n')
 
         fo.write('\n\n### Observations\n')
         for s, st in enumerate(self.states):
             for a, act in enumerate(self.actions):
+                prob_sum = 0
                 for o, obs in enumerate(self.observations):
+                    prob = self.get_observation(s, a, o)
+                    #print 's:{}, a:{}, o:{} :: {}'.format(st, act, obs, prob)
                     fo.write('O: {} : {} : {} {}\n'.format(
-                        act, st, obs, self.get_observation(s, a, o)))
+                        act, st, obs, prob))
+                    prob_sum += prob
+                if not np.isclose(1.0, prob_sum):
+                    raise Exception("Observations sum to {} for s:{}, a:{}".format(prob_sum, st, act))
                 fo.write('\n')
 
         fo.write('\n\n### Rewards\n')
@@ -464,7 +478,7 @@ class POMDPModel:
             for p_r_gold, obs_char, p_slip, p_guess in zip(
                     p_r_gold_question_types, obs, p_slip_keys, p_guess_keys):
                 has_skills = st.p_has_skills(p_r_gold) == 1
-                if has_skills and obs == 'r':
+                if has_skills and obs_char == 'r':
                     # TODO: Try to add to existing value in case
                     # multiple question types use same p_slip / p_guess in
                     # the future.
@@ -477,7 +491,7 @@ class POMDPModel:
                         return_val[p_slip] = [1, 0]
                     else:
                         return_val *= params[p_slip][0]
-                elif obs == 'r':
+                elif obs_char == 'r':
                     if exponents:
                         return_val[p_guess] = [1, 0]
                     else:
@@ -693,6 +707,7 @@ class POMDPModel:
 
     def estimate_E(self, history, params):
         """Get expected sufficient statistics"""
+        logging.debug('Estimating E step')
         log_marginals, log_pairwise_marginals, ll = \
             self.get_unnormalized_marginals(params, history)
         ess_t, ess_o, ess_i = self.expected_sufficient_statistics(
@@ -706,6 +721,7 @@ class POMDPModel:
 
     def estimate_M(self, ess_t, ess_o, ess_i):
         """Perform M step for EM."""
+        logging.debug('Estimating M step')
         S = len(self.states)
         A = len(self.actions)
         O = len(self.observations)

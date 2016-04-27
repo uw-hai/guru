@@ -104,19 +104,25 @@ def observations(n_question_types=1):
     return out
 
 
-def states_all(n_skills, n_worker_classes):
+def states_all(n_skills, n_worker_classes, n_question_types=1):
     """Enumerate states.
 
     Args:
         n_skills (int): Number of skills.
         n_worker_classes (int): Number of worker classes.
+        n_question_types (int): Number of question types. If more than one
+            question type, create a single quiz value in the state.
+
 
     Returns:
         states ([work_learn_problem.State]): List of states.
 
     """
     skill_values = list(itertools.product((True, False), repeat=n_skills))
-    quiz_values = [None] + range(n_skills)
+    if n_question_types > 1:
+        quiz_values = [None, 0]  # Matches single action in actions_all().
+    else:
+        quiz_values = [None] + range(n_skills)
     worker_class_values = range(n_worker_classes)
     states_except_term = [
         State(skills=s, quiz_val=q, worker_class=w) for s, q, w in
