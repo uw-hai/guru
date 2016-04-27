@@ -271,6 +271,8 @@ class State:
         # If len(priors) > 1, then p_r is all 0 except for question type index.
         if n_question_types == 1:
             p_r_question_types = [p_r]
+        elif n_rules == 1:
+            p_r_question_types = [[p_r[0]]] * n_question_types
         else:
             p_r_question_types = p_r * np.eye(n_rules)
         p_slips = p_slip

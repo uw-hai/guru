@@ -87,8 +87,8 @@ class Params(object):
         n_worker_classes = len(config['p_worker'])
         n_rules = len(config['p_r'])
         n_question_types = len(config['p_1'])
-        if n_question_types > 1 and n_question_types != n_rules:
-            raise Exception('Must have one rule per question type if more than one question type')
+        if n_question_types > 1 and n_question_types != n_rules and n_rules != 1:
+            raise Exception('Must have one rule or one rule per question type if more than one question type')
 
         # Copy dictionary and split p_s by rule.
         res = dict()

@@ -142,7 +142,7 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
            (not passive or passive_simulator.worker_available())):
         # BUG: Line above means passive always stops before running another
         # simulator.
-        logger.info('{} (i:{}, w:{}, b:{:.2f}/{:.2f})'.format(
+        logger.info('{} (i:{}, w:{}, b:{:.8f}/{:.8f})'.format(
             pol, it, worker_n, budget_spent, budget))
         if passive and passive_simulator.worker_available():
             curr_simulator = passive_simulator

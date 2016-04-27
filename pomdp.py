@@ -470,8 +470,8 @@ class POMDPModel:
         elif act.is_quiz():
             # Assume teaching actions ask questions that require only a
             # single skill.
-            if self.n_question_types == 1:
-                p_r_gold_question_types = [[int(i == st.quiz_val) for i in xrange(self.n_skills)]]
+            if self.n_question_types == 1 or self.n_skills == 1:
+                p_r_gold_question_types = [[int(i == st.quiz_val) for i in xrange(self.n_skills)]] * self.n_question_types
             else:
                 p_r_gold_question_types = np.eye(self.n_question_types)
             return_val = dict() if exponents else 1
