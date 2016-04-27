@@ -181,7 +181,9 @@ class LiveSimulator(Simulator):
                     pd.notnull(row['actiontype']) or
                     self.convert_work_to_quiz)):
                 d['a'] = quiz_index
-                if isinstance(row['answer'], collections.Mapping):
+                if row['answertype'] == 'term':
+                    o_str = 'term'
+                elif isinstance(row['answer'], collections.Mapping):
                     o_str = ''.join(
                         'r' if row['answer'][k] == row['gt'][k] else 'w' for
                         k in sorted(row['answer']))
@@ -270,32 +272,44 @@ class LiveSimulator(Simulator):
             r = 0
         elif self.actions[a].get_type() == 'work':
             cost = self.params['cost']
-            guess = round(self.params['p_1'])
-            if ans['gt'] == 0 and guess == 1:
-                penalty_old = penalty_fp
-                reward_old = 0
-            elif ans['gt'] == 1 and guess == 0:
-                penalty_old = penalty_fn
-                reward_old = 0
-            elif ans['gt'] == 0 and guess == 0:
-                penalty_old = 0
-                reward_old = reward_tn
-            else:
-                penalty_old = 0
-                reward_old = reward_tp
+            penalty_old = 0
+            penalty_new = 0
+            reward_old = 0
+            reward_new = 0
+            if isinstance(ans['gt'], collections.Mapping):
+                ans_gt = [ans['gt'][k] for k in sorted(ans['gt'])]
+                ans_answer = [ans['answer'][k] for k in sorted(ans['gt'])]
+            elif not isinstance(ans['gt'], collections.Iterable):
+                ans_gt = [ans['gt']]
+                ans_answer = [ans['answer']]
+            for p_1, ans_gt_v, ans_answer_v in zip(
+                    self.params['p_1'], ans_gt, ans_answer):
+                guess = round(p_1)
+                if ans_gt_v == 0 and guess == 1:
+                    penalty_old += penalty_fp
+                    # reward_old = 0
+                elif ans_gt_v == 1 and guess == 0:
+                    penalty_old += penalty_fn
+                    # reward_old = 0
+                elif ans_gt_v == 0 and guess == 0:
+                    # penalty_old = 0
+                    reward_old += reward_tn
+                else:
+                    # penalty_old = 0
+                    reward_old += reward_tp
 
-            if ans['gt'] == 0 and ans['answer'] == 1:
-                penalty_new = penalty_fp
-                reward_new = 0
-            elif ans['gt'] == 1 and ans['answer'] == 0:
-                penalty_new = penalty_fn
-                reward_new = 0
-            elif ans['gt'] == 0 and ans['answer'] == 0:
-                penalty_new = 0
-                reward_new = reward_tn
-            else:
-                penalty_new = 0
-                reward_new = reward_tp
+                if ans_gt_v == 0 and ans_answer_v == 1:
+                    penalty_new += penalty_fp
+                    # reward_new = 0
+                elif ans_gt_v == 1 and ans_answer_v == 0:
+                    penalty_new += penalty_fn
+                    # reward_new = 0
+                elif ans_gt_v == 0 and ans_answer_v == 0:
+                    # penalty_new = 0
+                    reward_new += reward_tn
+                else:
+                    # penalty_new = 0
+                    reward_new += reward_tp
 
             if self.params['utility_type'] == 'pen':
                 r = penalty_new + reward_new

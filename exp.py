@@ -221,7 +221,7 @@ def run_policy_iteration(exp_name, params_gt, params_policy, policy, iteration,
                 s = None
                 # TODO: Record whether following passive or not.
             budget_spent -= cost
-            logger.info('{} (i:{}, w:{}, a:{}, o:{}, b:{:.2f}/{:.2f})'.format(
+            logger.info('{} (i:{}, w:{}, a:{}, o:{}, b:{:.8f}/{:.8f})'.format(
                 pol, it, worker_n, a, o, budget_spent, budget))
             history.record(a, o, explore=explore)
             belief = pol.model.update_belief(belief, a, o)
