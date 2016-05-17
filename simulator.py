@@ -105,20 +105,23 @@ class LiveSimulator(Simulator):
         dataset = self.params['dataset']
         self.repeat = repeat
         n_skills = len(self.params['p_r'])
-        n_question_types = len(self.params['p_1'])
-        self.observations = wlp.observations(n_question_types=n_question_types)
+        self.n_question_types = len(self.params['p_1'])
+        self.observations = wlp.observations(
+            n_question_types=self.n_question_types)
 
         if dataset in ['lin_aaai12_tag', 'lin_aaai12_wiki', 'rajpal_icml15']:
             self.actions = wlp.actions_all(
-                n_skills=n_skills, n_question_types=n_question_types,
+                n_skills=n_skills, n_question_types=self.n_question_types,
                 tell=False, exp=False)
             if self.params['tell'] or self.params['exp']:
                 raise ValueError('Unexpected parameter settings')
             if n_skills != 1:
                 raise ValueError('Unexpected parameter settings')
+            if self.n_question_types > 1:
+                raise ValueError('Unexpected parameter settings')
         elif dataset.startswith('bragg_teach'):
             self.actions = wlp.actions_all(
-                n_skills=n_skills, n_question_types=n_question_types,
+                n_skills=n_skills, n_question_types=self.n_question_types,
                 tell=False, exp=True)
             if self.params['tell'] or not self.params['exp']:
                 raise ValueError('Unexpected parameter settings')
@@ -132,6 +135,12 @@ class LiveSimulator(Simulator):
         elif dataset == 'rajpal_icml15':
             self.df = hanalyze.Data.from_rajpal_icml15(
                 worker_type=None).df
+        elif dataset == 'bragg_teach_pilot_3':
+            self.df = hanalyze.Data.from_bragg_teach(
+                conditions=['pilot_3']).df
+        elif dataset == 'bragg_teach_pilot_20':
+            self.df = hanalyze.Data.from_bragg_teach(
+                conditions=['pilot_20']).df
         elif dataset == 'bragg_teach_pilot_3_20':
             self.df = hanalyze.Data.from_bragg_teach(
                 conditions=['pilot_3', 'pilot_20']).df
@@ -171,23 +180,27 @@ class LiveSimulator(Simulator):
             self.init_workers()
         _, df = self.workers.pop()
         def normalize_row(row):
-            """Normalize row from dataframe."""
+            """Normalize row from dataframe.
+
+            If row['answer'] is a list or mapping, convert values into
+            observation string like 'rrrw' (if first three question types
+            are correct).
+
+            """
             d = dict()
-            # TODO: If row['answer'] is not a list and equals
-            # row['gt'] then 'r'
-            # Otherwise, check each position of row['answer'] and
-            # row['gt'] and make a string like 'rrrw'
             if ('action' not in row or row['action'] == 'ask' and (
                     pd.notnull(row['actiontype']) or
                     self.convert_work_to_quiz)):
                 d['a'] = quiz_index
                 if row['answertype'] == 'term':
                     o_str = 'term'
-                elif isinstance(row['answer'], collections.Mapping):
+                elif (self.n_question_types > 1 and
+                        isinstance(row['answer'], collections.Mapping)):
                     o_str = ''.join(
                         'r' if row['answer'][k] == row['gt'][k] else 'w' for
                         k in sorted(row['answer']))
-                elif isinstance(row['answer'], collections.Iterable):
+                elif (self.n_question_types > 1 and
+                        isinstance(row['answer'], collections.Iterable)):
                     o_str = ''.join(
                         'r' if v1 == v2 else 'w' for
                         v1, v2 in zip(row['answer'], row['gt']))
@@ -270,72 +283,99 @@ class LiveSimulator(Simulator):
         if self.observations[self.o] == 'term':
             cost = 0
             r = 0
+            metadata = None
         elif self.actions[a].get_type() == 'work':
+            metadata = collections.defaultdict(list)
+            metadata['ans'] = ans
             cost = self.params['cost']
-            penalty_old = 0
-            penalty_new = 0
-            reward_old = 0
-            reward_new = 0
-            if isinstance(ans['gt'], collections.Mapping):
+            penalty_old = []
+            penalty_new = []
+            reward_old = []
+            reward_new = []
+            if (self.n_question_types > 1 and
+                    isinstance(ans['gt'], collections.Mapping)):
                 ans_gt = [ans['gt'][k] for k in sorted(ans['gt'])]
                 ans_answer = [ans['answer'][k] for k in sorted(ans['gt'])]
-            elif not isinstance(ans['gt'], collections.Iterable):
+            elif (self.n_question_types > 1 and
+                    not isinstance(ans['gt'], collections.Iterable)):
+                raise Exception('Multiple question types but not multiple answers.')
+            elif self.n_question_types == 1:
                 ans_gt = [ans['gt']]
                 ans_answer = [ans['answer']]
             for p_1, ans_gt_v, ans_answer_v in zip(
                     self.params['p_1'], ans_gt, ans_answer):
                 guess = round(p_1)
                 if ans_gt_v == 0 and guess == 1:
-                    penalty_old += penalty_fp
-                    # reward_old = 0
+                    penalty_old.append(penalty_fp)
+                    reward_old.append(0)
                 elif ans_gt_v == 1 and guess == 0:
-                    penalty_old += penalty_fn
-                    # reward_old = 0
+                    penalty_old.append(penalty_fn)
+                    reward_old.append(0)
                 elif ans_gt_v == 0 and guess == 0:
-                    # penalty_old = 0
-                    reward_old += reward_tn
+                    penalty_old.append(0)
+                    reward_old.append(reward_tn)
                 else:
-                    # penalty_old = 0
-                    reward_old += reward_tp
+                    penalty_old.append(0)
+                    reward_old.append(reward_tp)
 
-                if ans_gt_v == 0 and ans_answer_v == 1:
-                    penalty_new += penalty_fp
-                    # reward_new = 0
+                if self.params['utility_type'] == 'pen_nonboolean':
+                    if ans_gt_v == ans_answer_v:
+                        reward_new.append(reward_tp)
+                        penalty_new.append(0)
+                    else:
+                        penalty_new.append(penalty_fp)
+                        reward_new.append(0)
+                elif ans_gt_v == 0 and ans_answer_v == 1:
+                    penalty_new.append(penalty_fp)
+                    reward_new.append(0)
                 elif ans_gt_v == 1 and ans_answer_v == 0:
-                    penalty_new += penalty_fn
-                    # reward_new = 0
+                    penalty_new.append(penalty_fn)
+                    reward_new.append(0)
                 elif ans_gt_v == 0 and ans_answer_v == 0:
-                    # penalty_new = 0
-                    reward_new += reward_tn
+                    penalty_new.append(0)
+                    reward_new.append(reward_tn)
                 else:
-                    # penalty_new = 0
-                    reward_new += reward_tp
+                    penalty_new.append(0)
+                    reward_new.append(reward_tp)
 
-            if self.params['utility_type'] == 'pen':
-                r = penalty_new + reward_new
+            metadata['answer'] = ans_answer
+            metadata['gt'] = ans_gt
+            if self.params['utility_type'] in ['pen', 'pen_nonboolean']:
+                r_new = np.sum([penalty_new, reward_new], axis=0)
+                r = r_new
+                metadata['rewards'] = r.tolist()
+                r = np.sum(r)
             elif self.params['utility_type'] == 'pen_diff':
-                r = (penalty_new + reward_new) - (penalty_old + reward_old)
+                r_new = np.sum([penalty_new, reward_new], axis=0)
+                r_old = np.sum([penalty_old, reward_old], axis=0)
+                r = r_new - r_old
+                metadata['rewards'] = r.tolist()
+                r = np.sum(r)
             else:
-                raise ValueError('Accuracy gain undefined for live data')
+                raise ValueError('Utility function undefined for live data')
 
             self.o = self.observations.index('null')
         elif self.actions[a].get_type == 'boot':
+            metadata = None
             cost = 0
             r = 0
         elif self.actions[a].get_type() == 'test':
+            metadata = None
             cost = self.params['cost']
             r = 0
         elif self.actions[a].get_type() == 'exp':
+            metadata = None
             cost = self.params['cost_exp']
             r = 0
         elif self.actions[a].get_type() == 'tell':
+            metadata = None
             cost = self.params['cost_tell']
             r = 0
         else:
             raise Exception('Unexpected action {}'.format(self.actions[a]))
         if self.observations[self.o] == 'term':
             self.hired = False
-        return a, None, self.o, (cost, r), ans
+        return a, None, self.o, (cost, r), metadata
 
     def worker_hired(self):
         """Return whether worker is currently hired."""

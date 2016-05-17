@@ -267,6 +267,8 @@ class ResultPlotter(Plotter):
             df2['n'] = answers['other'].map(lambda x: 1)
             df2['n'] = df2['n'].fillna(0)
             df2['n'] = df2['n'].astype(int)
+            # TODO: Calculate correct answers differently for multiple question
+            # types.
             df2['correct'] = answers['other'].map(lambda x: x['gt'] == x['answer'])
             df2['correct'] = df2['correct'].fillna(0)
             df2['correct'] = df2['correct'].astype(int)

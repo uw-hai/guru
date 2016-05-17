@@ -257,8 +257,9 @@ class State:
         Returns:
             rewards ([float]): Reward (expected reward if sample is False)
                 for each question type.
-            v_sample ([dict]): Dictionary (or None if sample is False) for
-                each question type.
+            metadata ([dict]): Metadata for each question type. Contains
+                'rewards', 'gt', 'answer', with a list for each question
+                type.
 
         """
         if utility_type == 'pen_nonboolean' and reward_tp != reward_tn or penalty_fp != penalty_fn:
