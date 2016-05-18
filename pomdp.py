@@ -935,18 +935,26 @@ class POMDPPolicy:
 
 def main_estimate(tup):
     """Helper function for main."""
-    i, history, model = tup
+    i, history, model, model_name, bic_penalty = tup
     import numpy as np
     import random
     np.random.seed(i)
     random.seed(i)
     ll, params = model.estimate(history, last_params=False, random_restarts=1,
                                 ll_max_improv=0.001)
-    return ll, params
+    return {'ll': ll,
+            'params': params,
+            'model_name': model_name,
+            'bic_penalty': bic_penalty}
 
 
 def main():
-    """Run passive simulator and estimate parameters."""
+    """Run passive simulator and estimate parameters.
+
+    Tries all combinations of parameter sharing for given number of worker
+    classes.
+
+    """
     import argparse
     import itertools
     import multiprocessing
@@ -968,23 +976,27 @@ def main():
         choices=param.HYPERPARAMS, help='Hyperparams class name, in param.py')
     args = parser.parse_args()
     args_vars = vars(args)
+    if args.config_json is not None:
+        config = json.load(args.config_json)
+    else:
+        config = dict()
 
     config_params = [
         'p_worker', 'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
         'p_lose', 'p_leave',
         'p_slip', 'p_slip_std', 'p_guess', 'p_r', 'p_1', 'p_s',
         'utility_type', 'dataset']
-    if args.exp:
+    if 'exp' not in config:
+        config['exp'] = args.exp
+    if 'tell' not in config:
+        config['tell'] = args.tell
+    if config['exp']:
         config_params.append('p_learn_exp')
-    if args.tell:
+    if config['tell']:
         config_params.append('p_learn_tell')
     if args.utility_type in ['pen', 'pen_diff', 'pen_nonboolean']:
         config_params += ['penalty_fp', 'penalty_fn', 'reward_tp', 'reward_tn']
 
-    if args.config_json is not None:
-        config = json.load(args.config_json)
-    else:
-        config = dict()
     for k in config_params:
         if k not in config:
             config[k] = args_vars[k]
@@ -1003,27 +1015,59 @@ def main():
             a, _, o, _, _ = passive_simulator.sample_SOR(a=None)
             history.record(a, o)
 
-    params_dict = params.get_param_dict(sample=False)
-
     hyperparams_cls = getattr(param, args.hyperparams)
-    model = POMDPModel(
-        n_worker_classes=n_worker_classes, params=params_dict,
-        hyperparams=hyperparams_cls(params_dict, n_worker_classes),
-        estimate_all=True)
+    model_names = []
+    models_all = []
+    bic_penalties = []
+    result_dir = os.path.join(os.path.dirname(__file__), 'model_selection')
+    util.ensure_dir(result_dir)
+    param_types_to_vary = ['p_s', 'p_lose', 'p_slip', 'p_guess']
+    if config['exp']:
+        param_types_to_vary.append('p_learn_exp')
+    if config['tell']:
+        param_types_to_vary.append('p_learn_tell')
+    for params_shared in itertools.product([True, False], repeat=len(param_types_to_vary)):
+        model_name = '{}_classes'.format(params.n_classes)
+        for param_type, shared in zip(param_types_to_vary, params_shared):
+            if shared:
+                params.set_shared(param_type)
+                model_name += '-{}_shared'.format(param_type)
+            else:
+                params.set_not_shared(param_type)
+        model_names.append(model_name)
+        params_dict = params.get_param_dict(sample=False)
+        model = POMDPModel(
+            n_worker_classes=n_worker_classes, params=params_dict,
+            hyperparams=hyperparams_cls(params_dict, n_worker_classes),
+            estimate_all=True)
+        models_all.append(model)
+
+
+        # Calculate BIC.
+        # See https://arxiv.org/pdf/1301.7374.pdf for details.
+        start_complexity = params.get_model_complexity_start()
+        transition_complexity = params.get_model_complexity_transition()
+        n_sequences = history.n_workers()
+        n_transitions = sum(history.n_t(worker) for worker in xrange(n_sequences))
+        bic_penalties.append(0.5 * (log(n_sequences) * start_complexity +
+                                    log(n_transitions) * transition_complexity))
+
+
+
     pool = multiprocessing.Pool(initializer=util.init_worker)
     import functools as ft
     f = ft.partial(util.run_functor, main_estimate)
-    res = pool.map(f, zip(xrange(args.n_restarts),
-                          itertools.repeat(history), itertools.repeat(model)))
-    ll, params = zip(*res)
+    res = pool.map(f, itertools.chain(
+        *[zip(xrange(args.n_restarts),
+                       itertools.repeat(history),
+                       itertools.repeat(model),
+                       itertools.repeat(model_name),
+                       itertools.repeat(bic_penalty)) for model, model_name, bic_penalty in zip(models_all, model_names, bic_penalties)]))
     import pandas as pd
-    params = [dict((k, d[k][0]) for k in d) for d in params]
-    for i, likelihood in enumerate(ll):
-        params[i]['ll'] = likelihood
-    df = pd.DataFrame(params)
-    df.sort_values(by='ll', ascending=False).to_csv(
-        os.path.join(os.path.dirname(__file__), '{}.csv'.format(args.name)))
-
+    df = pd.DataFrame(res)
+    df['bic_score'] = df['ll'] - df['bic_penalty']
+    df.sort_values(by='bic_score', ascending=False).to_csv(
+        os.path.join(result_dir, '{}.csv'.format(args.name)), index=False)
 
 if __name__ == '__main__':
     main()

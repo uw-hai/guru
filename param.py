@@ -32,6 +32,7 @@ class Params(object):
     def __init__(self, config):
         self.params = config
         self.n_classes = len(config['p_worker'])
+        self.n_rules = len(config['p_r'])
 
     def get_param_dict(self, sample=False):
         """Return dictionary without p_slip_std.
@@ -55,6 +56,24 @@ class Params(object):
             elif self.get_param_type(k) != 'p_slip_std':
                 res[k] = copy.copy(self.params[k])
         return res
+
+    def get_model_complexity_start(self):
+        """Number of independent parameters for HMM initial model."""
+        param_keys = [k for k in self.params if self.get_param_type(k) in
+                      ['p_worker', 'p_s']]
+        return len(param_keys)
+
+    def get_model_complexity_transition(self):
+        """Number of independent parameters for HMM transition model."""
+        param_keys = [k for k in self.params if self.get_param_type(k) in
+                      ['p_guess',
+                       'p_slip',
+                       'p_lose',
+                       'p_learn_exp',
+                       'p_learn_tell',
+                       'p_leave',
+                       'p_s']]
+        return len(param_keys)
 
     @classmethod
     def from_cmd(cls, config):
@@ -139,8 +158,29 @@ class Params(object):
 
         return cls(res)
 
+    def set_shared(self, param_type):
+        """Set all params of given type to be shared across worker classes."""
+        params = [param for param in self.params if
+                  self.get_param_type(param) == param_type]
+        for param in params:
+            key, cls = param
+            self.params[key, None] = self.params[param]
+            if cls is not None:
+                del self.params[param]
+
+    def set_not_shared(self, param_type):
+        """Set all params of given type to be _not_ shared across worker classes."""
+        params = [param for param in self.params if
+                  self.get_param_type(param) == param_type]
+        for param in params:
+            key, cls = param
+            for worker in xrange(self.n_classes):
+                self.params[key, worker] = self.params[param]
+            if cls is None:
+                del self.params[param]
+
     @staticmethod
-    def get_param_type(p):
+    def get_param_type(param):
         """Get type of param.
 
         >>> Params.get_param_type('p_worker')
@@ -151,12 +191,12 @@ class Params(object):
         'p_s'
 
         """
-        if not isinstance(p, tuple):
-            return p
-        elif not isinstance(p[0], tuple):
-            return p[0]
+        if not isinstance(param, tuple):
+            return param
+        elif not isinstance(param[0], tuple):
+            return param[0]
         else:
-            return p[0][0]
+            return param[0][0]
 
 
 #----------- HyperParams --------------
