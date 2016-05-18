@@ -605,25 +605,29 @@ if __name__ == '__main__':
                         help="Use Thompson sampling")
     args = parser.parse_args()
     args_vars = vars(args)
+    if args.config_json is not None:
+        config = json.load(args.config_json)
+    else:
+        config = dict()
 
     config_params = [
         'p_worker', 'exp', 'tell', 'cost', 'cost_exp', 'cost_tell',
         'p_lose', 'p_leave',
         'p_slip', 'p_slip_std', 'p_guess', 'p_r', 'p_1', 'p_s',
         'utility_type', 'dataset']
-    if args.exp:
+    if 'exp' not in config:
+        config['exp'] = args.exp
+    if 'tell' not in config:
+        config['tell'] = args.tell
+    if config['exp']:
         config_params.append('p_learn_exp')
-    if args.tell:
+    if config['tell']:
         config_params.append('p_learn_tell')
     if args.utility_type in ['pen', 'pen_diff', 'pen_nonboolean']:
         config_params += ['penalty_fp', 'penalty_fn', 'reward_tp', 'reward_tn']
     if args.dataset is None:
         config_params.append('p_slip_std')
 
-    if args.config_json is not None:
-        config = json.load(args.config_json)
-    else:
-        config = dict()
     for k in config_params:
         if k not in config:
             config[k] = args_vars[k]
