@@ -488,11 +488,8 @@ def add_config_argparse_group(parser):
         '--passive', dest='passive', action='store_true',
         help='Use passive learning mode only')
     config_group.add_argument(
-        '--dataset', type=str, choices=[
-            'lin_aaai12_tag', 'lin_aaai12_wiki', 'rajpal_icml15',
-            'bragg_teach_pilot_3','bragg_teach_pilot_20',
-            'bragg_teach_pilot_3_20', 'bragg_teach_rl_v2'],
-        help='Dataset to use.')
+        '--dataset', type=json.loads,
+        help='Dataset json config. Should have "name" and "options" fields.')
     config_group.add_argument(
         '--p_worker', type=float, nargs='+', default=[1.0],
         help='Prior probabilities of worker classes')

@@ -109,7 +109,8 @@ class LiveSimulator(Simulator):
         self.observations = wlp.observations(
             n_question_types=self.n_question_types)
 
-        if dataset in ['lin_aaai12_tag', 'lin_aaai12_wiki', 'rajpal_icml15']:
+        # TODO: Remove dependencies on datasets.
+        if dataset['name'] in ['lin_aaai12', 'rajpal_icml15']:
             self.actions = wlp.actions_all(
                 n_skills=n_skills, n_question_types=self.n_question_types,
                 tell=False, exp=False)
@@ -119,36 +120,16 @@ class LiveSimulator(Simulator):
                 raise ValueError('Unexpected parameter settings')
             if self.n_question_types > 1:
                 raise ValueError('Unexpected parameter settings')
-        elif dataset.startswith('bragg_teach'):
+        elif dataset['name'] == 'bragg_teach':
             self.actions = wlp.actions_all(
                 n_skills=n_skills, n_question_types=self.n_question_types,
                 tell=False, exp=True)
             if self.params['tell'] or not self.params['exp']:
                 raise ValueError('Unexpected parameter settings')
 
-        if dataset == 'lin_aaai12_tag':
-            self.df = hanalyze.Data.from_lin_aaai12(
-                workflow='tag').df
-        elif dataset == 'lin_aaai12_wiki':
-            self.df = hanalyze.Data.from_lin_aaai12(
-                workflow='wiki').df
-        elif dataset == 'rajpal_icml15':
-            self.df = hanalyze.Data.from_rajpal_icml15(
-                worker_type=None).df
-        elif dataset == 'bragg_teach_pilot_3':
-            self.df = hanalyze.Data.from_bragg_teach(
-                conditions=['pilot_3']).df
-        elif dataset == 'bragg_teach_pilot_20':
-            self.df = hanalyze.Data.from_bragg_teach(
-                conditions=['pilot_20']).df
-        elif dataset == 'bragg_teach_pilot_3_20':
-            self.df = hanalyze.Data.from_bragg_teach(
-                conditions=['pilot_3', 'pilot_20']).df
-        elif dataset == 'bragg_teach_rl_v2':
-            self.df = hanalyze.Data.from_bragg_teach(
-                conditions=['rl_v2']).df
-        else:
-            raise Exception('Unexpected dataset')
+        self.df = hanalyze.Data.from_dataset(
+            name=dataset['name'], options=dataset['options']).df
+
         # Reverse chronological order for .pop() to work.
         self.df = self.df.sort('time', ascending=False)
         self.hired = False
