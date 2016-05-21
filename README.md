@@ -27,13 +27,29 @@ where the ZMDP binary directory is `$ZMDP_BIN_DIR`. Then in your `~/.bashrc` fil
 export PATH=$PATH:~/.bin
 ```
 
+If you want to use the main experiment or visualization code, you will need to set up a MongoDB database.
+The application loads the configuration settings for the database from environment variables. An example:
+```bash
+export APP_SETTINGS=viz_app_config.Config
+export MONGO_HOST=127.0.0.1
+export MONGO_PORT=27017
+export MONGO_USER=your_username
+export MONGO_PASS=your_password
+export MONGO_DBNAME=your_dbname
+export MONGO_AUTH_DBNAME=your_authentication_dbname
+```
+
 ## Running
 
-TODO: Describe.
+The main end-to-end experiment code lives in `exp.py`.
+
+If you would like to use the agent in your own application, you may want to follow the usage in `exp.py` as a guideline for how to initialize the agent from `policy.py`. More detailed instructions to come.
+
+TODO: Describe visualization application.
 
 ## Testing
 
-TODO: Describe.
+Use the provided `./test.sh` script.
 
 ## Contact
 
