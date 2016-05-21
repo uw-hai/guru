@@ -10,11 +10,11 @@ References:
 
 [2] Jonathan Bragg, Mausam, and Daniel S. Weld. 2015. [Learning on the Job: Optimal Instruction for Crowdsourcing](https://www.cs.washington.edu/ai/pubs/bragg-icml15.pdf). In ICML '15 Workshop on Crowdsourcing and Machine Learning. Lille, France.
 
-## Requirements
-
-Requires python 2.7.
-
 ## Installation
+
+We recommend installing your environment using Miniconda. Once Miniconda is installed, you can a create virtual environment with the correct dependencies by running
+```conda env create -f environment.yml python=2.7 -n $ENV```
+where `$ENV` is the name of your virtual environment.
 
 In order to use policies that utilize POMDPs, you must install a supported POMDP solver. The recommended solver is [ZMDP](https://github.com/trey0/zmdp). Once you have installed and built this solver, be sure that you can run `pomdpsol-zmdp` from the shell by either aliasing or adding the ZMDP binary to your `$PATH` environment variable. One way to do this is
 ```bash

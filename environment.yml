@@ -1,0 +1,56 @@
+dependencies:
+- astroid=1.4.4
+- cycler=0.10.0
+- decorator=4.0.9
+- enum34=1.1.2
+- flask=0.10.1
+- freetype=2.5.5
+- ipython=4.1.2
+- ipython_genutils=0.1.0
+- itsdangerous=0.24
+- jinja2=2.8
+- lazy-object-proxy=1.2.1
+- libpng=1.6.17
+- logilab-common=1.0.2
+- markupsafe=0.23
+- matplotlib=1.5.1
+- mkl=11.3.1
+- networkx=1.11
+- numpy=1.11.0
+- openssl=1.0.2g
+- pandas=0.18.0
+- path.py=8.2
+- pexpect=4.0.1
+- pickleshare=0.5
+- pip=8.1.1
+- ptyprocess=0.5
+- pylint=1.5.4
+- pymongo=3.0.3
+- pyparsing=2.0.3
+- pyqt=4.11.4
+- python=2.7.11
+- python-dateutil=2.5.2
+- pytz=2016.3
+- pyyaml=3.11
+- qt=4.8.7
+- readline=6.2
+- scipy=0.17.0
+- seaborn=0.7.0
+- setuptools=20.7.0
+- simplegeneric=0.8.1
+- singledispatch=3.4.0.3
+- sip=4.16.9
+- six=1.10.0
+- sqlite=3.9.2
+- tk=8.5.18
+- traitlets=4.2.1
+- werkzeug=0.11.8
+- wheel=0.29.0
+- wrapt=1.10.6
+- yaml=0.1.6
+- zlib=1.2.8
+- pip:
+  - autopep8==1.2.2
+  - ipython-genutils==0.1.0
+  - pep8==1.7.0
+
