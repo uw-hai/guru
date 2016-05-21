@@ -314,8 +314,8 @@ def run_experiment(name, mongo, config, config_policy,
     """
     client = pymongo.MongoClient(mongo['host'], mongo['port'])
     if mongo['user']:
-        client.worklearn.authenticate(mongo['user'], mongo['pass'],
-                                      mechanism='SCRAM-SHA-1')
+        client[mongo['auth_dbname']].authenticate(mongo['user'], mongo['pass'],
+                                                  mechanism='SCRAM-SHA-1')
     exp_name = name
     models_path = os.path.join(os.path.dirname(__file__), 'models', exp_name)
     policies_path = os.path.join(
@@ -325,13 +325,14 @@ def run_experiment(name, mongo, config, config_policy,
 
     # If config already present, use that instead of passed configs.
     try:
-        config = client.worklearn.config.find({'experiment': exp_name},
-                                              {'_id': False,
-                                               'experiment': False}).next()
+        config = client[mongo['dbname']].config.find(
+            {'experiment': exp_name},
+            {'_id': False,
+             'experiment': False}).next()
     except StopIteration:
         config_insert = copy.deepcopy(config)
         config_insert['experiment'] = exp_name
-        client.worklearn.config.insert(config_insert)
+        client[mongo['dbname']].config.insert(config_insert)
     params_gt = param.Params.from_cmd(config)
     if config_policy is not None:
         params_policy = param.Params.from_cmd(config_policy)
@@ -410,15 +411,15 @@ def run_experiment(name, mongo, config, config_policy,
     model_gt = POMDPModel(
         n_worker_classes,
         params=params_gt.get_param_dict(sample=False))
-    if not list(client.worklearn.names.find({'experiment': exp_name})):
+    if not list(client[mongo['dbname']].names.find({'experiment': exp_name})):
         for row in model_gt.get_names():
             row['experiment'] = exp_name
-            client.worklearn.names.insert(row)
-    if not list(client.worklearn.model.find({'experiment': exp_name})):
+            client[mongo['dbname']].names.insert(row)
+    if not list(client[mongo['dbname']].model.find({'experiment': exp_name})):
         for row in params_to_rows(model_gt.get_params_est()):
             row['experiment'] = exp_name
             row['param'] = str(row['param'])
-            client.worklearn.model.insert(row)
+            client[mongo['dbname']].model.insert(row)
 
     # Create worker processes.
     nprocesses = processes or util.cpu_count()
@@ -439,26 +440,26 @@ def run_experiment(name, mongo, config, config_policy,
             policy_iteration_query = {'experiment': exp_name,
                                       'iteration': iteration,
                                       'policy': policy}
-            res_removed = client.worklearn.res.remove(
+            res_removed = client[mongo['dbname']].res.remove(
                 policy_iteration_query)
             if res_removed['n'] > 0:
                 print 'Removed {} result rows'.format(res_removed['n'])
-            model_removed = client.worklearn.model.remove(
+            model_removed = client[mongo['dbname']].model.remove(
                 policy_iteration_query)
             if model_removed['n'] > 0:
                 print 'Removed {} result rows'.format(model_removed['n'])
-            timing_removed = client.worklearn.timing.remove(
+            timing_removed = client[mongo['dbname']].timing.remove(
                 policy_iteration_query)
             if timing_removed['n'] > 0:
                 print 'Removed {} timing rows'.format(timing_removed['n'])
 
             # Store
             if results_rows:
-                client.worklearn.res.insert(results_rows)
+                client[mongo['dbname']].res.insert(results_rows)
             if models_rows:
-                client.worklearn.model.insert(models_rows)
+                client[mongo['dbname']].model.insert(models_rows)
             if timings_rows:
-                client.worklearn.timing.insert(timings_rows)
+                client[mongo['dbname']].timing.insert(timings_rows)
         pool.close()
         pool.join()
     except KeyboardInterrupt:
@@ -468,7 +469,7 @@ def run_experiment(name, mongo, config, config_policy,
         pass
         # Plot.
         analyze.make_plots(
-            db=client.worklearn,
+            db=client[mongo['dbname']],
             experiment=exp_name,
             processes=nprocesses)
 
@@ -664,15 +665,8 @@ if __name__ == '__main__':
     if ('dataset' in config and
             config['dataset'] is not None and
             args.budget is None):
-        if config['dataset'] == 'lin_aaai12_tag':
-            data = hanalyze.Data.from_lin_aaai12(
-                workflow='tag')
-        elif config['dataset'] == 'lin_aaai12_wiki':
-            data = hanalyze.Data.from_lin_aaai12(
-                workflow='wiki')
-        elif config['dataset'] == 'rajpal_icml15':
-            data = hanalyze.Data.from_rajpal_icml15(
-                worker_type=None)
+        data = hanalyze.Data.from_dataset(
+            name=dataset['name'], options=dataset['options'])
         args.budget = -1 * config['cost'] * data.get_n_answers()
 
     policies = []
@@ -702,12 +696,17 @@ if __name__ == '__main__':
         epsilon = ' '.join(args.epsilon) or None
     except TypeError:
         epsilon = None
+    mongo = {
+        'host': os.environ['MONGO_HOST'],
+        'port': int(os.environ['MONGO_PORT']),
+        'user': os.environ.get('MONGO_USER', None),
+        'pass': os.environ.get('MONGO_PASS', None),
+        'dbname': os.environ['MONGO_DBNAME']}
+    mongo['auth_dbname'] = os.environ.get(
+        'MONGO_AUTH_DBNAME', mongo['dbname'])
+
     run_experiment(name=args.name,
-                   mongo={
-                       'host': os.environ['MONGO_HOST'],
-                       'port': int(os.environ['MONGO_PORT']),
-                       'user': os.environ.get('MONGO_USER', None),
-                       'pass': os.environ.get('MONGO_PASS', None)},
+                   mongo=mongo,
                    config=config,
                    config_policy=config_policy,
                    policies=policies,

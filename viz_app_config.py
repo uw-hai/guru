@@ -6,6 +6,7 @@ class Config(object):
     MONGO_USER = os.environ.get('MONGO_USER', None)
     MONGO_PASS = os.environ.get('MONGO_PASS', None)
     MONGO_DBNAME = os.environ['MONGO_DBNAME']
+    MONGO_AUTH_DBNAME = os.environ.get('MONGO_AUTH_DBNAME', MONGO_DBNAME)
     if 'STATIC_FOLDER' in os.environ:
         STATIC_FOLDER = os.environ['STATIC_FOLDER']
     else:

@@ -891,11 +891,12 @@ def make_plots_h(**kwargs):
     client = pymongo.MongoClient(mongo_config['host'],
                                  mongo_config['port'])
     if mongo_config['user']:
-        client.admin.authenticate(mongo_config['user'],
-                                  mongo_config['pass'])
+        client[mongo_config['auth_dbname']].authenticate(
+            mongo_config['user'], mongo_config['pass'])
     kwargs_no_mongo_config = dict(
         (k, kwargs[k]) for k in kwargs if k != 'mongo_config')
-    return make_plots(db=client.worklearn, **kwargs_no_mongo_config)
+    return make_plots(db=client[mongo_config['dbname']],
+                      **kwargs_no_mongo_config)
 
 
 def make_plots(db, experiment, outdir=None, policies=None,
@@ -976,16 +977,20 @@ if __name__ == '__main__':
         'port': int(os.environ['MONGO_PORT']),
         'user': os.environ.get('MONGO_USER', None),
         'pass': os.environ.get('MONGO_PASS', None)}
+    mongo_config['dbname'] = os.environ.get('MONGO_DBNAME')
+    mongo_config['auth_dbname'] = os.environ.get('MONGO_AUTH_DBNAME',
+                                                 mongo['dbname'])
     client = pymongo.MongoClient(mongo_config['host'], mongo_config['port'])
     if mongo_config['user']:
-        client.admin.authenticate(mongo_config['user'], mongo_config['pass'])
+        client[mongo_config['auth_dbname']].authenticate(
+            mongo_config['user'], mongo_config['pass'])
 
-    experiments = list(client.worklearn.res.distinct('experiment'))
+    experiments = list(client[mongo_config['dbname']].res.distinct('experiment'))
     if args.experiment:
         if args.dest is None:
             args.dest = os.path.join(os.path.dirname(__file__), 'static', 'plots', args.experiment)
         make_plots(
-            db=client.worklearn,
+            db=client[mongo_config['dbname']],
             experiment=args.experiment,
             outdir=args.dest,
             policies=args.policies,
@@ -1003,7 +1008,7 @@ if __name__ == '__main__':
                        ft.partial(run_function_from_dictionary,
                                   make_plots_h))
 
-        experiments = list(client.worklearn.res.distinct('experiment'))
+        experiments = list(client[mongo_config['dbname']].res.distinct('experiment'))
         args = [{'experiment': e,
                  'outdir': os.path.join(args.dest, e),
                  'policies': None,

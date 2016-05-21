@@ -1,8 +1,6 @@
 import unittest
 
 from .. import pomdp
-#import worklearn
-#from worklearn import pomdp
 
 class TestPolicyImport(unittest.TestCase):
     def test_import(self):

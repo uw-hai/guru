@@ -15,7 +15,8 @@ app.config.from_object(os.environ['APP_SETTINGS'])
 #mongo = PyMongo(app)
 mongo = pymongo.MongoClient(app.config['MONGO_HOST'], app.config['MONGO_PORT'])
 if app.config['MONGO_USER']:
-    mongo.admin.authenticate(app.config['MONGO_USER'], app.config['MONGO_PASS'])
+    mongo[app.config['MONGO_AUTH_DBNAME']].authenticate(
+        app.config['MONGO_USER'], app.config['MONGO_PASS'])
 
 
 PLOTDIR = os.path.join(app.config['STATIC_FOLDER'], 'plots')
@@ -118,7 +119,7 @@ def load_tree(f_exp, f_names, policy):
 @app.route("/")
 def index():
     """Return list of experiment"""
-    return '\n'.join(mongo.worklearn.res.distinct('experiment'))
+    return '\n'.join(mongo[app.config['MONGO_DBNAME']].res.distinct('experiment'))
 
 
 @app.route("/viz")
@@ -183,14 +184,14 @@ def status():
     if e:
         experiments = [e]
     else:
-        experiments = mongo.worklearn.res.distinct('experiment')
+        experiments = mongo[app.config['MONGO_DBNAME']].res.distinct('experiment')
     d = dict()
     for e in experiments:
         d[e] = dict()
-        policies = mongo.worklearn.res.find(
+        policies = mongo[app.config['MONGO_DBNAME']].res.find(
             {'experiment': e}).distinct('policy')
         for p in policies:
-            iters = mongo.worklearn.res.find(
+            iters = mongo[app.config['MONGO_DBNAME']].res.find(
                 {'experiment': e, 'policy': p}).distinct('iteration')
             d[e][p] = len(iters)
     return render_template('status.html', iterations=d)
@@ -200,7 +201,7 @@ def status():
 def iterations():
     e = request.args.get('e')
     p = request.args.get('p')
-    return ' '.join(str(x) for x in mongo.worklearn.res.find(
+    return ' '.join(str(x) for x in mongo[app.config['MONGO_DBNAME']].res.find(
         {'experiment': e, 'policy': p}).distinct('iteration'))
 
 
@@ -225,11 +226,11 @@ def make_plots():
     if e:
         experiments = [e]
     else:
-        experiments = mongo.worklearn.res.distinct('experiment')
+        experiments = mongo[app.config['MONGO_DBNAME']].res.distinct('experiment')
     for e in experiments:
         from . import analyze
         analyze.make_plots(
-            db=mongo.worklearn, experiment=e, outdir=os.path.join(PLOTDIR, e))
+            db=mongo[app.config['MONGO_DBNAME']], experiment=e, outdir=os.path.join(PLOTDIR, e))
 
 
 @app.route('/traces')
@@ -243,11 +244,11 @@ def traces():
         return 'choose an iteration i'
     if not p:
         return 'choose a policy p'
-    res = list(mongo.worklearn.res.find(
+    res = list(mongo[app.config['MONGO_DBNAME']].res.find(
         {'experiment': e, 'policy': p, 'iteration': int(i)},
         {'_id': False}).sort(
             't', pymongo.ASCENDING))
-    model = list(mongo.worklearn.model.find(
+    model = list(mongo[app.config['MONGO_DBNAME']].model.find(
         {'experiment': e, 'policy': p, 'iteration': int(i)},
         {'_id': False}).sort('worker', pymongo.ASCENDING))
     model_by_worker = collections.defaultdict(dict)
@@ -256,12 +257,12 @@ def traces():
     for w in model_by_worker:
         model_by_worker[w] = ['{}: {}'.format(k, v) for
                               k, v in sorted(model_by_worker[w].iteritems())]
-    st_dict = dict((x['i'], x['s']) for x in mongo.worklearn.names.find(
+    st_dict = dict((x['i'], x['s']) for x in mongo[app.config['MONGO_DBNAME']].names.find(
         {'experiment': e, 'type': 'state'}, {'_id': False}))
     st = [st_dict[x] for x in sorted(st_dict)]
-    obs_dict = dict(list((x['i'], x['s']) for x in mongo.worklearn.names.find(
+    obs_dict = dict(list((x['i'], x['s']) for x in mongo[app.config['MONGO_DBNAME']].names.find(
         {'experiment': e, 'type': 'observation'}, {'_id': False})))
-    action_dict = dict(list((x['i'], x['s']) for x in mongo.worklearn.names.find(
+    action_dict = dict(list((x['i'], x['s']) for x in mongo[app.config['MONGO_DBNAME']].names.find(
         {'experiment': e, 'type': 'action'}, {'_id': False})))
     res_by_worker = collections.defaultdict(list)
     for r in res:

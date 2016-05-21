@@ -2,28 +2,33 @@ import unittest
 import os
 import pandas as pd
 import pymongo
-import getpass
 from .. import analyze
 from .. import util
 
 TEST_EXPERIMENT = 'classes2-20_80'
 
+# TODO: Make test data that does not depend on private database. Tests
+# below commented until this happens.
+"""
 class AuthenticatedTestCase(unittest.TestCase):
-    mongo={'host': os.environ['MONGO_HOST'],
-           'port': int(os.environ['MONGO_PORT']),
-           'user': os.environ.get('MONGO_USER', None),
-           'pass': os.environ.get('MONGO_PASS', None)}
+    mongo = {'host': os.environ['MONGO_HOST'],
+             'port': int(os.environ['MONGO_PORT']),
+             'user': os.environ.get('MONGO_USER', None),
+             'pass': os.environ.get('MONGO_PASS', None)}
+    mongo['dbname'] = os.environ.get('MONGO_DBNAME')
+    mongo['auth_dbname'] = os.environ.get('MONGO_AUTH_DBNAME',
+                                          mongo['dbname'])
     client = pymongo.MongoClient(mongo['host'], mongo['port'])
     if mongo['user']:
-        client.worklearn.authenticate(mongo['user'], mongo['pass'],
-                                      mechanism='SCRAM-SHA-1')
+        client[mongo['auth_dbname']].authenticate(mongo['user'], mongo['pass'],
+                                                  mechanism='SCRAM-SHA-1')
 
 class PlotterTestCase(AuthenticatedTestCase):
     def setUp(self):
         self.plotter = analyze.Plotter.from_mongo(
-            collection=self.client.worklearn.res,
+            collection=self.client[self.mongo['dbname']].res,
             experiment=TEST_EXPERIMENT,
-            collection_names=self.client.worklearn.names)
+            collection_names=self.client[self.mongo['dbname']].names)
 
     def test_filter_workers_quantile(self):
         orig_len = len(self.plotter.df)
@@ -38,9 +43,9 @@ class PlotterTestCase(AuthenticatedTestCase):
 class ResultPlotterTestCase(AuthenticatedTestCase):
     def setUp(self):
         self.plotter = analyze.ResultPlotter.from_mongo(
-            collection=self.client.worklearn.res,
+            collection=self.client[self.mongo['dbname']].res,
             experiment=TEST_EXPERIMENT,
-            collection_names=self.client.worklearn.names)
+            collection_names=self.client[self.mongo['dbname']].names)
         self.path = os.path.join('test', 'tmp', 'plots', 'res')
         util.ensure_dir(self.path)
 
@@ -56,7 +61,7 @@ class ResultPlotterTestCase(AuthenticatedTestCase):
 class ModelPlotterTestCase(AuthenticatedTestCase):
     def setUp(self):
         self.plotter = analyze.ModelPlotter.from_mongo(
-            collection=self.client.worklearn.model,
+            collection=self.client[self.mongo['dbname']].model,
             experiment=TEST_EXPERIMENT)
 
     def test_load(self):
@@ -82,7 +87,7 @@ class ModelPlotterTestCase(AuthenticatedTestCase):
 
 class TimingsPlotterTestCase(AuthenticatedTestCase):
     def setUp(self):
-        self.collection = self.client.worklearn.timing
+        self.collection = self.client[self.mongo['dbname']].timing
         self.plotter = analyze.TimingsPlotter.from_mongo(
              self.collection, experiment=TEST_EXPERIMENT)
 
@@ -93,6 +98,7 @@ class TimingsPlotterTestCase(AuthenticatedTestCase):
         path = os.path.join('test', 'tmp', 'plots', 'timings')
         util.ensure_dir(path)
         self.plotter.make_plots(os.path.join(path, 't'))
+"""
 
 if __name__ == '__main__':
     unittest.main()

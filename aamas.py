@@ -79,17 +79,20 @@ class Plotter(object):
 
     @staticmethod
     def get_client():
-        mongo={
+        mongo = {
            'host': os.environ['MONGO_HOST'],
            'port': int(os.environ['MONGO_PORT']),
            'user': ut.get_or_default(os.environ, 'MONGO_USER', None),
            'pass': ut.get_or_default(os.environ, 'MONGO_PASS', None),
-           'db': os.environ['MONGO_DBNAME']}
+           'dbname': os.environ['MONGO_DBNAME']}
+        mongo['auth_dbname'] = os.environ.get('MONGO_AUTH_DBNAME',
+                                              mongo['dbname'])
+
 
         client = pymongo.MongoClient(mongo['host'], mongo['port'])
         if mongo['user']:
-            client[mongo['db']].authenticate(mongo['user'], mongo['pass'],
-                                          mechanism='SCRAM-SHA-1')
+            client[mongo['auth_dbname']].authenticate(
+                mongo['user'], mongo['pass'], mechanism='SCRAM-SHA-1')
         return client
 
     def make_vary_ratio(self, new=True):
