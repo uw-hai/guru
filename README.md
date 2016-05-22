@@ -1,4 +1,4 @@
-# crowd-teach-rl
+# Guru
 
 ## Description
 
