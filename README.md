@@ -1,5 +1,7 @@
 # Guru
 
+[![Build Status](https://travis-ci.org/uwcrowdlab/guru.svg?branch=master)](https://travis-ci.org/uwcrowdlab/guru)
+
 ## Description
 
 A reinforcement learning agent that maximizes crowdsourcing quality by teaching and testing.
