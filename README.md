@@ -14,6 +14,8 @@ References:
 
 ## Installation
 
+After you clone the project, be sure to initialize and update all the submodules. This can be done with `git submodule update --init --recursive`.
+
 We recommend installing your environment using Miniconda. Once Miniconda is installed, you can a create virtual environment with the correct dependencies by running
 ```conda env create -f environment.yml python=2.7 -n $ENV```
 where `$ENV` is the name of your virtual environment.
@@ -43,7 +45,8 @@ export MONGO_AUTH_DBNAME=your_authentication_dbname
 
 ## Running
 
-The main end-to-end experiment code lives in `exp.py`.
+The main end-to-end experiment code lives in `exp.py`. Since the project directory is a package, the module should be run from the parent directory of the project.
+If you have cloned the repository into a directory named `guru`, you can run the main module with `cd .. && python -m guru.exp`.
 
 If you would like to use the agent in your own application, you may want to follow the usage in `exp.py` as a guideline for how to initialize the agent from `policy.py`. More detailed instructions to come.
 
