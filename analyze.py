@@ -24,7 +24,7 @@ mpl.use('agg')
 from matplotlib import pyplot as plt
 import seaborn as sns
 from . import util
-from .util import savefig, tsplot_robust
+from .util.plot import savefig, tsplot_robust
 
 CI = 95  # Confidence interval
 

@@ -11,6 +11,7 @@ mpl.use('agg')
 from matplotlib import pyplot as plt
 
 from . import util as ut
+from .util import plot as ut_plot
 from . import analyze as an
 from .hcomp_data_analyze import analyze as han
 
@@ -341,7 +342,7 @@ class Plotter(object):
         if reserved:
             fname += '_reserved'
 
-        ut.savefig(ax, '{}.png'.format(fname))
+        ut_plot.savefig(ax, '{}.png'.format(fname))
         plt.close()
         if sig is not None:
             with open('{}_sig.csv'.format(fname), 'w') as f:
@@ -370,12 +371,12 @@ def make_accuracy_plots():
     for k in ['tag', 'wiki']:
         d = han.Data.from_lin_aaai12(workflow=k)
         ax = d.plot_scatter_n_accuracy()
-        ut.savefig(ax, os.path.join(os.path.dirname(__file__), 'aamas', 'scatter_lin_{}.png'.format(k)))
+        ut_plot.savefig(ax, os.path.join(os.path.dirname(__file__), 'aamas', 'scatter_lin_{}.png'.format(k)))
         plt.close()
 
     d = han.Data.from_rajpal_icml15(worker_type=None)
     ax = d.plot_scatter_n_accuracy()
-    ut.savefig(ax, os.path.join(os.path.dirname(__file__), 'aamas', 'scatter_rajpal.png'))
+    ut_plot.savefig(ax, os.path.join(os.path.dirname(__file__), 'aamas', 'scatter_rajpal.png'))
     plt.close()
 
 if __name__ == '__main__':
