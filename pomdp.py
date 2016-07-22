@@ -308,9 +308,10 @@ class POMDPModel:
                 skills_taught = range(self.n_skills)
                 skills_not_taught = []
             else:
-                skills_taught = [act.quiz_val]
+                quiz_val = act.quiz_val or st.quiz_val
+                skills_taught = [quiz_val]
                 skills_not_taught = [
-                    x for x in xrange(self.n_skills) if x != act.quiz_val]
+                    x for x in xrange(self.n_skills) if x != quiz_val]
             if st1.term:
                 return {p_leave: [1, 0]} if exponents else params[p_leave][0]
             elif (st1.is_quiz() or (
