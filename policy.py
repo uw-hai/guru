@@ -19,6 +19,8 @@ from .util import ensure_dir, equation_safe_filename
 from . import work_learn_problem as wlp
 from . import param
 
+ZMDP_ALIAS = os.environ.get('ZMDP_ALIAS', 'pomdpsol-zmdp')
+
 class Policy:
     """Policy class
 
@@ -370,7 +372,7 @@ class Policy:
         elif self.policy == 'zmdp':
             with open(model_filepath, 'w') as f:
                 model.write_pomdp(f, discount=self.discount)
-            args = ['pomdpsol-zmdp',
+            args = [ZMDP_ALIAS,
                     'solve', model_filepath,
                     '-o', policy_filepath]
             if self.timeout is not None:
