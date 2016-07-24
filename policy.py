@@ -127,7 +127,8 @@ class Policy:
     def prep_worker(self, model_filepath, policy_filepath, history,
                     budget_spent, budget_explore, reserved,
                     resolve_random_restarts=1,
-                    resolve_min_worker_interval=10, resolve_max_n=10):
+                    resolve_min_worker_interval=10, resolve_max_n=10,
+                    previous_workers=None):
         """Reestimate and resolve as needed.
 
         Don't resolve more frequently than resolve_min_worker_interval.
@@ -138,12 +139,16 @@ class Policy:
                 running this function or the worker count will be incorrect.
             resolve_random_restarts (int): Number of random restarts to use
                 when re-estimating model.
+            previous_workers (Optional[int]): Number of previous workers.
+                Defaults to one less than number of workers in history object.
 
         """
         worker = history.n_workers()
+        if previous_workers is None:
+            previous_workers = worker
         t = 0
         self.set_use_explore_policy(
-            worker_n=worker,
+            worker_n=previous_workers,
             budget_spent=budget_spent,
             budget_explore=budget_explore,
             t=t,
@@ -182,16 +187,25 @@ class Policy:
                                          cstime2 - cstime1
 
     def get_next_action(self, history,
-                        budget_spent, budget_explore, belief=None):
-        """Return next action and whether or policy is exploring."""
+                        budget_spent, budget_explore, belief=None,
+                        previous_workers=None):
+        """Return next action and whether or policy is exploring.
+
+        Args:
+            previous_workers (Optional[int]): Number of previous workers.
+                Defaults to one less than number of workers in history object.
+
+        """
         valid_actions = self.get_valid_actions(history)
         worker = history.n_workers() - 1
         t = history.n_t(worker)
+        if previous_workers is None:
+            previous_workers = worker
         budget_explore_frac = budget_spent / budget_explore
         if (self.epsilon is not None and
                 self.explore_policy is None and
                 np.random.random() <= self.get_epsilon_probability(
-                    worker, t, budget_explore_frac)):
+                    previous_workers, t, budget_explore_frac)):
             valid_explore_actions = [
                 i for i in valid_actions if
                 self.model.actions[i].get_type() in self.explore_actions]
