@@ -1,4 +1,5 @@
 import copy
+import collections
 from . import util
 
 PEAKEDNESS = 1000
@@ -157,6 +158,20 @@ class Params(object):
                             res[k, i] = [v, 1 - v]
 
         return cls(res)
+
+
+    def to_cmd(self):
+        """Return command-line-style dictionary."""
+        params = collections.defaultdict(list)
+        for k in sorted(self.params, key=lambda x: (self.get_param_type(x), str(x)[::-1])):
+            param_type = self.get_param_type(k)
+            if param_type == 'p_worker':
+                params[param_type] = self.params[k]
+            elif param_type in ['p_leave', 'p_slip_std', 'p_s', 'p_learn_exp', 'p_learn_tell', 'p_lose', 'p_slip', 'p_guess']:
+                params[param_type].append(self.params[k][0])
+            else:
+                params[param_type] = self.params[k]
+        return params
 
     def set_shared(self, param_type):
         """Set all params of given type to be shared across worker classes."""

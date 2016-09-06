@@ -941,8 +941,9 @@ def main_estimate(tup):
     import random
     np.random.seed(i)
     random.seed(i)
-    ll, params = model.estimate(history, last_params=False, random_restarts=1,
-                                ll_max_improv=0.001)
+    ll, _ = model.estimate(history, last_params=False, random_restarts=1,
+                           ll_max_improv=0.001)
+    params = model.params
     return {'ll': ll,
             'params': params,
             'model_name': model_name,
@@ -968,8 +969,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('name', type=str, help='Experiment name')
     parser.add_argument('--config_json', type=argparse.FileType('r'))
-    parser.add_argument('--n_restarts', type=int, default=50)
+    parser.add_argument('--restarts', type=int, default=50)
     parser.add_argument('--convert_work_to_quiz', action='store_true')
+    parser.add_argument('--processes', type=int)
     add_config_argparse_group(parser)
 
     parser.add_argument(
@@ -1055,11 +1057,11 @@ def main():
 
 
 
-    pool = multiprocessing.Pool(initializer=util.init_worker)
+    pool = multiprocessing.Pool(initializer=util.init_worker, processes=args.processes)
     import functools as ft
     f = ft.partial(util.run_functor, main_estimate)
     res = pool.map(f, itertools.chain(
-        *[zip(xrange(args.n_restarts),
+        *[zip(xrange(args.restarts),
                        itertools.repeat(history),
                        itertools.repeat(model),
                        itertools.repeat(model_name),
@@ -1067,6 +1069,7 @@ def main():
     import pandas as pd
     df = pd.DataFrame(res)
     df['bic_score'] = df['ll'] - df['bic_penalty']
+    df['params_json'] = df['params'].map(lambda p: json.dumps(param.Params(p).to_cmd()))
     df.sort_values(by='bic_score', ascending=False).to_csv(
         os.path.join(result_dir, '{}.csv'.format(args.name)), index=False)
 
